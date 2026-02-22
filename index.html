@@ -301,7 +301,9 @@
     <div class="header-controls">
       <label style="font-size:11px;color:var(--muted)">Facility</label>
       <select id="facilitySelector" style="min-width:140px"></select>
-      <span id="modeBadge" class="mode-badge mode-sandbox" title="Click to toggle">SANDBOX</span>
+      <span id="modeBadge" class="mode-badge mode-sandbox" title="Click to toggle mode">SANDBOX</span>
+      <button id="sandboxBtn" class="btn" style="font-size:11px" title="Manage scenarios">📂 Scenarios</button>
+      <button id="settingsBtn" class="btn" style="font-size:11px" title="Organization settings">⚙ Settings</button>
       <button id="pushOfficialBtn" class="btn btn-primary">↑ Push to Official</button>
     </div>
   </div>
@@ -317,6 +319,8 @@
 </main>
 
 <!-- Modals -->
+<div class="modal-backdrop" id="settingsDialog"></div>
+<div class="modal-backdrop" id="sandboxDialog"></div>
 <div class="modal-backdrop" id="campaignDialog"></div>
 <div class="modal-backdrop" id="dailyActualsDialog"></div>
 <div class="modal-backdrop" id="forecastToolDialog"></div>

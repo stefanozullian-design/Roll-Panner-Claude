@@ -31,12 +31,13 @@ const seed = () => ({
 
 export function freshFacilityData(){
   return {
-    recipes: [],       // id, facilityId, productId, version, components
-    equipment: [],     // id, facilityId, name, type
-    storages: [],      // id, facilityId, name, categoryHint, allowedProductIds[], maxCapacityStn
-    capabilities: [],  // id, equipmentId, productId, maxRateStpd, ...
-    demandForecast: [],// date, facilityId, productId, qtyStn
-    campaigns: [],     // date, facilityId, equipmentId, productId, rateStn, status
+    facilityProducts: [], // {facilityId, productId} — which catalog items each facility uses
+    recipes: [],          // id, facilityId, productId, version, components
+    equipment: [],        // id, facilityId, name, type
+    storages: [],         // id, facilityId, name, categoryHint, allowedProductIds[], maxCapacityStn
+    capabilities: [],     // id, equipmentId, productId, maxRateStpd, ...
+    demandForecast: [],   // date, facilityId, productId, qtyStn
+    campaigns: [],        // date, facilityId, equipmentId, productId, rateStn, status
     actuals: {
       inventoryEOD: [],
       production: [],

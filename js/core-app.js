@@ -4,13 +4,29 @@ import { buildProductionPlanView, yesterdayLocal, startOfMonth } from './modules
 
 let state = loadState();
 
-const TABS = [
-  ['plan','📊 Production Plan'],
-  ['products','⚙️ Products & Recipes'],
-  ['flow','🔄 Process Flow'],
-  ['demand','📈 Demand'],
-  ['data','🗄 Data'],
+// Two-level nav: top sections + sub-tabs
+const NAV = [
+  { key:'supply',    label:'Supply Plan', subs:[
+    { key:'plan',     label:'📊 Plan' },
+    { key:'products', label:'⚙ Products' },
+    { key:'flow',     label:'🔄 Process' },
+  ]},
+  { key:'demand',    label:'Demand Plan', subs:[
+    { key:'demand-external', label:'📤 External' },
+    { key:'demand-internal', label:'🔁 Internal' },
+    { key:'demand-total',    label:'∑ Total' },
+  ]},
+  { key:'logistics', label:'Logistics Plan', subs:[
+    { key:'logistics-shipments', label:'🚢 Shipments',  placeholder:true },
+    { key:'logistics-imports',   label:'📦 Imports',    placeholder:true },
+    { key:'logistics-transfers', label:'🔀 Transfers',  placeholder:true },
+  ]},
 ];
+// Flat list of all tab keys for panel toggling
+const ALL_TAB_KEYS = NAV.flatMap(s=>s.subs.map(t=>t.key));
+// Map tab key → parent section key
+const TAB_PARENT = {};
+NAV.forEach(s=>s.subs.forEach(t=>TAB_PARENT[t.key]=s.key));
 
 const el = id => document.getElementById(id);
 const esc = s => (s??'').toString().replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -25,11 +41,30 @@ function persist(){ saveState(state); }
 function initShell(){
   const s = selectors(state);
 
-  // Tabs
-  el('tabs').innerHTML = TABS.map(([k,l])=>`<button class="tab-btn${state.ui.activeTab===k?' active':''}" data-tab="${k}">${l}</button>`).join('');
-  el('tabs').onclick = e => {
+  // Top nav
+  const activeSection = TAB_PARENT[state.ui.activeTab] || NAV[0].key;
+  el('navTop').innerHTML = NAV.map(s =>
+    `<button class="nav-top-btn${activeSection===s.key?' active':''}" data-section="${s.key}">${s.label}</button>`
+  ).join('');
+  el('navTop').onclick = e => {
+    const btn = e.target.closest('[data-section]'); if(!btn) return;
+    const sec = NAV.find(s=>s.key===btn.dataset.section); if(!sec) return;
+    // Navigate to first non-placeholder sub
+    const firstSub = sec.subs.find(t=>!t.placeholder) || sec.subs[0];
+    state.ui.activeTab = firstSub.key; persist(); render();
+  };
+
+  // Sub nav — show subs for active section
+  const activeSec = NAV.find(s=>s.key===activeSection) || NAV[0];
+  el('navSub').innerHTML = activeSec.subs.map(t =>
+    `<button class="nav-sub-btn${state.ui.activeTab===t.key?' active':''}${t.placeholder?' placeholder':''}" data-tab="${t.key}"${t.placeholder?' title="Coming soon"':''}>${t.label}${t.placeholder?' <span style=\'font-size:9px;opacity:0.5\'>(soon)</span>':''}</button>`
+  ).join('');
+  el('navSub').onclick = e => {
     const btn = e.target.closest('[data-tab]'); if(!btn) return;
-    state.ui.activeTab = btn.dataset.tab; persist(); render();
+    const tabKey = btn.dataset.tab;
+    const sub = activeSec.subs.find(t=>t.key===tabKey);
+    if(sub?.placeholder) return; // ignore clicks on placeholders
+    state.ui.activeTab = tabKey; persist(); render();
   };
 
   // Scope selector — shows full org tree (country/region/subregion/facility)
@@ -114,15 +149,18 @@ function showToast(msg, type='ok'){
 /* ─────────────────── RENDER ─────────────────── */
 function render(){
   initShell();
-  TABS.forEach(([k])=>{
+  ALL_TAB_KEYS.forEach(k=>{
     const p = el(`tab-${k}`);
     if(p) p.classList.toggle('active', k===state.ui.activeTab);
   });
-  if(state.ui.activeTab==='plan') renderPlan();
-  else if(state.ui.activeTab==='products') renderProducts();
-  else if(state.ui.activeTab==='flow') renderFlow();
-  else if(state.ui.activeTab==='demand') renderDemand();
-  else if(state.ui.activeTab==='data') renderData();
+  const t = state.ui.activeTab;
+  if(t==='plan')             renderPlan();
+  else if(t==='products')    renderProducts();
+  else if(t==='flow')        renderFlow();
+  else if(t==='demand-external') renderDemand('external');
+  else if(t==='demand-internal') renderDemand('internal');
+  else if(t==='demand-total')    renderDemand('total');
+  else if(t==='logistics-shipments'||t==='logistics-imports'||t==='logistics-transfers') renderLogisticsPlaceholder(t);
 }
 
 /* ─────────────────── PLAN TAB ─────────────────── */
@@ -904,8 +942,10 @@ function renderFlow(){
 }
 
 /* ─────────────────── DEMAND TAB ─────────────────── */
-function renderDemand(){
-  const root = el('tab-demand');
+function renderDemand(mode='external'){
+  const rootId = mode==='total' ? 'tab-demand-total' : mode==='internal' ? 'tab-demand-internal' : 'tab-demand-external';
+  const root = el(rootId);
+  if(!root) return;
   const s = selectors(state);
   const a = actions(state);
   const start = startOfMonth(yesterdayLocal());
@@ -982,7 +1022,7 @@ function renderDemand(){
     const rows = [...root.querySelectorAll('.demand-input')]
       .map(i=>({date:i.dataset.date, productId:i.dataset.product, qtyStn:+i.value||0}))
       .filter(r=>r.qtyStn>0);
-    a.saveDemandForecastRows(rows); persist(); renderDemand(); renderPlan(); showToast('Forecast saved ✓');
+    a.saveDemandForecastRows(rows); persist(); renderDemand(mode); renderPlan(); showToast('Forecast saved ✓');
   };
   root.querySelector('#openForecastTool').onclick = () => openForecastToolDialog();
 }
@@ -1085,7 +1125,7 @@ function openForecastToolDialog(){
     const keys=new Set(rows.map(r=>`${r.date}|${fac}|${r.productId}`));
     s.dataset.demandForecast=s.dataset.demandForecast.filter(x=>!keys.has(`${x.date}|${x.facilityId}|${x.productId}`));
     rows.filter(r=>(+r.qtyStn||0)>0&&!hasActual(r.date,r.productId)).forEach(r=>s.dataset.demandForecast.push({date:r.date,facilityId:fac,productId:r.productId,qtyStn:+r.qtyStn,source:'forecast'}));
-    persist(); renderDemand(); renderPlan();
+    persist(); renderDemand(state.ui.activeTab.replace('demand-','')||'external'); renderPlan();
     q('fcMsg').innerHTML=`<span style="color:var(--ok)">✓ Applied</span> — `+[...msg].join(' · ');
     showToast('Forecast applied ✓');
   };
@@ -1842,6 +1882,24 @@ function openSandboxDialog(){
       }
     });
   }
+}
+
+/* ─────────────────── LOGISTICS PLACEHOLDER ─────────────────── */
+function renderLogisticsPlaceholder(tabKey){
+  const labels = {
+    'logistics-shipments': { icon:'🚢', title:'Shipments', desc:'Track outbound shipments to customers by route and vessel.' },
+    'logistics-imports':   { icon:'📦', title:'Imports',   desc:'Manage inbound raw material and fuel import schedules.' },
+    'logistics-transfers': { icon:'🔀', title:'Transfers', desc:'Plan inter-facility clinker and material transfers.' },
+  };
+  const info = labels[tabKey] || { icon:'🚧', title:'Coming Soon', desc:'' };
+  const root = el(`tab-${tabKey}`);
+  if(!root) return;
+  root.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:320px;gap:16px;color:var(--muted)">
+    <div style="font-size:48px">${info.icon}</div>
+    <div style="font-size:20px;font-weight:700;color:var(--fg)">${info.title}</div>
+    <div style="font-size:13px;max-width:380px;text-align:center">${info.desc}</div>
+    <div style="font-size:11px;padding:6px 16px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:20px">🚧 Coming soon</div>
+  </div>`;
 }
 
 // Boot

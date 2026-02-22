@@ -238,9 +238,16 @@ function render(){
 function renderPlan(){
   const root = el('tab-plan');
   const s = selectors(state);
-  const startDate = startOfMonth(yesterdayLocal());
-  const plan = buildProductionPlanView(state, startDate, 35);
   const todayStr = today();
+
+  // Full 3-year spine
+  const allDates = buildFullSpine();
+  const months   = groupByMonth(allDates);
+  let collapsed = loadCollapsedMonths();
+  if(collapsed.size === 0){ collapsed = defaultCollapsedMonths(months); saveCollapsedMonths(collapsed); }
+  applyCollapseStyle('planTable', collapsed);
+
+  const plan = buildProductionPlanView(state, SPINE_START, allDates.length);
 
   const allAlerts = Object.entries(plan.alertSummary||{})
     .flatMap(([date,arr])=>(arr||[]).map(a=>({...a,date})));
@@ -254,7 +261,7 @@ function renderPlan(){
     <div class="kpi-card ${stockouts.length?'kpi-danger':'kpi-ok'}">
       <div class="kpi-label">🚨 Stockout Alerts</div>
       <div class="kpi-value" style="color:${stockouts.length?'var(--danger)':'var(--ok)'}">${stockouts.length}</div>
-      <div class="kpi-sub">${stockouts.length?'in next 35 days':'None detected ✓'}</div>
+      <div class="kpi-sub">${stockouts.length?'in 2024-2026 horizon':'None detected ✓'}</div>
     </div>
     ${daysUntilStockout!==null?`<div class="kpi-card kpi-danger">
       <div class="kpi-label">⏱ First Stockout</div>

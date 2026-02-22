@@ -88,6 +88,7 @@ function initShell(){
 
   el('sandboxBtn').onclick = () => openSandboxDialog();
   el('settingsBtn').onclick = () => openSettingsDialog();
+  el('dataIOBtn').onclick = () => openDataIODialog();
 
   el('pushOfficialBtn').onclick = () => {
     if(!confirm('Push current sandbox to Official? This overwrites the Official data.')) return;
@@ -1491,3 +1492,363 @@ function openSandboxDialog(){
 
 // Boot
 render();
+
+/* ─────────────────── DATA I/O DIALOG ─────────────────── */
+function openDataIODialog(){
+  const host = el('dataIODialog');
+  host.classList.add('open');
+
+  const isSandbox = state.ui.mode === 'sandbox';
+  const sbId = state.ui.activeSandboxId;
+  const sbName = state.sandboxes?.[sbId]?.name || 'Sandbox';
+  const dateStr = new Date().toISOString().slice(0,10);
+
+  // ── HELPERS ──
+  const downloadBlob = (blob, filename) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 500);
+  };
+
+  const downloadJSON = (obj, filename) => {
+    downloadBlob(new Blob([JSON.stringify(obj, null, 2)], {type:'application/json'}), filename);
+  };
+
+  const slugName = s => (s||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+
+  // ── JSON SAVE ──
+  const saveOfficial = () => {
+    downloadJSON({ _type:'official', _savedAt: new Date().toISOString(), org: state.org, catalog: state.catalog, data: state.official }, `official_${dateStr}.json`);
+    showToast('Official saved ✓', 'ok');
+  };
+
+  const saveSandbox = () => {
+    const sb = state.sandboxes?.[sbId];
+    if(!sb){ showToast('No active sandbox', 'warn'); return; }
+    downloadJSON({ _type:'sandbox', _name: sb.name, _savedAt: new Date().toISOString(), org: state.org, catalog: state.catalog, data: sb.data }, `scenario_${slugName(sb.name)}_${dateStr}.json`);
+    showToast(`Scenario "${sb.name}" saved ✓`, 'ok');
+  };
+
+  // ── JSON LOAD ──
+  const loadJSON = (target) => {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = '.json';
+    inp.onchange = () => {
+      const file = inp.files[0]; if(!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        try {
+          const obj = JSON.parse(e.target.result);
+          if(target === 'official'){
+            if(!confirm(`Load "${file.name}" into Official? This will overwrite Official data.`)) return;
+            if(obj.org) state.org = obj.org;
+            if(obj.catalog) state.catalog = obj.catalog;
+            if(obj.data) state.official = obj.data;
+            else if(obj.sandbox) state.official = obj.sandbox; // legacy
+            persist(); render();
+            showToast('Official loaded ✓', 'ok');
+          } else {
+            // Load into a new sandbox scenario
+            const name = obj._name || file.name.replace('.json','');
+            const id = createSandbox(state, name);
+            if(obj.data) state.sandboxes[id].data = obj.data;
+            else if(obj.sandbox) state.sandboxes[id].data = obj.sandbox; // legacy
+            if(obj.org) state.org = obj.org;
+            if(obj.catalog) state.catalog = obj.catalog;
+            state.ui.mode = 'sandbox';
+            state.ui.activeSandboxId = id;
+            persist(); render();
+            showToast(`Loaded into new scenario "${name}" ✓`, 'ok');
+          }
+          openDataIODialog(); // refresh dialog
+        } catch(err) {
+          showToast('Invalid JSON file', 'danger');
+        }
+      };
+      reader.readAsText(file);
+    };
+    inp.click();
+  };
+
+  // ── EXCEL EXPORT ──
+  const exportExcel = () => {
+    const s = selectors(state);
+    const ds = s.dataset;
+    const fids = s.facilityIds;
+    const wb = XLSX.utils.book_new();
+
+    // Sheet 1: Demand Forecast
+    const demandRows = [['Facility','Product','Date','Qty (STn)','Source']];
+    ds.demandForecast.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
+      const fac = state.org.facilities.find(f=>f.id===r.facilityId);
+      const prod = state.catalog.find(m=>m.id===r.productId);
+      demandRows.push([fac?.name||r.facilityId, prod?.name||r.productId, r.date, +r.qtyStn||0, r.source||'forecast']);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(demandRows), 'Demand Forecast');
+
+    // Sheet 2: Campaigns
+    const campRows = [['Facility','Equipment','Status','Product','Date','Rate (STn/d)']];
+    ds.campaigns.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
+      const fac = state.org.facilities.find(f=>f.id===r.facilityId);
+      const eq  = ds.equipment.find(e=>e.id===r.equipmentId);
+      const prod = state.catalog.find(m=>m.id===r.productId);
+      campRows.push([fac?.name||r.facilityId, eq?.name||r.equipmentId, r.status||'produce', prod?.name||r.productId||'', r.date, +r.rateStn||0]);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(campRows), 'Campaigns');
+
+    // Sheet 3: Production Actuals
+    const prodRows = [['Facility','Equipment','Product','Date','Qty (STn)']];
+    ds.actuals.production.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
+      const fac  = state.org.facilities.find(f=>f.id===r.facilityId);
+      const eq   = ds.equipment.find(e=>e.id===r.equipmentId);
+      const prod = state.catalog.find(m=>m.id===r.productId);
+      prodRows.push([fac?.name||r.facilityId, eq?.name||r.equipmentId, prod?.name||r.productId, r.date, +r.qtyStn||0]);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(prodRows), 'Production Actuals');
+
+    // Sheet 4: Shipment Actuals
+    const shipRows = [['Facility','Product','Date','Qty (STn)']];
+    ds.actuals.shipments.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
+      const fac  = state.org.facilities.find(f=>f.id===r.facilityId);
+      const prod = state.catalog.find(m=>m.id===r.productId);
+      shipRows.push([fac?.name||r.facilityId, prod?.name||r.productId, r.date, +r.qtyStn||0]);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(shipRows), 'Shipment Actuals');
+
+    // Sheet 5: Inventory EOD
+    const invRows = [['Facility','Storage','Product','Date','Qty (STn)']];
+    ds.actuals.inventoryEOD.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
+      const fac  = state.org.facilities.find(f=>f.id===r.facilityId);
+      const stor = ds.storages.find(s=>s.id===r.storageId);
+      const prod = state.catalog.find(m=>m.id===r.productId);
+      invRows.push([fac?.name||r.facilityId, stor?.name||r.storageId, prod?.name||r.productId, r.date, +r.qtyStn||0]);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(invRows), 'Inventory EOD');
+
+    // Sheet 6: Setup — Equipment
+    const eqRows = [['Facility','Equipment ID','Name','Type']];
+    ds.equipment.filter(e=>fids.includes(e.facilityId)).forEach(e=>{
+      const fac = state.org.facilities.find(f=>f.id===e.facilityId);
+      eqRows.push([fac?.name||e.facilityId, e.id, e.name, e.type]);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(eqRows), 'Equipment');
+
+    // Sheet 7: Setup — Products (catalog)
+    const prodSetupRows = [['Region','Product ID','Code','Name','Category','Unit','Landed Cost USD/STn']];
+    state.catalog.forEach(m=>{
+      const reg = state.org.regions.find(r=>r.id===m.regionId);
+      prodSetupRows.push([reg?.name||m.regionId||'', m.id, m.code||'', m.name, m.category, m.unit||'STn', m.landedCostUsdPerStn||0]);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(prodSetupRows), 'Products Catalog');
+
+    const scope = s.getScopeName();
+    const filename = `cement_planner_${slugName(scope)}_${dateStr}.xlsx`;
+    XLSX.writeFile(wb, filename);
+    showToast('Excel exported ✓', 'ok');
+  };
+
+  // ── EXCEL IMPORT ──
+  const importExcel = () => {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = '.xlsx,.xls,.csv';
+    inp.onchange = () => {
+      const file = inp.files[0]; if(!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        try {
+          const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
+          const ds = selectors(state).dataset;
+          const fac = state.ui.selectedFacilityId;
+          let imported = [];
+
+          const readSheet = name => {
+            const ws = wb.Sheets[name];
+            if(!ws) return null;
+            return XLSX.utils.sheet_to_json(ws, {defval:''});
+          };
+
+          // Import Demand Forecast
+          const demand = readSheet('Demand Forecast');
+          if(demand?.length){
+            const rows = demand.map(r=>({
+              date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
+              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
+              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
+              qtyStn: +r['Qty (STn)']||0, source:'forecast'
+            })).filter(r=>r.date && r.productId && r.qtyStn>0);
+            // Overwrite for affected facility+dates
+            const keys = new Set(rows.map(r=>`${r.date}|${r.facilityId}|${r.productId}`));
+            ds.demandForecast = ds.demandForecast.filter(r=>`${r.date}|${r.facilityId}|${r.productId}`!==([...keys].find(k=>k===`${r.date}|${r.facilityId}|${r.productId}`))||true);
+            rows.forEach(r=>{ ds.demandForecast = ds.demandForecast.filter(x=>`${x.date}|${x.facilityId}|${x.productId}`!==`${r.date}|${r.facilityId}|${r.productId}`); ds.demandForecast.push(r); });
+            imported.push(`${rows.length} demand rows`);
+          }
+
+          // Import Production Actuals
+          const prod = readSheet('Production Actuals');
+          if(prod?.length){
+            const rows = prod.map(r=>({
+              date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
+              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
+              equipmentId: ds.equipment.find(e=>e.name===r['Equipment'] || e.id===r['Equipment'])?.id || '',
+              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
+              qtyStn: +r['Qty (STn)']||0
+            })).filter(r=>r.date && r.equipmentId && r.productId);
+            rows.forEach(r=>{ ds.actuals.production = ds.actuals.production.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.equipmentId===r.equipmentId)); ds.actuals.production.push(r); });
+            imported.push(`${rows.length} production rows`);
+          }
+
+          // Import Shipments
+          const ship = readSheet('Shipment Actuals');
+          if(ship?.length){
+            const rows = ship.map(r=>({
+              date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
+              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
+              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
+              qtyStn: +r['Qty (STn)']||0
+            })).filter(r=>r.date && r.productId);
+            rows.forEach(r=>{ ds.actuals.shipments = ds.actuals.shipments.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.productId===r.productId)); ds.actuals.shipments.push(r); });
+            imported.push(`${rows.length} shipment rows`);
+          }
+
+          // Import Inventory EOD
+          const inv = readSheet('Inventory EOD');
+          if(inv?.length){
+            const rows = inv.map(r=>({
+              date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
+              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
+              storageId: ds.storages.find(s=>s.name===r['Storage'] || s.id===r['Storage'])?.id || '',
+              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
+              qtyStn: +r['Qty (STn)']||0
+            })).filter(r=>r.date && r.storageId && r.productId);
+            rows.forEach(r=>{ ds.actuals.inventoryEOD = ds.actuals.inventoryEOD.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.storageId===r.storageId)); ds.actuals.inventoryEOD.push(r); });
+            imported.push(`${rows.length} inventory rows`);
+          }
+
+          // Import Campaigns
+          const camps = readSheet('Campaigns');
+          if(camps?.length){
+            const rows = camps.map(r=>({
+              date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
+              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
+              equipmentId: ds.equipment.find(e=>e.name===r['Equipment'] || e.id===r['Equipment'])?.id || '',
+              status: r['Status']||'produce',
+              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
+              rateStn: +r['Rate (STn/d)']||0
+            })).filter(r=>r.date && r.equipmentId);
+            rows.forEach(r=>{ ds.campaigns = ds.campaigns.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.equipmentId===r.equipmentId)); ds.campaigns.push(r); });
+            imported.push(`${rows.length} campaign rows`);
+          }
+
+          if(imported.length){
+            persist(); render();
+            showToast(`Imported: ${imported.join(', ')} ✓`, 'ok');
+          } else {
+            showToast('No matching sheets found in file', 'warn');
+          }
+        } catch(err) {
+          showToast('Import failed: ' + err.message, 'danger');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    };
+    inp.click();
+  };
+
+  // ── RENDER DIALOG ──
+  const s = selectors(state);
+  const scopeName = s.getScopeName();
+  const sandboxList = Object.entries(state.sandboxes||{}).map(([id,sb])=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:11px">
+      <span style="flex:1;${id===sbId?'font-weight:700;color:var(--accent)':''}">${esc(sb.name||id)}</span>
+      <span style="color:var(--muted)">${sb.createdAt?new Date(sb.createdAt).toLocaleDateString():''}</span>
+      <button class="btn" style="font-size:10px;padding:2px 8px" data-save-sb="${id}">💾 Save</button>
+    </div>`).join('');
+
+  host.innerHTML = `<div class="modal" style="max-width:680px">
+    <div class="modal-header">
+      <div><div class="modal-title">💾 Data — Save / Load / Export</div>
+      <div style="font-size:11px;color:var(--muted)">localStorage is your working cache. Use Save/Load to back up and restore. Export Excel for reporting or bulk data entry.</div></div>
+      <button class="btn" id="dioClose">✕ Close</button>
+    </div>
+    <div class="modal-body" style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+      <!-- LEFT: JSON Save/Load -->
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:12px">JSON — Full Backup & Restore</div>
+
+        <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
+          <div style="font-size:11px;font-weight:600;margin-bottom:8px;color:var(--ok)">🏛 Official</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-primary" id="dioSaveOfficial" style="font-size:11px">💾 Save Official</button>
+            <button class="btn" id="dioLoadOfficial" style="font-size:11px">📂 Load into Official</button>
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin-top:6px">Saving downloads <code>official_${dateStr}.json</code>. Loading overwrites current Official data.</div>
+        </div>
+
+        <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
+          <div style="font-size:11px;font-weight:600;margin-bottom:8px;color:var(--accent)">📂 Sandbox Scenarios</div>
+          <div style="margin-bottom:8px">${sandboxList||'<div style="color:var(--muted);font-size:11px">No scenarios</div>'}</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" id="dioLoadSandbox" style="font-size:11px">📂 Load JSON → New Scenario</button>
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin-top:6px">Loading a JSON creates a new scenario. Data imports always go into the active sandbox, never directly into Official.</div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Excel Export/Import -->
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:12px">Excel — Reporting & Bulk Entry</div>
+
+        <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
+          <div style="font-size:11px;font-weight:600;margin-bottom:4px">📊 Export Excel</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:8px">Exports all data for current scope: <strong>${esc(scopeName)}</strong></div>
+          <button class="btn btn-primary" id="dioExcelExport" style="font-size:11px;width:100%">📊 Download Excel</button>
+          <div style="font-size:10px;color:var(--muted);margin-top:6px">Sheets: Demand Forecast · Campaigns · Production Actuals · Shipments · Inventory EOD · Equipment · Products Catalog</div>
+        </div>
+
+        <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:12px">
+          <div style="font-size:11px;font-weight:600;margin-bottom:4px">📥 Import Excel → Active Sandbox</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:8px">Use the exported file as a template. Edit data in Excel, import back here. <strong>Always imports into active sandbox</strong> — never directly into Official.</div>
+          <button class="btn" id="dioExcelImport" style="font-size:11px;width:100%">📥 Import Excel File</button>
+          <div style="font-size:10px;color:var(--muted);margin-top:6px">Existing data for matching dates/facilities will be overwritten. Unrecognized rows are skipped.</div>
+        </div>
+
+        <div style="margin-top:12px;padding:8px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:6px;font-size:10px;color:#fcd34d">
+          ⚠ Currently active: <strong>${isSandbox ? `Sandbox — ${esc(sbName)}` : 'Official'}</strong>. Excel imports always go into the active sandbox.
+        </div>
+      </div>
+
+    </div>
+  </div>`;
+
+  const q = id => host.querySelector('#'+id);
+  q('dioClose').onclick = () => host.classList.remove('open');
+  host.onclick = e => { if(e.target===host) host.classList.remove('open'); };
+
+  q('dioSaveOfficial').onclick = saveOfficial;
+  q('dioLoadOfficial').onclick = () => loadJSON('official');
+  q('dioLoadSandbox').onclick  = () => loadJSON('sandbox');
+  q('dioExcelExport').onclick  = exportExcel;
+  q('dioExcelImport').onclick  = () => {
+    // Always switch to sandbox before importing
+    if(state.ui.mode !== 'sandbox'){
+      state.ui.mode = 'sandbox';
+      persist();
+    }
+    importExcel();
+  };
+
+  // Per-sandbox save buttons
+  host.querySelectorAll('[data-save-sb]').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.saveSb;
+      const sb = state.sandboxes?.[id];
+      if(!sb) return;
+      const name = sb.name || id;
+      downloadJSON({ _type:'sandbox', _name:name, _savedAt:new Date().toISOString(), org:state.org, catalog:state.catalog, data:sb.data }, `scenario_${slugName(name)}_${dateStr}.json`);
+      showToast(`"${name}" saved ✓`, 'ok');
+    };
+  });
+}

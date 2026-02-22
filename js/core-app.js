@@ -851,69 +851,103 @@ function openCampaignDialog(){
   const eqs = s.equipment.filter(e=>['kiln','finish_mill'].includes(e.type));
   const todayStr = yesterdayLocal();
 
+  // Build compact campaign list: group consecutive same-eq/status/product rows into blocks
+  const camps = s.dataset.campaigns
+    .filter(c=>c.facilityId===state.ui.selectedFacilityId)
+    .sort((a,b)=>a.equipmentId.localeCompare(b.equipmentId)||a.date.localeCompare(b.date));
+
+  const blocks = [];
+  camps.forEach(c=>{
+    const last = blocks[blocks.length-1];
+    const prevDate = last ? new Date(last.end+'T00:00:00') : null;
+    if(prevDate) prevDate.setDate(prevDate.getDate()+1);
+    const isContiguous = last && last.equipmentId===c.equipmentId && last.status===c.status && last.productId===c.productId && prevDate && prevDate.toISOString().slice(0,10)===c.date;
+    if(isContiguous){ last.end=c.date; last.days++; }
+    else blocks.push({equipmentId:c.equipmentId, status:c.status||'produce', productId:c.productId||'', start:c.date, end:c.date, days:1});
+  });
+  blocks.sort((a,b)=>b.start.localeCompare(a.start));
+
+  const statusLabel = st => ({'produce':'Produce','maintenance':'Maint.','out_of_order':'OOO','idle':'Idle'}[st]||st);
+  const statusPill = st => ({'produce':'pill-green','maintenance':'pill-amber','out_of_order':'pill-purple','idle':'pill-gray'}[st]||'pill-gray');
+
+  const blockRows = blocks.slice(0,40).map(b=>{
+    const eqName = s.getEquipment(b.equipmentId)?.name || b.equipmentId;
+    const prod = b.productId ? (s.getMaterial(b.productId)?.code||s.getMaterial(b.productId)?.name||'') : '';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-bottom:1px solid var(--border);font-size:11px;">
+      <span class="pill ${statusPill(b.status)}" style="font-size:9px;padding:1px 6px;flex-shrink:0">${statusLabel(b.status)}</span>
+      <span style="flex:1;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(eqName)}">${esc(eqName)}${prod?' · <span style="color:var(--muted)">'+esc(prod)+'</span>':''}</span>
+      <span class="text-mono" style="color:var(--muted);white-space:nowrap;flex-shrink:0">${b.start.slice(5)} · ${b.days}d</span>
+    </div>`;
+  }).join('') || '<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">No campaigns yet</div>';
+
   host.classList.add('open');
-  host.innerHTML = `<div class="modal" style="max-width:900px">
+  host.innerHTML = `<div class="modal" style="max-width:860px">
     <div class="modal-header">
-      <div><div class="modal-title">🎯 Equipment Campaign Planner</div><div style="font-size:11px;color:var(--muted)">Define production blocks. Actual data entered in Daily Actuals will override planned values.</div></div>
+      <div><div class="modal-title">🎯 Campaign Planner</div><div style="font-size:11px;color:var(--muted)">Define production blocks. Daily Actuals override planned values.</div></div>
       <button class="btn" id="campClose">Close</button>
     </div>
-    <div class="modal-body" style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div class="modal-body" style="display:grid;grid-template-columns:1fr 320px;gap:20px">
+
       <div>
-        <div style="font-weight:600;margin-bottom:12px">New Campaign Block</div>
+        <div style="font-weight:600;margin-bottom:12px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)">New Block</div>
         <div class="form-grid" style="margin-bottom:12px">
           <div><label class="form-label">Equipment</label><select class="form-input" id="campEq">${eqs.map(e=>`<option value="${e.id}">${esc(e.name)} (${e.type})</option>`).join('')}</select></div>
-          <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr">
-            <div><label class="form-label">Status</label><select class="form-input" id="campStatus"><option value="produce">Produce</option><option value="maintenance">Maintenance (planned)</option><option value="out_of_order">Out of Order (unplanned)</option><option value="idle">Idle</option></select></div>
-            <div><label class="form-label">Start</label><input class="form-input" type="date" id="campStart" value="${todayStr}"></div>
-            <div><label class="form-label">End</label><input class="form-input" type="date" id="campEnd" value="${todayStr}"></div>
-          </div>
+          <div><label class="form-label">Status</label><select class="form-input" id="campStatus"><option value="produce">Produce</option><option value="maintenance">Maintenance (planned)</option><option value="out_of_order">Out of Order (unplanned)</option><option value="idle">Idle</option></select></div>
           <div id="campProductWrap"><label class="form-label">Product</label><select class="form-input" id="campProduct"></select></div>
+        </div>
+
+        <!-- Smart date calculator -->
+        <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:10px;">Date Range — fill any two, third auto-calculates</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;align-items:end;">
+            <div>
+              <label class="form-label">Start date</label>
+              <input class="form-input" type="date" id="campStart" value="${todayStr}">
+            </div>
+            <div>
+              <label class="form-label">End date</label>
+              <input class="form-input" type="date" id="campEnd" value="${todayStr}">
+            </div>
+            <div>
+              <label class="form-label">Duration (days)</label>
+              <input class="form-input text-mono" type="number" min="1" id="campDuration" value="1">
+            </div>
+          </div>
         </div>
 
         <div class="rate-helper" id="campRateAssist">
           <div class="rate-helper-title">Rate Helper — trimmed rolling actuals</div>
           <div class="rate-grid">
-            <div class="rate-cell"><div class="rate-cell-label">Capability max</div><div class="rate-cell-value" id="campCapRate">—</div></div>
+            <div class="rate-cell"><div class="rate-cell-label">Cap max</div><div class="rate-cell-value" id="campCapRate">—</div></div>
             <div class="rate-cell"><div class="rate-cell-label">Source</div><div class="rate-cell-value" id="campRollSource" style="font-size:10px;color:var(--muted)">—</div></div>
-            <div class="rate-cell"><div class="rate-cell-label">Rolling 7d</div><div class="rate-cell-value" id="campRoll7">—</div></div>
-            <div class="rate-cell"><div class="rate-cell-label">Rolling 15d</div><div class="rate-cell-value" id="campRoll15">—</div></div>
-            <div class="rate-cell"><div class="rate-cell-label">Rolling 30d</div><div class="rate-cell-value" id="campRoll30">—</div></div>
+            <div class="rate-cell"><div class="rate-cell-label">Roll 7d</div><div class="rate-cell-value" id="campRoll7">—</div></div>
+            <div class="rate-cell"><div class="rate-cell-label">Roll 15d</div><div class="rate-cell-value" id="campRoll15">—</div></div>
+            <div class="rate-cell"><div class="rate-cell-label">Roll 30d</div><div class="rate-cell-value" id="campRoll30">—</div></div>
             <div class="rate-cell"><div class="rate-cell-label">Will apply</div><div class="rate-cell-value" id="campRateEcho">—</div></div>
           </div>
           <div style="display:flex;gap:6px;margin-top:8px">
             <button class="btn" id="campUseCap" style="font-size:11px">Use Cap</button>
-            <button class="btn" id="campUse7" style="font-size:11px">Use 7d</button>
-            <button class="btn" id="campUse15" style="font-size:11px">Use 15d</button>
-            <button class="btn" id="campUse30" style="font-size:11px">Use 30d</button>
+            <button class="btn" id="campUse7" style="font-size:11px">7d</button>
+            <button class="btn" id="campUse15" style="font-size:11px">15d</button>
+            <button class="btn" id="campUse30" style="font-size:11px">30d</button>
           </div>
         </div>
 
-        <div class="form-grid" style="margin-top:12px">
+        <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:end;margin-top:12px;">
           <div><label class="form-label">Rate (STn/day)</label><input class="form-input text-mono" type="number" step="0.1" id="campRate" value="0"></div>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-primary" id="campApply">Apply Block</button>
-            <button class="btn" id="campClearRange">Clear Range</button>
-          </div>
-          <div style="font-size:11px;color:var(--ok);min-height:16px" id="campMsg"></div>
+          <button class="btn btn-primary" id="campApply" style="height:36px">Apply Block</button>
+          <button class="btn" id="campClearRange" style="height:36px">Clear Range</button>
         </div>
+        <div style="font-size:11px;color:var(--ok);min-height:16px;margin-top:6px" id="campMsg"></div>
       </div>
 
       <div>
-        <div style="font-weight:600;margin-bottom:12px">Saved Campaign Rows (recent 60)</div>
-        <div class="table-scroll" style="max-height:500px;border-radius:8px;overflow:hidden;border:1px solid var(--border)">
-          <table class="data-table">
-            <thead><tr><th>Date</th><th>Equipment</th><th>Status</th><th>Product</th><th>Rate</th></tr></thead>
-            <tbody>${s.dataset.campaigns.filter(c=>c.facilityId===state.ui.selectedFacilityId).sort((a,b)=>(a.date+a.equipmentId).localeCompare(b.date+b.equipmentId)).slice(-60).map(c=>`<tr>
-              <td class="text-mono" style="font-size:11px">${c.date}</td>
-              <td>${esc(s.getEquipment(c.equipmentId)?.name||c.equipmentId)}</td>
-              <td><span class="pill ${c.status==='produce'?'pill-green':c.status==='maintenance'?'pill-amber':c.status==='out_of_order'?'pill-purple':'pill-gray'}" style="font-size:10px">${esc(c.status||'produce')}</span></td>
-              <td>${esc(s.getMaterial(c.productId)?.code||s.getMaterial(c.productId)?.name||'')}</td>
-              <td class="num">${fmt(c.rateStn||0)}</td>
-            </tr>`).join('')||'<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">No campaigns yet</td></tr>'}
-            </tbody>
-          </table>
+        <div style="font-weight:600;margin-bottom:8px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)">Saved Blocks</div>
+        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:520px;overflow-y:auto;">
+          ${blockRows}
         </div>
       </div>
+
     </div>
   </div>`;
 
@@ -966,11 +1000,42 @@ function openCampaignDialog(){
     renderHelpers();
   };
 
+  // Smart date calculator — fill any 2, third auto-calculates
+  let _lastDateEdit = 'duration'; // track which field was last manually edited
+  const dateCalc = (changed) => {
+    _lastDateEdit = changed;
+    const start = q('campStart').value;
+    const end   = q('campEnd').value;
+    const dur   = parseInt(q('campDuration').value)||1;
+    if(changed==='start' || changed==='end'){
+      if(start && end){
+        const ms = new Date(end+'T00:00:00') - new Date(start+'T00:00:00');
+        const d = Math.round(ms/86400000)+1;
+        if(d>=1) q('campDuration').value = d;
+      }
+    } else if(changed==='duration'){
+      if(start && dur>=1){
+        const s2 = new Date(start+'T00:00:00');
+        s2.setDate(s2.getDate()+dur-1);
+        q('campEnd').value = s2.toISOString().slice(0,10);
+      } else if(end && dur>=1){
+        const e2 = new Date(end+'T00:00:00');
+        e2.setDate(e2.getDate()-(dur-1));
+        q('campStart').value = e2.toISOString().slice(0,10);
+      }
+    }
+    renderHelpers();
+  };
+
   q('campEq').onchange=refreshProducts; q('campStatus').onchange=refreshProducts;
   q('campProduct').onchange=()=>{ const eqId=q('campEq').value; const cap=s.getCapsForEquipment(eqId).find(c=>c.productId===q('campProduct').value); if(cap&&isFinite(+cap.maxRateStpd)) q('campRate').value=String(+cap.maxRateStpd||0); renderHelpers(); };
-  q('campStart').onchange=renderHelpers;
+  q('campStart').onchange=()=>dateCalc('start');
+  q('campEnd').onchange=()=>dateCalc('end');
+  q('campDuration').oninput=()=>dateCalc('duration');
   q('campRate').oninput=()=>q('campRateEcho').textContent=`${fmt(+q('campRate').value||0)} STn/d`;
   q('campUseCap').onclick=()=>writeRate(rateCache.cap); q('campUse7').onclick=()=>writeRate(rateCache.r7); q('campUse15').onclick=()=>writeRate(rateCache.r15); q('campUse30').onclick=()=>writeRate(rateCache.r30);
+  // Init duration from default start/end
+  dateCalc('end');
   refreshProducts();
   q('campClose').onclick=()=>host.classList.remove('open');
   host.onclick=e=>{ if(e.target===host) host.classList.remove('open'); };

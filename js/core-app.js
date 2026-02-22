@@ -1,4 +1,4 @@
-import { loadState, saveState, pushSandboxToOfficial } from './modules/store.js';
+import { loadState, saveState, pushSandboxToOfficial, createSandbox, deleteSandbox, renameSandbox } from './modules/store.js';
 import { actions, selectors, Categories } from './modules/dataAuthority.js';
 import { buildProductionPlanView, yesterdayLocal, startOfMonth } from './modules/simEngine.js';
 
@@ -23,7 +23,7 @@ function persist(){ saveState(state); }
 
 /* ─────────────────── SHELL ─────────────────── */
 function initShell(){
-  const ds = selectors(state);
+  const s = selectors(state);
 
   // Tabs
   el('tabs').innerHTML = TABS.map(([k,l])=>`<button class="tab-btn${state.ui.activeTab===k?' active':''}" data-tab="${k}">${l}</button>`).join('');
@@ -32,22 +32,37 @@ function initShell(){
     state.ui.activeTab = btn.dataset.tab; persist(); render();
   };
 
-  // Facility
+  // Facility selector — from org hierarchy
   const fs = el('facilitySelector');
-  fs.innerHTML = ds.facilities.map(f=>`<option value="${f.id}">${f.id} — ${esc(f.name)}</option>`).join('');
-  fs.value = state.ui.selectedFacilityId;
-  fs.onchange = () => { state.ui.selectedFacilityId = fs.value; persist(); render(); };
+  const facs = state.org.facilities;
+  if(!facs.length){
+    fs.innerHTML = '<option value="">— No facilities —</option>';
+    fs.disabled = true;
+  } else {
+    fs.disabled = false;
+    fs.innerHTML = facs.map(f=>`<option value="${f.id}">${esc(s.getFacilityPath(f.id))}</option>`).join('');
+    if(!state.ui.selectedFacilityId || !facs.find(f=>f.id===state.ui.selectedFacilityId)){
+      state.ui.selectedFacilityId = facs[0].id;
+    }
+    fs.value = state.ui.selectedFacilityId;
+    fs.onchange = () => { state.ui.selectedFacilityId = fs.value; persist(); render(); };
+  }
 
   // Mode badge
   const badge = el('modeBadge');
-  badge.textContent = state.ui.mode.toUpperCase();
-  badge.className = 'mode-badge ' + (state.ui.mode==='sandbox' ? 'mode-sandbox' : 'mode-official');
-  badge.onclick = () => { state.ui.mode = state.ui.mode==='sandbox'?'official':'sandbox'; persist(); render(); };
+  const isSandbox = state.ui.mode === 'sandbox';
+  const sbName = isSandbox ? (state.sandboxes[state.ui.activeSandboxId]?.name || 'Sandbox') : '';
+  badge.textContent = isSandbox ? `SANDBOX: ${sbName}` : 'OFFICIAL';
+  badge.className = 'mode-badge ' + (isSandbox ? 'mode-sandbox' : 'mode-official');
+  badge.onclick = () => { state.ui.mode = isSandbox ? 'official' : 'sandbox'; persist(); render(); };
+
+  el('sandboxBtn').onclick = () => openSandboxDialog();
+  el('settingsBtn').onclick = () => openSettingsDialog();
 
   el('pushOfficialBtn').onclick = () => {
-    if(!confirm('Push all sandbox data to Official? This overwrites the Official scenario.')) return;
+    if(!confirm('Push current sandbox to Official? This overwrites the Official data.')) return;
     pushSandboxToOfficial(state); persist();
-    showToast('Sandbox pushed to Official ✓', 'ok');
+    showToast('Pushed to Official ✓', 'ok');
     render();
   };
 }
@@ -1169,6 +1184,246 @@ function renderData(){
     try { state[state.ui.mode]=JSON.parse(await file.text()); persist(); render(); showToast('Scenario imported ✓'); }
     catch(err){ alert('Invalid JSON'); }
   };
+}
+
+
+/* ─────────────────── SETTINGS DIALOG (Org Hierarchy) ─────────────────── */
+function openSettingsDialog(){
+  const host = el('settingsDialog');
+  host.classList.add('open');
+  renderSettingsContent();
+
+  function renderSettingsContent(){
+    const org = state.org;
+
+    const treeHTML = org.countries.map(c => {
+      const regions = org.regions.filter(r=>r.countryId===c.id);
+      return `
+      <div style="margin-bottom:12px;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(255,255,255,0.04);font-weight:700;font-size:12px">
+          <span style="color:var(--accent)">🌎</span>
+          <span>${esc(c.name)}</span>
+          <span class="pill pill-gray" style="font-size:9px">${esc(c.code)}</span>
+          <span style="flex:1"></span>
+          <button class="btn" style="font-size:10px;padding:2px 8px" data-edit-country="${c.id}">Edit</button>
+          <button class="btn" style="font-size:10px;padding:2px 8px;color:var(--danger)" data-del-country="${c.id}">Delete</button>
+        </div>
+        ${regions.length ? regions.map(r => {
+          const subs = org.subRegions.filter(s=>s.regionId===r.id);
+          return `
+          <div style="border-top:1px solid var(--border)">
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 12px 6px 28px;background:rgba(255,255,255,0.02);font-size:11px;font-weight:600">
+              <span style="color:var(--muted)">📍</span>
+              <span>${esc(r.name)}</span>
+              <span class="pill pill-gray" style="font-size:9px">${esc(r.code)}</span>
+              <span style="flex:1"></span>
+              <button class="btn" style="font-size:10px;padding:2px 8px" data-edit-region="${r.id}">Edit</button>
+              <button class="btn" style="font-size:10px;padding:2px 8px;color:var(--danger)" data-del-region="${r.id}">Delete</button>
+              <button class="btn" style="font-size:10px;padding:2px 8px" data-add-sub="${r.id}">+ Sub-Region</button>
+            </div>
+            ${subs.length ? subs.map(sr => {
+              const facs = org.facilities.filter(f=>f.subRegionId===sr.id);
+              return `
+              <div style="border-top:1px solid var(--border)">
+                <div style="display:flex;align-items:center;gap:8px;padding:5px 12px 5px 44px;font-size:11px">
+                  <span style="color:var(--muted)">▸</span>
+                  <span>${esc(sr.name)}</span>
+                  <span class="pill pill-gray" style="font-size:9px">${esc(sr.code)}</span>
+                  <span style="flex:1"></span>
+                  <button class="btn" style="font-size:10px;padding:2px 8px" data-edit-sub="${sr.id}">Edit</button>
+                  <button class="btn" style="font-size:10px;padding:2px 8px;color:var(--danger)" data-del-sub="${sr.id}">Delete</button>
+                  <button class="btn" style="font-size:10px;padding:2px 8px" data-add-fac="${sr.id}">+ Facility</button>
+                </div>
+                ${facs.length ? facs.map(f => `
+                <div style="display:flex;align-items:center;gap:8px;padding:4px 12px 4px 60px;border-top:1px solid var(--border);font-size:11px;background:rgba(0,0,0,0.15)">
+                  <span>🏭</span>
+                  <span style="font-weight:600">${esc(f.name)}</span>
+                  <span class="pill pill-gray" style="font-size:9px">${esc(f.code)}</span>
+                  <span style="flex:1"></span>
+                  <button class="btn" style="font-size:10px;padding:2px 8px" data-edit-fac="${f.id}">Edit</button>
+                  <button class="btn" style="font-size:10px;padding:2px 8px;color:var(--danger)" data-del-fac="${f.id}">Delete</button>
+                </div>`).join('') : ''}
+              </div>`;
+            }).join('') : ''}
+          </div>`;
+        }).join('') : ''}
+      </div>`;
+    }).join('') || '<div style="color:var(--muted);font-size:12px;padding:12px">No countries yet. Add one to get started.</div>';
+
+    host.innerHTML = `<div class="modal" style="max-width:780px">
+      <div class="modal-header">
+        <div><div class="modal-title">⚙ Organization Settings</div>
+        <div style="font-size:11px;color:var(--muted)">Manage the Country → Region → Sub-Region → Facility hierarchy</div></div>
+        <button class="btn" id="settingsClose">Close</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)">Organization Tree</div>
+          <button class="btn btn-primary" style="font-size:11px" id="addCountryBtn">+ Add Country</button>
+        </div>
+        <div id="orgTree">${treeHTML}</div>
+        <div id="settingsForm" style="margin-top:16px"></div>
+      </div>
+    </div>`;
+
+    const q = id => host.querySelector('#'+id);
+    q('settingsClose').onclick = () => host.classList.remove('open');
+    host.onclick = e => { if(e.target===host) host.classList.remove('open'); };
+
+    q('addCountryBtn').onclick = () => showForm('country', null, null);
+
+    // Delegate all tree button clicks
+    host.querySelector('#orgTree').addEventListener('click', e => {
+      const btn = e.target.closest('button[data-edit-country],button[data-del-country],button[data-edit-region],button[data-del-region],button[data-add-sub],button[data-edit-sub],button[data-del-sub],button[data-add-fac],button[data-edit-fac],button[data-del-fac]');
+      if(!btn) return;
+      const a = actions(state);
+      if(btn.dataset.editCountry)  showForm('country', btn.dataset.editCountry, null);
+      if(btn.dataset.delCountry){  if(!confirm('Delete country and all its data?')) return; a.deleteCountry(btn.dataset.delCountry); persist(); renderSettingsContent(); }
+      if(btn.dataset.editRegion)   showForm('region', btn.dataset.editRegion, null);
+      if(btn.dataset.delRegion){   if(!confirm('Delete region and all its data?')) return; a.deleteRegion(btn.dataset.delRegion); persist(); renderSettingsContent(); }
+      if(btn.dataset.addSub)       showForm('subregion', null, btn.dataset.addSub);
+      if(btn.dataset.editSub)      showForm('subregion', btn.dataset.editSub, null);
+      if(btn.dataset.delSub){      if(!confirm('Delete sub-region and all its facilities?')) return; a.deleteSubRegion(btn.dataset.delSub); persist(); renderSettingsContent(); }
+      if(btn.dataset.addFac)       showForm('facility', null, btn.dataset.addFac);
+      if(btn.dataset.editFac)      showForm('facility', btn.dataset.editFac, null);
+      if(btn.dataset.delFac){      if(!confirm('Delete facility and all its data?')) return; a.deleteFacility(btn.dataset.delFac); persist(); render(); renderSettingsContent(); }
+    });
+  }
+
+  function showForm(type, editId, parentId){
+    const a = actions(state);
+    const org = state.org;
+    const formEl = host.querySelector('#settingsForm');
+    const labels = {country:'Country', region:'Region', subregion:'Sub-Region', facility:'Facility'};
+    const existing =
+      type==='country'   ? org.countries.find(c=>c.id===editId) :
+      type==='region'    ? org.regions.find(r=>r.id===editId) :
+      type==='subregion' ? org.subRegions.find(s=>s.id===editId) :
+                           org.facilities.find(f=>f.id===editId);
+
+    formEl.innerHTML = `
+      <div style="border:1px solid var(--accent);border-radius:8px;padding:14px;background:rgba(99,179,237,0.04)">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);margin-bottom:10px">
+          ${editId ? 'Edit' : 'New'} ${labels[type]}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end">
+          <div>
+            <label class="form-label">Name</label>
+            <input class="form-input" id="sfName" value="${esc(existing?.name||'')}" placeholder="${labels[type]} name">
+          </div>
+          <div>
+            <label class="form-label">Code</label>
+            <input class="form-input" id="sfCode" value="${esc(existing?.code||existing?.id?.split('_').pop()||'')}" placeholder="e.g. SFL" style="text-transform:uppercase">
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-primary" id="sfSave" style="height:36px">${editId?'Save':'Create'}</button>
+            <button class="btn" id="sfCancel" style="height:36px">Cancel</button>
+          </div>
+        </div>
+      </div>`;
+
+    const q = id => formEl.querySelector('#'+id);
+    q('sfCancel').onclick = () => { formEl.innerHTML = ''; };
+    q('sfCode').oninput = e => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,''); };
+
+    q('sfSave').onclick = () => {
+      const name = q('sfName').value.trim();
+      const code = q('sfCode').value.trim().toUpperCase();
+      if(!name){ q('sfName').focus(); return; }
+      if(editId){
+        if(type==='country')   a.updateCountry({id:editId, name, code});
+        if(type==='region')    a.updateRegion({id:editId, name, code});
+        if(type==='subregion') a.updateSubRegion({id:editId, name, code});
+        if(type==='facility')  a.updateFacility({id:editId, name, code});
+      } else {
+        if(type==='country')   a.addCountry({name, code});
+        if(type==='region')    a.addRegion({countryId:parentId, name, code});
+        if(type==='subregion') a.addSubRegion({regionId:parentId, name, code});
+        if(type==='facility'){
+          const facId = a.addFacility({subRegionId:parentId, name, code});
+          if(facId && !state.ui.selectedFacilityId) state.ui.selectedFacilityId = facId;
+        }
+      }
+      persist(); render(); renderSettingsContent(); formEl.innerHTML = '';
+    };
+  }
+}
+
+/* ─────────────────── SANDBOX DIALOG ─────────────────── */
+function openSandboxDialog(){
+  const host = el('sandboxDialog');
+  host.classList.add('open');
+  renderSandboxContent();
+
+  function renderSandboxContent(){
+    const sbs = state.sandboxes || {};
+    const active = state.ui.activeSandboxId;
+
+    const rows = Object.entries(sbs).map(([id, sb]) => {
+      const isActive = id === active;
+      const date = sb.createdAt ? new Date(sb.createdAt).toLocaleDateString() : '';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);${isActive?'background:rgba(99,179,237,0.08);':''}">
+        ${isActive ? '<span style="color:var(--accent);font-size:10px">▶</span>' : '<span style="width:10px"></span>'}
+        <span style="flex:1;font-size:12px;font-weight:${isActive?'700':'400'}">${esc(sb.name||id)}</span>
+        <span style="font-size:10px;color:var(--muted)">${date}</span>
+        ${!isActive ? `<button class="btn" style="font-size:10px;padding:2px 8px" data-load-sb="${id}">Load</button>` : '<span style="font-size:10px;color:var(--accent);padding:2px 8px">Active</span>'}
+        <button class="btn" style="font-size:10px;padding:2px 8px" data-rename-sb="${id}">Rename</button>
+        ${id!=='default' ? `<button class="btn" style="font-size:10px;padding:2px 8px;color:var(--danger)" data-del-sb="${id}">Delete</button>` : ''}
+      </div>`;
+    }).join('');
+
+    host.innerHTML = `<div class="modal" style="max-width:600px">
+      <div class="modal-header">
+        <div><div class="modal-title">📂 Sandbox Scenarios</div>
+        <div style="font-size:11px;color:var(--muted)">Save and switch between planning scenarios. Sandbox data is independent from Official.</div></div>
+        <button class="btn" id="sbClose">Close</button>
+      </div>
+      <div class="modal-body">
+        <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+          <input class="form-input" id="sbNewName" placeholder="New scenario name…" style="flex:1">
+          <button class="btn btn-primary" id="sbCreate">+ Create Scenario</button>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          ${rows || '<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">No scenarios yet</div>'}
+        </div>
+        <div style="margin-top:12px;font-size:11px;color:var(--muted)">
+          💡 Creating a scenario copies the current Official data as a starting point. Switch scenarios without losing data.
+        </div>
+      </div>
+    </div>`;
+
+    const q = id => host.querySelector('#'+id);
+    q('sbClose').onclick = () => host.classList.remove('open');
+    host.onclick = e => { if(e.target===host) host.classList.remove('open'); };
+
+    q('sbCreate').onclick = () => {
+      const name = q('sbNewName').value.trim() || `Scenario ${Object.keys(sbs).length + 1}`;
+      const id = createSandbox(state, name);
+      state.ui.mode = 'sandbox';
+      state.ui.activeSandboxId = id;
+      persist(); render(); renderSandboxContent();
+    };
+
+    host.addEventListener('click', e => {
+      const btn = e.target.closest('button[data-load-sb],button[data-rename-sb],button[data-del-sb]');
+      if(!btn) return;
+      if(btn.dataset.loadSb){
+        state.ui.mode = 'sandbox';
+        state.ui.activeSandboxId = btn.dataset.loadSb;
+        persist(); render(); renderSandboxContent();
+        showToast(`Loaded: ${sbs[btn.dataset.loadSb]?.name}`, 'ok');
+      }
+      if(btn.dataset.renameSb){
+        const newName = prompt('Rename scenario:', sbs[btn.dataset.renameSb]?.name || '');
+        if(newName){ renameSandbox(state, btn.dataset.renameSb, newName.trim()); persist(); renderSandboxContent(); }
+      }
+      if(btn.dataset.delSb){
+        if(!confirm(`Delete scenario "${sbs[btn.dataset.delSb]?.name}"? This cannot be undone.`)) return;
+        deleteSandbox(state, btn.dataset.delSb);
+        persist(); render(); renderSandboxContent();
+      }
+    });
+  }
 }
 
 // Boot

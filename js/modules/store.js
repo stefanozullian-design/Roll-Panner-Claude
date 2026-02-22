@@ -60,6 +60,9 @@ function migrate(s){
   const base = seed();
   const out = { ...base, ...s };
   out.ui = { ...base.ui, ...(s.ui||{}) };
+  // Remap old tab keys to new nav structure
+  const tabRemap = {'data':'plan','demand':'demand-external'};
+  if(out.ui.activeTab && tabRemap[out.ui.activeTab]) out.ui.activeTab = tabRemap[out.ui.activeTab];
   out.org = {
     countries:  (s.org?.countries  || []),
     regions:    (s.org?.regions    || []),

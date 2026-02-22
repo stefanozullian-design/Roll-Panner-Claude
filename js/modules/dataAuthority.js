@@ -7,35 +7,92 @@ export const Categories = {
   RAW: 'RAW_MATERIAL', FUEL: 'FUEL', INT: 'INTERMEDIATE_PRODUCT', FIN: 'FINISHED_PRODUCT'
 };
 
-// Get the regionId for the currently selected facility
+// Resolve which facilities are in scope for the current selection
+// selectedFacilityId can be a facilityId, subRegionId, regionId, or countryId
+export function resolveScope(state){
+  const sel = state.ui.selectedFacilityId;
+  const org = state.org;
+
+  // Direct facility match
+  if(org.facilities.find(f=>f.id===sel)){
+    const fac = org.facilities.find(f=>f.id===sel);
+    const sr  = org.subRegions.find(s=>s.id===fac.subRegionId);
+    const r   = sr ? org.regions.find(x=>x.id===sr.regionId) : null;
+    return { type:'facility', facilityIds:[sel], regionId: r?.id||null, subRegionId: sr?.id||null };
+  }
+  // Sub-region match
+  if(org.subRegions.find(s=>s.id===sel)){
+    const sr = org.subRegions.find(s=>s.id===sel);
+    const r  = org.regions.find(x=>x.id===sr.regionId);
+    const fids = org.facilities.filter(f=>f.subRegionId===sel).map(f=>f.id);
+    return { type:'subregion', facilityIds:fids, regionId: r?.id||null, subRegionId: sel };
+  }
+  // Region match
+  if(org.regions.find(r=>r.id===sel)){
+    const srIds = org.subRegions.filter(s=>s.regionId===sel).map(s=>s.id);
+    const fids  = org.facilities.filter(f=>srIds.includes(f.subRegionId)).map(f=>f.id);
+    return { type:'region', facilityIds:fids, regionId: sel, subRegionId: null };
+  }
+  // Country match
+  if(org.countries.find(c=>c.id===sel)){
+    const rIds  = org.regions.filter(r=>r.countryId===sel).map(r=>r.id);
+    const srIds = org.subRegions.filter(s=>rIds.includes(s.regionId)).map(s=>s.id);
+    const fids  = org.facilities.filter(f=>srIds.includes(f.subRegionId)).map(f=>f.id);
+    return { type:'country', facilityIds:fids, regionId: null, subRegionId: null };
+  }
+  return { type:'none', facilityIds:[], regionId: null, subRegionId: null };
+}
+
 function getFacilityRegionId(state){
-  const facId = state.ui.selectedFacilityId;
+  return resolveScope(state).regionId;
+}
+
+// Get region ID for a specific facility
+function getFacRegionId(state, facId){
   const fac = state.org.facilities.find(f=>f.id===facId);
   if(!fac) return null;
-  const subRegion = state.org.subRegions.find(s=>s.id===fac.subRegionId);
-  if(!subRegion) return null;
-  return subRegion.regionId;
+  const sr = state.org.subRegions.find(s=>s.id===fac.subRegionId);
+  return sr ? sr.regionId : null;
 }
 
 export function selectors(state){
   const ds = getDataset(state);
-  const fac = state.ui.selectedFacilityId;
-  const regionId = getFacilityRegionId(state);
+  const scope = resolveScope(state);
+  const { facilityIds, regionId } = scope;
+  // Primary facility = first in scope (for single-facility operations)
+  const fac = scope.type==='facility' ? state.ui.selectedFacilityId : (facilityIds[0]||null);
 
-  // Materials come from shared regional catalog
-  const mats = state.catalog.filter(m => !regionId || m.regionId===regionId);
-  const equip = ds.equipment.filter(e => e.facilityId===fac);
-  const stor = ds.storages.filter(s => s.facilityId===fac);
-  const caps = ds.capabilities.filter(c => equip.some(e=>e.id===c.equipmentId));
+  // Materials: from regional catalog filtered to what any in-scope facility has activated
+  // If scope is single facility: only show products that facility has activated
+  // If scope is broader: show union of all activated products across facilities in scope
+  const activatedIds = new Set(
+    (ds.facilityProducts||[])
+      .filter(fp => facilityIds.includes(fp.facilityId))
+      .map(fp => fp.productId)
+  );
+  // Fall back to full regional catalog if no facility products defined yet
+  const regionMats = state.catalog.filter(m => !regionId || m.regionId===regionId);
+  const mats = activatedIds.size > 0
+    ? regionMats.filter(m => activatedIds.has(m.id))
+    : regionMats;
+
+  const equip = ds.equipment.filter(e => facilityIds.includes(e.facilityId));
+  const stor  = ds.storages.filter(s => facilityIds.includes(s.facilityId));
+  const caps  = ds.capabilities.filter(c => equip.some(e=>e.id===c.equipmentId));
 
   return {
     dataset: ds,
     org: state.org,
     catalog: state.catalog,
+    scope,
+    facilityIds,
+    isSingleFacility: scope.type === 'facility',
     facility: state.org.facilities.find(f=>f.id===fac),
     facilities: state.org.facilities,
     regionId,
     materials: mats,
+    // All catalog items for region (for product activation UI)
+    regionCatalog: regionMats,
     finishedProducts: mats.filter(m=>m.category===Categories.FIN),
     intermediates: mats.filter(m=>m.category===Categories.INT),
     fuels: mats.filter(m=>m.category===Categories.FUEL),
@@ -43,21 +100,34 @@ export function selectors(state){
     equipment: equip,
     storages: stor,
     capabilities: caps,
+    // Active products for a specific facility
+    getFacilityProducts: facId => {
+      const ids = new Set((ds.facilityProducts||[]).filter(fp=>fp.facilityId===facId).map(fp=>fp.productId));
+      const rId = getFacRegionId(state, facId);
+      const cat = state.catalog.filter(m => !rId || m.regionId===rId);
+      return ids.size > 0 ? cat.filter(m=>ids.has(m.id)) : cat;
+    },
     getMaterial: id => state.catalog.find(m=>m.id===id),
     getEquipment: id => ds.equipment.find(e=>e.id===id),
     getStorage: id => ds.storages.find(s=>s.id===id),
     getCapsForEquipment: eid => ds.capabilities.filter(c=>c.equipmentId===eid),
-    getRecipeForProduct: pid => ds.recipes.filter(r=>r.facilityId===fac && r.productId===pid)
+    getRecipeForProduct: pid => ds.recipes
+      .filter(r=>facilityIds.includes(r.facilityId) && r.productId===pid)
       .sort((a,b)=>(b.version||1)-(a.version||1))[0] || null,
     actualsForDate: (date)=>({
-      inv:  ds.actuals.inventoryEOD.filter(r=>r.date===date && r.facilityId===fac),
-      prod: ds.actuals.production.filter(r=>r.date===date && r.facilityId===fac),
-      ship: ds.actuals.shipments.filter(r=>r.date===date && r.facilityId===fac),
+      inv:  ds.actuals.inventoryEOD.filter(r=>r.date===date && facilityIds.includes(r.facilityId)),
+      prod: ds.actuals.production.filter(r=>r.date===date && facilityIds.includes(r.facilityId)),
+      ship: ds.actuals.shipments.filter(r=>r.date===date && facilityIds.includes(r.facilityId)),
     }),
     demandForDateProduct: (date,pid)=>{
-      const actual = ds.actuals.shipments.find(r=>r.date===date && r.facilityId===fac && r.productId===pid);
-      if(actual) return actual.qtyStn;
-      return ds.demandForecast.find(r=>r.date===date && r.facilityId===fac && r.productId===pid)?.qtyStn || 0;
+      // Sum across all facilities in scope
+      const actual = ds.actuals.shipments
+        .filter(r=>r.date===date && facilityIds.includes(r.facilityId) && r.productId===pid)
+        .reduce((s,r)=>s+(+r.qtyStn||0),0);
+      if(actual>0) return actual;
+      return ds.demandForecast
+        .filter(r=>r.date===date && facilityIds.includes(r.facilityId) && r.productId===pid)
+        .reduce((s,r)=>s+(+r.qtyStn||0),0);
     },
     // Sandbox helpers
     sandboxes: state.sandboxes,
@@ -70,19 +140,42 @@ export function selectors(state){
       const f = state.org.facilities.find(x=>x.id===id);
       if(!f) return '';
       const sr = state.org.subRegions.find(x=>x.id===f.subRegionId);
-      const r = sr ? state.org.regions.find(x=>x.id===sr.regionId) : null;
-      const c = r ? state.org.countries.find(x=>x.id===r.countryId) : null;
+      const r  = sr ? state.org.regions.find(x=>x.id===sr.regionId) : null;
+      const c  = r  ? state.org.countries.find(x=>x.id===r.countryId) : null;
       return [c?.code, r?.code, sr?.code, f.code].filter(Boolean).join(' › ');
+    },
+    getScopeName: () => {
+      const sel = state.ui.selectedFacilityId;
+      const org = state.org;
+      const f  = org.facilities.find(x=>x.id===sel);  if(f)  return f.name;
+      const sr = org.subRegions.find(x=>x.id===sel);   if(sr) return sr.name;
+      const r  = org.regions.find(x=>x.id===sel);      if(r)  return r.name;
+      const ct = org.countries.find(x=>x.id===sel);    if(ct) return ct.name;
+      return 'All';
     }
   };
 }
 
 export function actions(state){
   const ds = getDataset(state);
-  const fac = state.ui.selectedFacilityId;
+  const scope = resolveScope(state);
+  // For write operations, always use the primary (single) facility
+  const fac = scope.type==='facility' ? state.ui.selectedFacilityId : (scope.facilityIds[0]||null);
   const regionId = getFacilityRegionId(state);
 
   return {
+    // ── ORG HIERARCHY ──
+    // ── FACILITY PRODUCT ACTIVATION ──
+    activateProductForFacility(facId, productId){
+      if(!(ds.facilityProducts||[]).find(fp=>fp.facilityId===facId && fp.productId===productId)){
+        if(!ds.facilityProducts) ds.facilityProducts = [];
+        ds.facilityProducts.push({facilityId:facId, productId});
+      }
+    },
+    deactivateProductForFacility(facId, productId){
+      if(ds.facilityProducts) ds.facilityProducts = ds.facilityProducts.filter(fp=>!(fp.facilityId===facId && fp.productId===productId));
+    },
+
     // ── ORG HIERARCHY ──
     addCountry({name, code}){
       const id = `country_${slug(code||name)}`;

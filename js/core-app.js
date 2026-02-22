@@ -29,6 +29,77 @@ const TAB_PARENT = {};
 NAV.forEach(s=>s.subs.forEach(t=>TAB_PARENT[t.key]=s.key));
 
 const el = id => document.getElementById(id);
+
+/* ─────────────────── MONTH-COLLAPSE SPINE ─────────────────── */
+// Build full date spine: Jan 2024 → Dec 2026
+const SPINE_START = '2024-01-01';
+const SPINE_END   = '2026-12-31';
+
+function buildFullSpine(){
+  const dates = [];
+  let d = new Date(SPINE_START+'T00:00:00');
+  const end = new Date(SPINE_END+'T00:00:00');
+  while(d <= end){ dates.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+  return dates;
+}
+
+// Group dates by month → [{ym:'2024-01', label:'Jan 2024', dates:[...]}]
+function groupByMonth(dates){
+  const months = {};
+  dates.forEach(d => {
+    const ym = d.slice(0,7);
+    if(!months[ym]) months[ym] = { ym, label: new Date(d+'T00:00:00').toLocaleString('en-US',{month:'short',year:'numeric'}), dates:[] };
+    months[ym].dates.push(d);
+  });
+  return Object.values(months);
+}
+
+// Persist collapse state: collapsed months stored as Set of 'YYYY-MM'
+const COLLAPSE_KEY = 'cementPlannerCollapsedMonths';
+function loadCollapsedMonths(){
+  try{ return new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY)||'null')||[]); }
+  catch(e){ return new Set(); }
+}
+function saveCollapsedMonths(set){
+  localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...set]));
+}
+// Default: all months collapsed except current and next
+function defaultCollapsedMonths(allMonths){
+  const now = new Date();
+  const thisYM = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const nextD = new Date(now); nextD.setMonth(nextD.getMonth()+1);
+  const nextYM = `${nextD.getFullYear()}-${String(nextD.getMonth()+1).padStart(2,'0')}`;
+  const set = new Set(allMonths.map(m=>m.ym));
+  set.delete(thisYM); set.delete(nextYM);
+  return set;
+}
+
+// Build <style> tag content to hide day columns for collapsed months
+// Each day column has class `day-col-YYYY-MM`
+function buildCollapseStyle(collapsedSet){
+  if(!collapsedSet.size) return '';
+  return [...collapsedSet].map(ym => `.day-col-${ym.replace('-','-')} { display:none; }`).join('\n');
+}
+
+// Inject/update the collapse style tag
+function applyCollapseStyle(tableId, collapsedSet){
+  const styleId = `col-style-${tableId}`;
+  let styleEl = document.getElementById(styleId);
+  if(!styleEl){ styleEl = document.createElement('style'); styleEl.id = styleId; document.head.appendChild(styleEl); }
+  styleEl.textContent = buildCollapseStyle(collapsedSet);
+}
+
+// Toggle a month and persist
+function toggleMonth(ym, tableId){
+  const set = loadCollapsedMonths();
+  if(set.has(ym)) set.delete(ym); else set.add(ym);
+  saveCollapsedMonths(set);
+  applyCollapseStyle(tableId, set);
+  // Update chevron on all tables with this month header
+  document.querySelectorAll(`[data-month-toggle="${ym}"]`).forEach(btn => {
+    btn.textContent = set.has(ym) ? '▶' : '▼';
+  });
+}
 const esc = s => (s??'').toString().replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = n => Number(n||0).toLocaleString(undefined, {maximumFractionDigits:1});
 const fmt0 = n => Number(n||0).toLocaleString(undefined, {maximumFractionDigits:0});
@@ -282,14 +353,82 @@ function renderPlan(){
     });
   });
 
-  // Date header
-  const dateHeaders = plan.dates.map(d => {
-    const isWk = isWeekendDate(d); const isTd = d===todayStr;
-    const mm=d.slice(5,7); const dd2=d.slice(8,10);
-    let sty = isWk ? wkdColStyle : '';
-    if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
-    return `<th data-date="${d}" style="min-width:44px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">${mm}/${dd2}</th>`;
+  // Month-grouped date headers
+  const dateHeaders = months.map(mon => {
+    const isCol = collapsed.has(mon.ym);
+    const monthTh = `<th class="month-total-th" data-month-ym="${mon.ym}" style="min-width:64px;background:rgba(99,179,237,0.12);border-left:2px solid rgba(99,179,237,0.35);border-right:1px solid rgba(99,179,237,0.2);font-size:9px;font-weight:700;color:#93c5fd;text-align:center;cursor:pointer;user-select:none;white-space:nowrap;padding:3px 6px;" title="Click to toggle ${mon.label}"><span data-month-toggle="${mon.ym}" style="font-size:8px;margin-right:3px">${isCol?'▶':'▼'}</span>${mon.label}</th>`;
+    const dayThs = mon.dates.map(d => {
+      const isWk = isWeekendDate(d); const isTd = d===todayStr;
+      const dd2 = d.slice(8,10);
+      let sty = isWk ? wkdColStyle : '';
+      if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
+      return `<th data-date="${d}" class="day-col-${mon.ym}" style="min-width:44px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">` + dd2 + `</th>`;
+    }).join('');
+    return monthTh + dayThs;
   }).join('');
+
+  // Month total cell for plan table
+  const renderMonthTotalCell = (r, mon) => {
+    if(r._type==='section-header' || r._type==='group-label') return '';
+    const total = mon.dates.reduce((sum, d) => sum + (r.values?.[d]||0), 0);
+    if(r.rowType==='equipment'){
+      return `<td class="num" style="background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd">${total?fmt0(total):''}</td>`;
+    }
+    const sev = r.storageId ? (() => {
+      const hasStockout = mon.dates.some(d => plan.inventoryCellMeta?.[`${d}|${r.storageId}`]?.severity==='stockout');
+      const hasFull     = mon.dates.some(d => plan.inventoryCellMeta?.[`${d}|${r.storageId}`]?.severity==='full');
+      return hasStockout ? 'stockout' : hasFull ? 'full' : null;
+    })() : null;
+    let sty = 'background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd;';
+    if(sev==='stockout') sty = 'background:rgba(239,68,68,0.2);border-left:2px solid rgba(239,68,68,0.5);font-size:10px;font-weight:700;color:#fca5a5;';
+    else if(sev==='full') sty = 'background:rgba(245,158,11,0.2);border-left:2px solid rgba(245,158,11,0.5);font-size:10px;font-weight:700;color:#fcd34d;';
+    return `<td class="num" style="${sty}">${total?fmt0(total):''}</td>`;
+  };
+
+  // Day cell renderer for a single date
+  const renderDayCell = (r, d, mon) => {
+    const isWk = isWeekendDate(d); const isTd = d===todayStr;
+    const isSubtotal = r._type==='subtotal-header';
+    const v = r.values?.[d]||0;
+    let baseSty = isWk ? wkdColStyle : '';
+    if(isTd) baseSty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
+    const cls = `day-col-${mon.ym}`;
+    if(r.rowType==='equipment' && r.equipmentId){
+      const meta = plan.equipmentCellMeta?.[`${d}|${r.equipmentId}`];
+      const status = meta?.status || 'idle';
+      if(status==='maintenance') return `<td class="num ${cls}" style="${baseSty}background:rgba(245,158,11,0.2);border-left:2px solid rgba(245,158,11,0.6);font-size:9px;color:#fcd34d;font-style:italic;">MNT</td>`;
+      if(status==='out_of_order') return `<td class="num ${cls}" style="${baseSty}background:rgba(139,92,246,0.2);border-left:2px solid rgba(139,92,246,0.6);font-size:9px;color:#c4b5fd;">OOO</td>`;
+      if(!meta || status==='idle'){
+        const caps = s.getCapsForEquipment(r.equipmentId);
+        const hasStockout = caps.some(cap => s.dataset.storages.filter(st=>(st.allowedProductIds||[]).includes(cap.productId)&&st.facilityId===state.ui.selectedFacilityId).some(st=>plan.inventoryCellMeta?.[`${d}|${st.id}`]?.severity==='stockout'));
+        return hasStockout ? `<td class="num ${cls}" style="${baseSty}background:rgba(239,68,68,0.18);border-left:2px solid rgba(239,68,68,0.5);font-size:9px;color:#fca5a5;">IDL</td>`
+          : `<td class="num ${cls}" style="${baseSty}color:var(--muted);font-size:10px"></td>`;
+      }
+      const color = productColor(meta.productId);
+      const capped = meta.constraint?.type==='capped';
+      const isActual = meta.source==='actual';
+      const tip = `${isActual?'✓ Actual':'Plan'}: ${(meta.totalQty||0).toFixed(0)} STn${meta.productId?' · '+(s.getMaterial(meta.productId)?.code||meta.productId):''}${capped?' ⚠ '+meta.constraint.reason:''}`;
+      return `<td class="num ${cls}" style="${baseSty}background:${color}18;border-left:2px solid ${color}40;font-size:10px;" title="${esc(tip)}">${fmt0(v)}${isActual?`<span style="color:${color}80;font-size:8px"> ✓</span>`:''}${capped?'<span style="color:var(--warn);font-size:8px"> ⚠</span>':''}</td>`;
+    }
+    if(r.storageId){
+      const imeta = plan.inventoryCellMeta?.[`${d}|${r.storageId}`];
+      if(imeta){
+        const tip = imeta.reason||(imeta.warn==='high75'?`>75% capacity (${fmt0(imeta.eod)}/${fmt0(imeta.maxCap)})`:'');
+        if(imeta.severity==='stockout') baseSty += 'background:rgba(239,68,68,0.18);color:#fca5a5;font-weight:700;';
+        else if(imeta.severity==='full') baseSty += 'background:rgba(245,158,11,0.18);color:#fcd34d;font-weight:700;';
+        else if(imeta.warn==='high75')   baseSty += 'color:var(--warn);';
+        const dot = imeta.severity==='stockout'?'🔴 ':imeta.severity==='full'?'🟡 ':imeta.warn?'△ ':'';
+        return `<td class="num ${cls}" style="${baseSty}font-size:10px${isSubtotal?';font-weight:700':''}" title="${esc(tip)}">${dot}${fmt0(v)}</td>`;
+      }
+    }
+    return `<td class="num ${cls}" style="${baseSty}font-size:10px;${isSubtotal?'font-weight:700;':'color:var(--muted);'}">${v?fmt0(v):''}</td>`;
+  };
+
+  // Full month-grouped renderer — replaces renderDataCells in row building
+  const renderAllCells = r => {
+    if(r._type==='section-header' || r._type==='group-label') return '';
+    return months.map(mon => renderMonthTotalCell(r, mon) + mon.dates.map(d => renderDayCell(r, d, mon)).join('')).join('');
+  };
 
   // Cell renderer
   const renderDataCells = r => plan.dates.map(d => {
@@ -366,11 +505,11 @@ function renderPlan(){
       return `<tr class="plan-sub-collapse sec-child sec-${r._secId}" data-sub="${r._subId}" style="cursor:pointer;user-select:none;display:none;">
         <td class="row-header" style="background:rgba(255,255,255,0.04);font-weight:700;padding-left:14px;" title="${esc(r.productLabel||r.label)}">
           <span class="collapse-icon sub-icon" data-sub="${r._subId}" style="margin-right:5px;display:inline-block;transition:transform .15s;font-size:9px;">▶</span>${esc(r.label)}
-        </td>${renderDataCells(r)}</tr>`;
+        </td>${renderAllCells(r)}</tr>`;
     }
     return `<tr class="sec-child sec-${r._secId}${r._subId?' sub-child sub-'+r._subId:''}" style="display:none;">
       <td class="row-header" style="padding-left:${r._subId?'26px':'14px'};" title="${esc(r.productLabel||r.label)}">${esc(r.label)}</td>
-      ${renderDataCells(r)}</tr>`;
+      ${renderAllCells(r)}</tr>`;
   }).join('');
 
   root.innerHTML = `
@@ -379,8 +518,8 @@ function renderPlan(){
   <div class="card" style="margin-bottom:16px">
     <div class="card-header">
       <div>
-        <div class="card-title">📊 35-Day Production Plan</div>
-        <div class="card-sub text-muted" style="font-size:11px">Starting ${startDate} · ▶ click rows to expand · ✓ = actual · ⚠ = constrained · pink cols = weekends</div>
+        <div class="card-title">📊 Production Plan — 2024–2026</div>
+        <div class="card-sub text-muted" style="font-size:11px">3-year view · All months collapsed by default · click month header to expand · ▶ click rows to expand · ✓ = actual · ⚠ = constrained · pink cols = weekends</div>
       </div>
       <div class="flex gap-2">
         <button class="btn" id="openCampaigns">🎯 Campaigns</button>
@@ -446,6 +585,13 @@ function renderPlan(){
   root.querySelector('#openCampaigns').onclick = () => openCampaignDialog();
   root.querySelector('#openActuals').onclick = () => openDailyActualsDialog();
 
+  // Month column collapse/expand
+  root.querySelector('#planTable thead').addEventListener('click', e => {
+    const th = e.target.closest('[data-month-ym]');
+    if(!th) return;
+    toggleMonth(th.dataset.monthYm, 'planTable');
+  });
+
   // Alert chip click → scroll plan table to that date and flash the column
   root.querySelectorAll('[data-jump-date]').forEach(chip => {
     chip.onclick = () => {
@@ -461,21 +607,19 @@ function renderPlan(){
       });
 
       if(!targetTh){
-        // Date not visible — re-render starting 2 days before the alert
-        const d = new Date(targetDate+'T00:00:00');
-        d.setDate(d.getDate()-2);
-        state.ui.planStart = d.toISOString().slice(0,10);
-        persist(); renderPlan();
-        // After render, try again
-        setTimeout(() => {
-          const s2 = document.getElementById('planTableScroll');
-          const t2 = document.getElementById('planTable');
-          if(!s2||!t2) return;
-          let th2 = null;
-          t2.querySelectorAll('thead th').forEach(th => { if(th.dataset.date===targetDate) th2=th; });
-          if(th2) s2.scrollTo({left:Math.max(0,th2.offsetLeft-180), behavior:'smooth'});
-        }, 150);
+        // Date not in 3-year spine (shouldn't happen) — just scroll to today
+        scroll.scrollTo({ left: 0, behavior: 'smooth' });
         return;
+      }
+      // Make sure the month is expanded first
+      const ym = targetDate.slice(0,7);
+      const curCollapsed = loadCollapsedMonths();
+      if(curCollapsed.has(ym)){
+        curCollapsed.delete(ym);
+        saveCollapsedMonths(curCollapsed);
+        applyCollapseStyle('planTable', curCollapsed);
+        // Re-find th after expansion
+        table.querySelectorAll('thead th').forEach(th => { if(th.dataset.date === targetDate) targetTh = th; });
       }
 
       // Scroll horizontally to that column
@@ -948,53 +1092,62 @@ function renderDemand(mode='external'){
   if(!root) return;
   const s = selectors(state);
   const a = actions(state);
-  const start = startOfMonth(yesterdayLocal());
-  const dates = dateRange(start, 35);
   const todayStr = today();
   const facId = state.ui.selectedFacilityId;
+  const demandTableId = `demand-table-${mode}`;
+
+  const allDates = buildFullSpine();
+  const months   = groupByMonth(allDates);
+  let collapsed = loadCollapsedMonths();
+  if(collapsed.size === 0){ collapsed = defaultCollapsedMonths(months); saveCollapsedMonths(collapsed); }
+  applyCollapseStyle(demandTableId, collapsed);
 
   const isWeekendDate = d => [0,6].includes(new Date(d+'T00:00:00').getDay());
   const wkdColStyle = 'background:rgba(239,68,68,0.06);border-left:1px solid rgba(239,68,68,0.3);';
 
-  // Date header
-  const dateHeaders = dates.map(d => {
-    const isWk = isWeekendDate(d);
-    const isTd = d === todayStr;
-    let sty = isWk ? wkdColStyle : '';
-    if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
-    const mm = d.slice(5,7); const dd = d.slice(8,10);
-    return `<th style="min-width:48px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">${mm}/${dd}</th>`;
-  }).join('');
-
-  // Product rows
-  const productRows = s.finishedProducts.map(fp => {
-    const cells = dates.map(d => {
-      const isWk = isWeekendDate(d);
-      const isTd = d === todayStr;
+  // Month-grouped date headers
+  const dateHeaders = months.map(mon => {
+    const isCol = collapsed.has(mon.ym);
+    const monthTh = `<th class="month-total-th" data-month-ym="${mon.ym}" style="min-width:64px;background:rgba(99,179,237,0.12);border-left:2px solid rgba(99,179,237,0.35);border-right:1px solid rgba(99,179,237,0.2);font-size:9px;font-weight:700;color:#93c5fd;text-align:center;cursor:pointer;user-select:none;white-space:nowrap;padding:3px 6px;" title="Click to toggle ${mon.label}"><span data-month-toggle="${mon.ym}" style="font-size:8px;margin-right:3px">${isCol?'▶':'▼'}</span>${mon.label}</th>`;
+    const dayThs = mon.dates.map(d => {
+      const isWk = isWeekendDate(d); const isTd = d===todayStr;
+      const dd2 = d.slice(8,10);
       let sty = isWk ? wkdColStyle : '';
       if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
-
-      const actual = s.dataset.actuals.shipments.find(r => r.date===d && r.facilityId===facId && r.productId===fp.id);
-      const fc = s.dataset.demandForecast.find(r => r.date===d && r.facilityId===facId && r.productId===fp.id);
-
-      if(actual){
-        return `<td class="num" style="${sty}background:rgba(34,197,94,0.12);color:#86efac;font-size:10px;font-weight:600;" title="Confirmed actual shipment">${fmt0(actual.qtyStn)}</td>`;
-      }
-      return `<td style="${sty}padding:1px 2px;"><input class="cell-input demand-input" data-date="${d}" data-product="${fp.id}" value="${fc?fc.qtyStn:''}" style="width:100%;min-width:40px;background:transparent;border:none;color:var(--fg);font-size:10px;text-align:right;padding:3px 4px;border-radius:3px;" /></td>`;
+      return `<th class="day-col-${mon.ym}" style="min-width:44px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">` + dd2 + `</th>`;
     }).join('');
+    return monthTh + dayThs;
+  }).join('');
 
-    return `<tr>
-      <td class="row-header" style="position:sticky;left:0;background:var(--surface);z-index:2;font-size:11px;font-weight:600;" title="${esc(fp.name)}">${esc(fp.name)}</td>
-      ${cells}
-    </tr>`;
-  }).join('') || `<tr><td class="text-muted" colspan="36" style="text-align:center;padding:20px;font-size:12px;">No finished products defined.</td></tr>`;
+  // Product rows — month total + day cells
+  const productRows = s.finishedProducts.map(fp => {
+    const allCells = months.map(mon => {
+      const monthTotal = mon.dates.reduce((sum, d) => {
+        const actual = s.dataset.actuals.shipments.find(r => r.date===d && r.facilityId===facId && r.productId===fp.id);
+        const fc = s.dataset.demandForecast.find(r => r.date===d && r.facilityId===facId && r.productId===fp.id);
+        return sum + (+((actual||fc)?.qtyStn)||0);
+      }, 0);
+      const monthCell = `<td class="num" style="background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd">${monthTotal?fmt0(monthTotal):''}</td>`;
+      const dayCells = mon.dates.map(d => {
+        const isWk = isWeekendDate(d); const isTd = d===todayStr;
+        let sty = isWk ? wkdColStyle : '';
+        if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
+        const actual = s.dataset.actuals.shipments.find(r => r.date===d && r.facilityId===facId && r.productId===fp.id);
+        const fc = s.dataset.demandForecast.find(r => r.date===d && r.facilityId===facId && r.productId===fp.id);
+        if(actual) return `<td class="num day-col-${mon.ym}" style="${sty}background:rgba(34,197,94,0.12);color:#86efac;font-size:10px;font-weight:600;" title="Confirmed actual">${fmt0(actual.qtyStn)}</td>`;
+        return `<td class="day-col-${mon.ym}" style="${sty}padding:1px 2px;"><input class="cell-input demand-input" data-date="${d}" data-product="${fp.id}" value="${fc?fc.qtyStn:''}" style="width:100%;min-width:44px;background:transparent;border:none;color:var(--fg);font-size:10px;text-align:right;padding:3px 4px;border-radius:3px;" /></td>`;
+      }).join('');
+      return monthCell + dayCells;
+    }).join('');
+    return `<tr><td class="row-header" style="position:sticky;left:0;background:var(--surface);z-index:2;font-size:11px;font-weight:600;" title="${esc(fp.name)}">${esc(fp.name)}</td>${allCells}</tr>`;
+  }).join('') || `<tr><td class="text-muted" colspan="9999" style="text-align:center;padding:20px;font-size:12px;">No finished products defined.</td></tr>`;
 
   root.innerHTML = `
   <div class="card">
     <div class="card-header">
       <div>
-        <div class="card-title">📦 Demand Planning</div>
-        <div class="card-sub text-muted" style="font-size:11px">Green = confirmed actual (read-only) · White cells = forecast · pink cols = weekends</div>
+        <div class="card-title">${modeLabel}</div>
+        <div class="card-sub text-muted" style="font-size:11px">3-year view · Click month header to expand/collapse · Green = confirmed actual · White = forecast · Pink = weekends</div>
       </div>
       <div class="flex gap-2">
         <button id="openForecastTool" class="btn">⚙ Forecast Tool</button>
@@ -1004,7 +1157,7 @@ function renderDemand(mode='external'){
     <div class="card-body" style="padding:0">
       ${!s.finishedProducts.length ? '<div style="padding:20px;background:var(--warn-bg);border:1px solid rgba(245,158,11,0.3);border-radius:8px;color:#fcd34d;font-size:12px;margin:16px;">⚠ No finished products defined. Add them in Products & Recipes.</div>' : ''}
       <div class="table-scroll">
-        <table class="data-table plan-table" style="min-width:max-content;width:100%">
+        <table class="data-table plan-table" id="${demandTableId}" style="min-width:max-content;width:100%">
           <thead><tr>
             <th class="row-header" style="min-width:160px;position:sticky;left:0;background:#0a0d14;z-index:5;">Product</th>
             ${dateHeaders}
@@ -1024,6 +1177,17 @@ function renderDemand(mode='external'){
       .filter(r=>r.qtyStn>0);
     a.saveDemandForecastRows(rows); persist(); renderDemand(mode); renderPlan(); showToast('Forecast saved ✓');
   };
+
+  // Month collapse toggle (synced across all tables)
+  root.querySelector(`#${demandTableId}`)?.querySelector('thead')?.addEventListener('click', e => {
+    const th = e.target.closest('[data-month-ym]');
+    if(!th) return;
+    toggleMonth(th.dataset.monthYm, demandTableId);
+    applyCollapseStyle('planTable', loadCollapsedMonths());
+    applyCollapseStyle('demand-table-external', loadCollapsedMonths());
+    applyCollapseStyle('demand-table-internal', loadCollapsedMonths());
+    applyCollapseStyle('demand-table-total', loadCollapsedMonths());
+  });
   root.querySelector('#openForecastTool').onclick = () => openForecastToolDialog();
 }
 

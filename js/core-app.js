@@ -189,8 +189,34 @@ function renderPlan(){
 
     if(r.rowType==='equipment' && r.equipmentId){
       const meta = plan.equipmentCellMeta?.[`${d}|${r.equipmentId}`];
-      if(!meta || meta.status==='idle') return `<td class="num" style="${baseSty}color:var(--muted);font-size:10px"></td>`;
-      if(meta.status==='maintenance') return `<td class="num" style="${baseSty}font-size:10px;font-style:italic;color:var(--muted)">MNT</td>`;
+      const status = meta?.status || 'idle';
+
+      // Maintenance (planned) — amber
+      if(status==='maintenance'){
+        return `<td class="num" style="${baseSty}background:rgba(245,158,11,0.2);border-left:2px solid rgba(245,158,11,0.6);font-size:9px;color:#fcd34d;font-style:italic;" title="Planned maintenance">MNT</td>`;
+      }
+
+      // Out of order (unplanned) — purple
+      if(status==='out_of_order'){
+        return `<td class="num" style="${baseSty}background:rgba(139,92,246,0.2);border-left:2px solid rgba(139,92,246,0.6);font-size:9px;color:#c4b5fd;" title="Out of order (unplanned)">OOO</td>`;
+      }
+
+      // Idle — check if any product this equipment can make has a stockout today
+      if(!meta || status==='idle'){
+        const caps = s.getCapsForEquipment(r.equipmentId);
+        const hasStockout = caps.some(cap => {
+          const linkedStorages = s.dataset.storages.filter(st =>
+            (st.allowedProductIds||[]).includes(cap.productId) && st.facilityId===state.ui.selectedFacilityId
+          );
+          return linkedStorages.some(st => plan.inventoryCellMeta?.[`${d}|${st.id}`]?.severity==='stockout');
+        });
+        if(hasStockout){
+          return `<td class="num" style="${baseSty}background:rgba(239,68,68,0.18);border-left:2px solid rgba(239,68,68,0.5);font-size:9px;color:#fca5a5;" title="Idle while product in stockout">IDL</td>`;
+        }
+        return `<td class="num" style="${baseSty}color:var(--muted);font-size:10px"></td>`;
+      }
+
+      // Producing — colored band by product
       const color = productColor(meta.productId);
       const capped = meta.constraint?.type==='capped';
       const isActual = meta.source==='actual';
@@ -263,7 +289,7 @@ function renderPlan(){
     </div>
   </div>
   <div style="font-size:11px;color:var(--muted);padding:4px 0 16px">
-    🔴 Stockout · 🟡 Overflow · △ &gt;75% cap · Colored = campaign · MNT = maintenance · Pink cols = weekend
+    🔴 Stockout · 🟡 Overflow · △ &gt;75% cap · Colored = producing · <span style="color:#fca5a5">■ IDL</span> = idle/stockout · <span style="color:#fcd34d">■ MNT</span> = maintenance · <span style="color:#c4b5fd">■ OOO</span> = out of order · Pink = weekend
   </div>`;
 
   // Delegated collapse handler on tbody
@@ -837,7 +863,7 @@ function openCampaignDialog(){
         <div class="form-grid" style="margin-bottom:12px">
           <div><label class="form-label">Equipment</label><select class="form-input" id="campEq">${eqs.map(e=>`<option value="${e.id}">${esc(e.name)} (${e.type})</option>`).join('')}</select></div>
           <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr">
-            <div><label class="form-label">Status</label><select class="form-input" id="campStatus"><option value="produce">Produce</option><option value="maintenance">Maintenance</option><option value="idle">Idle</option></select></div>
+            <div><label class="form-label">Status</label><select class="form-input" id="campStatus"><option value="produce">Produce</option><option value="maintenance">Maintenance (planned)</option><option value="out_of_order">Out of Order (unplanned)</option><option value="idle">Idle</option></select></div>
             <div><label class="form-label">Start</label><input class="form-input" type="date" id="campStart" value="${todayStr}"></div>
             <div><label class="form-label">End</label><input class="form-input" type="date" id="campEnd" value="${todayStr}"></div>
           </div>
@@ -880,7 +906,7 @@ function openCampaignDialog(){
             <tbody>${s.dataset.campaigns.filter(c=>c.facilityId===state.ui.selectedFacilityId).sort((a,b)=>(a.date+a.equipmentId).localeCompare(b.date+b.equipmentId)).slice(-60).map(c=>`<tr>
               <td class="text-mono" style="font-size:11px">${c.date}</td>
               <td>${esc(s.getEquipment(c.equipmentId)?.name||c.equipmentId)}</td>
-              <td><span class="pill ${c.status==='produce'?'pill-green':c.status==='maintenance'?'pill-amber':'pill-gray'}" style="font-size:10px">${esc(c.status||'produce')}</span></td>
+              <td><span class="pill ${c.status==='produce'?'pill-green':c.status==='maintenance'?'pill-amber':c.status==='out_of_order'?'pill-purple':'pill-gray'}" style="font-size:10px">${esc(c.status||'produce')}</span></td>
               <td>${esc(s.getMaterial(c.productId)?.code||s.getMaterial(c.productId)?.name||'')}</td>
               <td class="num">${fmt(c.rateStn||0)}</td>
             </tr>`).join('')||'<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">No campaigns yet</td></tr>'}

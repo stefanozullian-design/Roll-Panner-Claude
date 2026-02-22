@@ -408,34 +408,41 @@ function renderProducts(){
     <div class="card">
       <div class="card-header"><div class="card-title">Materials & Products</div><button class="btn" id="clearMaterialEdit">+ New</button></div>
       <div class="card-body">
-        <form id="materialForm" class="form-grid" style="grid-template-columns:1fr 1fr;margin-bottom:16px">
+        <form id="materialForm" style="margin-bottom:16px">
           <input type="hidden" name="id">
-          <div style="grid-column:1/-1">
-            <label class="form-label">Name *</label>
-            <input class="form-input" name="name" placeholder="e.g. MIA – Type IL (11%)" required>
+          <input type="hidden" name="code">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+            <div style="grid-column:1/-1">
+              <label class="form-label">Category *</label>
+              <select class="form-input" name="category" id="matCategory">
+                <option value="${Categories.FIN}" selected>Finished Product</option>
+                <option value="${Categories.INT}">Intermediate Product</option>
+                <option value="${Categories.RAW}">Raw Material</option>
+                <option value="${Categories.FUEL}">Fuel</option>
+              </select>
+            </div>
+            <div style="grid-column:1/-1">
+              <label class="form-label">Name *</label>
+              <input class="form-input" name="name" placeholder="e.g. MIA / CEM / IL (11%) / BULK" required>
+            </div>
+            <div style="grid-column:1/-1">
+              <label class="form-label">Material Number</label>
+              <input class="form-input" name="materialNumber" placeholder="e.g. 10045231">
+            </div>
+            <div id="matFieldLandedCost">
+              <label class="form-label">Landed Cost (USD/STn)</label>
+              <input class="form-input" type="number" step="0.01" name="landedCostUsdPerStn" placeholder="0">
+            </div>
+            <div id="matFieldMMBTU" style="display:none">
+              <label class="form-label">MMBTU/STn</label>
+              <input class="form-input" type="number" step="0.01" name="calorificPowerMMBTUPerStn" placeholder="0">
+            </div>
+            <div id="matFieldCO2" style="display:none">
+              <label class="form-label">KgCO₂/MMBTU</label>
+              <input class="form-input" type="number" step="0.01" name="co2FactorKgPerMMBTU" placeholder="0">
+            </div>
           </div>
-          <div>
-            <label class="form-label">Code</label>
-            <input class="form-input" name="code" placeholder="e.g. IL11">
-          </div>
-          <div>
-            <label class="form-label">Category *</label>
-            <select class="form-input" name="category">
-              <option value="${Categories.RAW}">Raw Material</option>
-              <option value="${Categories.FUEL}">Fuel</option>
-              <option value="${Categories.INT}">Intermediate Product</option>
-              <option value="${Categories.FIN}" selected>Finished Product</option>
-            </select>
-          </div>
-          <div>
-            <label class="form-label">Landed Cost (USD/STn)</label>
-            <input class="form-input" type="number" step="0.01" name="landedCostUsdPerStn" placeholder="0">
-          </div>
-          <div>
-            <label class="form-label">MMBTU/STn (fuel)</label>
-            <input class="form-input" type="number" step="0.01" name="calorificPowerMMBTUPerStn" placeholder="0">
-          </div>
-          <div style="grid-column:1/-1;display:flex;gap:8px">
+          <div style="display:flex;gap:8px">
             <button type="submit" id="saveMaterialBtn" class="btn btn-primary">Save</button>
             <button type="button" id="cancelMaterialEdit" class="btn hidden">Cancel</button>
           </div>
@@ -486,9 +493,17 @@ function renderProducts(){
           </div>
 
           <div>
-            <label class="form-label">Components</label>
+            <label class="form-label">Components <span style="color:var(--muted);font-weight:400;font-size:10px">(clinker/intermediate auto-calculates as remainder)</span></label>
             <div id="recipeComponents" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
-            <button type="button" id="addRecipeLine" class="btn" style="font-size:11px">+ Add Component</button>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+              <button type="button" id="addRecipeLine" class="btn" style="font-size:11px">+ Add Component</button>
+              <div style="flex:1"></div>
+              <span style="font-size:11px;color:var(--muted)">Total:</span>
+              <span id="recipeTotalPct" style="font-size:12px;font-weight:700;min-width:48px;text-align:right;color:var(--ok)">100%</span>
+            </div>
+            <div id="recipeAutoCalcRow" style="display:none;padding:6px 10px;background:rgba(99,179,237,0.08);border:1px solid rgba(99,179,237,0.2);border-radius:6px;font-size:11px;color:var(--accent)">
+              🔵 <span id="recipeAutoCalcLabel">Clinker</span>: <strong id="recipeAutoCalcPct">—</strong> (auto-calculated)
+            </div>
           </div>
 
           <div style="display:flex;gap:8px">
@@ -522,21 +537,74 @@ function renderProducts(){
   const comps = root.querySelector('#recipeComponents');
   const addRecipeLine = () => {
     const div = document.createElement('div');
+    div.className = 'recipe-row';
     div.style.cssText='display:grid;grid-template-columns:1fr 90px 28px;gap:6px;align-items:center';
     div.innerHTML = `<select class="form-input" name="componentMaterialId" style="font-size:12px"><option value="">Component…</option>${s.materials.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select><input class="form-input" type="number" step="0.01" name="componentPct" placeholder="%" style="font-size:12px;text-align:right"><button type="button" style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;height:30px" data-remove>✕</button>`;
-    div.querySelector('[data-remove]').onclick = () => div.remove();
+    div.querySelector('[data-remove]').onclick = () => { div.remove(); updateRecipeTotals(); };
+    div.querySelector('[name=componentMaterialId]').onchange = updateRecipeTotals;
+    div.querySelector('[name=componentPct]').oninput = updateRecipeTotals;
     comps.appendChild(div);
   };
 
-  root.querySelector('#addRecipeLine').onclick = addRecipeLine;
+  // Find the intermediate/clinker material for auto-calc
+  const getAutoCalcMat = () => s.materials.find(m=>m.category===Categories.INT);
+
+  const updateRecipeTotals = () => {
+    const rows = [...comps.querySelectorAll(':scope > div.recipe-row')];
+    const autoMat = getAutoCalcMat();
+    let manualTotal = 0;
+    rows.forEach(div => {
+      const selVal = div.querySelector('[name=componentMaterialId]').value;
+      const pctInput = div.querySelector('[name=componentPct]');
+      const isAuto = autoMat && selVal === autoMat.id;
+      if(isAuto){
+        pctInput.readOnly = true;
+        pctInput.style.color = 'var(--accent)';
+        pctInput.style.background = 'rgba(99,179,237,0.08)';
+      } else {
+        pctInput.readOnly = false;
+        pctInput.style.color = '';
+        pctInput.style.background = '';
+        manualTotal += +pctInput.value || 0;
+      }
+    });
+    // Set auto-calc row pct
+    const autoPct = Math.max(0, 100 - manualTotal);
+    rows.forEach(div => {
+      const selVal = div.querySelector('[name=componentMaterialId]').value;
+      const pctInput = div.querySelector('[name=componentPct]');
+      if(autoMat && selVal === autoMat.id) pctInput.value = autoPct.toFixed(2);
+    });
+    // Total display
+    const allTotal = manualTotal + (autoMat ? autoPct : 0);
+    const totalEl = root.querySelector('#recipeTotalPct');
+    const autoRow = root.querySelector('#recipeAutoCalcRow');
+    if(totalEl){
+      const hasAuto = rows.some(d=>autoMat && d.querySelector('[name=componentMaterialId]').value===autoMat.id);
+      const displayTotal = hasAuto ? 100 : manualTotal;
+      totalEl.textContent = displayTotal.toFixed(1) + '%';
+      totalEl.style.color = Math.abs(displayTotal - 100) < 0.1 ? 'var(--ok)' : 'var(--danger)';
+    }
+    if(autoRow && autoMat){
+      const hasAuto = rows.some(d=>d.querySelector('[name=componentMaterialId]').value===autoMat.id);
+      autoRow.style.display = hasAuto ? '' : 'none';
+      const lbl = root.querySelector('#recipeAutoCalcLabel');
+      const pct = root.querySelector('#recipeAutoCalcPct');
+      if(lbl) lbl.textContent = autoMat.name || 'Intermediate';
+      if(pct) pct.textContent = Math.max(0,100-manualTotal).toFixed(2)+'%';
+    }
+  };
+
+  root.querySelector('#addRecipeLine').onclick = () => { addRecipeLine(); updateRecipeTotals(); };
   addRecipeLine(); addRecipeLine();
+  updateRecipeTotals();
 
   const clearRecipeForm = () => {
     root.querySelector('#recipeForm').reset();
     root.querySelector('[name=editingRecipeId]').value='';
     root.querySelector('#saveRecipeBtn').textContent='Save Recipe';
     root.querySelector('#cancelRecipeEdit').classList.add('hidden');
-    comps.innerHTML=''; addRecipeLine(); addRecipeLine();
+    comps.innerHTML=''; addRecipeLine(); addRecipeLine(); updateRecipeTotals();
   };
   root.querySelector('#cancelRecipeEdit').onclick = clearRecipeForm;
 
@@ -555,6 +623,7 @@ function renderProducts(){
       row.querySelector('[name=componentMaterialId]').value=c.materialId||'';
       row.querySelector('[name=componentPct]').value=c.pct??'';
     });
+    updateRecipeTotals();
   });
 
   root.querySelectorAll('[data-del-recipe]').forEach(btn=>btn.onclick=()=>{
@@ -566,7 +635,9 @@ function renderProducts(){
   root.querySelector('#recipeForm').onsubmit=e=>{
     e.preventDefault();
     const fd=new FormData(e.target);
-    const rows=[...comps.querySelectorAll(':scope > div')].map(div=>({materialId:div.querySelector('[name=componentMaterialId]').value,pct:+div.querySelector('[name=componentPct]').value||0}));
+    const rows=[...comps.querySelectorAll(':scope > div.recipe-row')].map(div=>({materialId:div.querySelector('[name=componentMaterialId]').value,pct:+div.querySelector('[name=componentPct]').value||0})).filter(r=>r.materialId);
+    const total = rows.reduce((s,r)=>s+(+r.pct||0),0);
+    if(Math.abs(total-100)>0.1){ showToast(`Total is ${total.toFixed(1)}% — must be 100%`, 'danger'); return; }
     a.saveRecipe({productId:fd.get('productId'),version:+fd.get('version')||1,components:rows});
     persist(); clearRecipeForm(); renderProducts(); renderPlan(); showToast('Recipe saved ✓');
   };
@@ -587,27 +658,52 @@ function renderProducts(){
       const pid = cb.dataset.product;
       const facId = s.facility?.id;
       if(!facId) return;
+      // If this is the first toggle action, initialize all as active first
+      const ds = s.dataset;
+      const hasAny = (ds.facilityProducts||[]).some(fp=>fp.facilityId===facId);
+      if(!hasAny){
+        // Activate all region catalog items for this facility first
+        s.regionCatalog.forEach(m => a.activateProductForFacility(facId, m.id));
+      }
       if(cb.checked) a.activateProductForFacility(facId, pid);
       else a.deactivateProductForFacility(facId, pid);
       persist(); renderProducts();
     };
   });
 
+  const updateMatFields = () => {
+    const cat = root.querySelector('#matCategory')?.value;
+    const showLanded = [Categories.RAW, Categories.FUEL].includes(cat);
+    const showFuel = cat === Categories.FUEL;
+    const lc = root.querySelector('#matFieldLandedCost');
+    const mb = root.querySelector('#matFieldMMBTU');
+    const co = root.querySelector('#matFieldCO2');
+    if(lc) lc.style.display = showLanded ? '' : 'none';
+    if(mb) mb.style.display = showFuel ? '' : 'none';
+    if(co) co.style.display = showFuel ? '' : 'none';
+  };
+  root.querySelector('#matCategory')?.addEventListener('change', updateMatFields);
+  updateMatFields();
+
   root.querySelectorAll('[data-edit-material]').forEach(btn=>btn.onclick=()=>{
-    const m=s.materials.find(x=>x.id===btn.dataset.editMaterial); if(!m) return;
+    const m=s.regionCatalog.find(x=>x.id===btn.dataset.editMaterial); if(!m) return;
     const f=root.querySelector('#materialForm');
     f.querySelector('[name=id]').value=m.id;
     f.querySelector('[name=name]').value=m.name||'';
     f.querySelector('[name=code]').value=m.code||'';
+    f.querySelector('[name=materialNumber]').value=m.materialNumber||'';
     f.querySelector('[name=category]').value=m.category||Categories.FIN;
     f.querySelector('[name=landedCostUsdPerStn]').value=m.landedCostUsdPerStn||'';
     f.querySelector('[name=calorificPowerMMBTUPerStn]').value=m.calorificPowerMMBTUPerStn||'';
+    f.querySelector('[name=co2FactorKgPerMMBTU]').value=m.co2FactorKgPerMMBTU||'';
     root.querySelector('#saveMaterialBtn').textContent='Update';
     root.querySelector('#cancelMaterialEdit').classList.remove('hidden');
+    updateMatFields();
+    f.scrollIntoView({behavior:'smooth',block:'start'});
   });
 
   root.querySelectorAll('[data-del-material]').forEach(btn=>btn.onclick=()=>{
-    const m=s.materials.find(x=>x.id===btn.dataset.delMaterial);
+    const m=s.regionCatalog.find(x=>x.id===btn.dataset.delMaterial);
     if(!confirm(`Delete ${m?.name}? Also removes related recipes, capabilities, and actuals.`)) return;
     a.deleteMaterial(btn.dataset.delMaterial); persist(); renderProducts(); renderFlow(); renderDemand(); renderPlan();
   });

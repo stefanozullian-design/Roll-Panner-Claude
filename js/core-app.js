@@ -1043,15 +1043,7 @@ function openCampaignDialog(){
   const statusLabel = st => ({'produce':'Produce','maintenance':'Maint.','out_of_order':'OOO','idle':'Idle'}[st]||st);
   const statusPill = st => ({'produce':'pill-green','maintenance':'pill-amber','out_of_order':'pill-purple','idle':'pill-gray'}[st]||'pill-gray');
 
-  const blockRows = blocks.slice(0,40).map(b=>{
-    const eqName = s.getEquipment(b.equipmentId)?.name || b.equipmentId;
-    const prod = b.productId ? (s.getMaterial(b.productId)?.code||s.getMaterial(b.productId)?.name||'') : '';
-    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-bottom:1px solid var(--border);font-size:11px;">
-      <span class="pill ${statusPill(b.status)}" style="font-size:9px;padding:1px 6px;flex-shrink:0">${statusLabel(b.status)}</span>
-      <span style="flex:1;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(eqName)}">${esc(eqName)}${prod?' · <span style="color:var(--muted)">'+esc(prod)+'</span>':''}</span>
-      <span class="text-mono" style="color:var(--muted);white-space:nowrap;flex-shrink:0">${b.start.slice(5)} · ${b.days}d</span>
-    </div>`;
-  }).join('') || '<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">No campaigns yet</div>';
+  // blocks already built above — grouped rendering done after DOM creation
 
   host.classList.add('open');
   host.innerHTML = `<div class="modal" style="max-width:860px">
@@ -1115,10 +1107,11 @@ function openCampaignDialog(){
       </div>
 
       <div>
-        <div style="font-weight:600;margin-bottom:8px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)">Saved Blocks</div>
-        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:520px;overflow-y:auto;">
-          ${blockRows}
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)">Saved Blocks</div>
+          <div style="font-size:10px;color:var(--muted)" id="blockCount"></div>
         </div>
+        <div id="campBlockList" style="border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:520px;overflow-y:auto;"></div>
       </div>
 
     </div>
@@ -1210,6 +1203,197 @@ function openCampaignDialog(){
   // Init duration from default start/end
   dateCalc('end');
   refreshProducts();
+  // ── BLOCK LIST: grouped by equipment, collapsible, edit/delete ──
+  const collapsedEqs = new Set();
+
+  const renderBlockList = () => {
+    const listEl = q('campBlockList');
+    const countEl = q('blockCount');
+    if(!listEl) return;
+
+    // Group blocks by equipment
+    const byEq = {};
+    blocks.forEach(b => {
+      if(!byEq[b.equipmentId]) byEq[b.equipmentId] = [];
+      byEq[b.equipmentId].push(b);
+    });
+
+    if(!blocks.length){
+      listEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">No campaigns yet</div>';
+      if(countEl) countEl.textContent = '';
+      return;
+    }
+    if(countEl) countEl.textContent = `${blocks.length} block${blocks.length!==1?'s':''}`;
+
+    listEl.innerHTML = Object.entries(byEq).map(([eqId, eqBlocks]) => {
+      const eq = s.getEquipment(eqId);
+      const eqName = eq?.name || eqId;
+      const isCollapsed = collapsedEqs.has(eqId);
+      const totalDays = eqBlocks.reduce((t,b)=>t+b.days,0);
+      const pills = ['produce','maintenance','out_of_order','idle'].map(st => {
+        const n = eqBlocks.filter(b=>b.status===st).length;
+        return n ? `<span class="pill ${statusPill(st)}" style="font-size:9px;padding:1px 5px">${n}</span>` : '';
+      }).join('');
+
+      const rows = isCollapsed ? '' : eqBlocks.map((b,bi) => {
+        const prod = b.productId ? (s.getMaterial(b.productId)?.code || s.getMaterial(b.productId)?.name || '') : '';
+        const isEditing = b._editing;
+        if(isEditing){
+          // Inline edit row
+          const prodOpts = s.getCapsForEquipment(eqId).map(c=>`<option value="${c.productId}" ${c.productId===b.productId?'selected':''}>${esc(s.getMaterial(c.productId)?.name||c.productId)}</option>`).join('');
+          return `<div class="camp-edit-row" data-eq="${eqId}" data-bi="${bi}" style="padding:8px;background:rgba(99,179,237,0.06);border-bottom:1px solid var(--border)">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+              <div><label class="form-label" style="font-size:9px">Status</label>
+                <select class="form-input" style="font-size:11px" data-edit-status>
+                  <option value="produce" ${b.status==='produce'?'selected':''}>Produce</option>
+                  <option value="maintenance" ${b.status==='maintenance'?'selected':''}>Maintenance</option>
+                  <option value="out_of_order" ${b.status==='out_of_order'?'selected':''}>Out of Order</option>
+                  <option value="idle" ${b.status==='idle'?'selected':''}>Idle</option>
+                </select>
+              </div>
+              <div class="edit-product-wrap" style="${b.status==='produce'?'':'display:none'}">
+                <label class="form-label" style="font-size:9px">Product</label>
+                <select class="form-input" style="font-size:11px" data-edit-product>${prodOpts}</select>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:6px">
+              <div><label class="form-label" style="font-size:9px">Start</label>
+                <input class="form-input" type="date" style="font-size:11px" data-edit-start value="${b.start}">
+              </div>
+              <div><label class="form-label" style="font-size:9px">End</label>
+                <input class="form-input" type="date" style="font-size:11px" data-edit-end value="${b.end}">
+              </div>
+              <div><label class="form-label" style="font-size:9px">Rate STn/d</label>
+                <input class="form-input" type="number" step="0.1" style="font-size:11px" data-edit-rate value="${b.rateStn||0}">
+              </div>
+            </div>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-primary" style="font-size:10px;padding:3px 10px" data-save-edit="${eqId}|${bi}">Save</button>
+              <button class="btn" style="font-size:10px;padding:3px 10px" data-cancel-edit="${eqId}|${bi}">Cancel</button>
+            </div>
+          </div>`;
+        }
+        return `<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid var(--border);font-size:11px">
+          <span class="pill ${statusPill(b.status)}" style="font-size:9px;padding:1px 5px;flex-shrink:0">${statusLabel(b.status)}</span>
+          <span style="flex:1;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(prod)}">${prod ? esc(prod) : '<span style="color:var(--muted)">—</span>'}</span>
+          <span class="text-mono" style="color:var(--muted);font-size:10px;flex-shrink:0">${b.start.slice(5)}→${b.end.slice(5)}</span>
+          <span class="text-mono" style="color:var(--muted);font-size:10px;flex-shrink:0;min-width:24px;text-align:right">${b.days}d</span>
+          <button class="action-btn" style="font-size:10px;padding:1px 6px;flex-shrink:0" data-edit-block="${eqId}|${bi}">Edit</button>
+          <button class="action-btn del" style="font-size:10px;padding:1px 6px;flex-shrink:0" data-del-block="${eqId}|${bi}">Del</button>
+        </div>`;
+      }).join('');
+
+      return `<div style="border-bottom:1px solid var(--border)">
+        <div class="camp-eq-header" data-toggle-eq="${eqId}" style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:rgba(255,255,255,0.04);cursor:pointer;user-select:none">
+          <span style="font-size:10px;color:var(--muted)">${isCollapsed?'▶':'▼'}</span>
+          <span style="font-weight:700;font-size:11px;flex:1">${esc(eqName)}</span>
+          <span style="display:flex;gap:3px">${pills}</span>
+          <span style="font-size:10px;color:var(--muted)">${totalDays}d total</span>
+        </div>
+        ${rows}
+      </div>`;
+    }).join('');
+  };
+
+  // Wire block list interactions (delegated)
+  const blockListEl = q('campBlockList');
+  if(blockListEl){
+    blockListEl.addEventListener('click', e => {
+      // Toggle equipment group collapse
+      const toggleBtn = e.target.closest('[data-toggle-eq]');
+      if(toggleBtn){
+        const eqId = toggleBtn.dataset.toggleEq;
+        if(collapsedEqs.has(eqId)) collapsedEqs.delete(eqId);
+        else collapsedEqs.add(eqId);
+        renderBlockList(); return;
+      }
+
+      // Edit block
+      const editBtn = e.target.closest('[data-edit-block]');
+      if(editBtn){
+        const [eqId, bi] = editBtn.dataset.editBlock.split('|');
+        const eqBlocks = blocks.filter(b=>b.equipmentId===eqId);
+        eqBlocks.forEach(b=>delete b._editing);
+        if(eqBlocks[+bi]) eqBlocks[+bi]._editing = true;
+        collapsedEqs.delete(eqId);
+        renderBlockList(); return;
+      }
+
+      // Cancel edit
+      const cancelBtn = e.target.closest('[data-cancel-edit]');
+      if(cancelBtn){
+        const [eqId] = cancelBtn.dataset.cancelEdit.split('|');
+        blocks.filter(b=>b.equipmentId===eqId).forEach(b=>delete b._editing);
+        renderBlockList(); return;
+      }
+
+      // Status change → show/hide product
+      const statusSel = e.target.closest('[data-edit-status]');
+      if(statusSel){
+        const row = statusSel.closest('.camp-edit-row');
+        if(row){
+          const wrap = row.querySelector('.edit-product-wrap');
+          if(wrap) wrap.style.display = statusSel.value==='produce' ? '' : 'none';
+        }
+        return;
+      }
+
+      // Save edit
+      const saveBtn = e.target.closest('[data-save-edit]');
+      if(saveBtn){
+        const row = saveBtn.closest('.camp-edit-row');
+        if(!row) return;
+        const [eqId] = saveBtn.dataset.saveEdit.split('|');
+        const newStatus  = row.querySelector('[data-edit-status]').value;
+        const newProduct = row.querySelector('[data-edit-product]')?.value || '';
+        const newStart   = row.querySelector('[data-edit-start]').value;
+        const newEnd     = row.querySelector('[data-edit-end]').value;
+        const newRate    = +row.querySelector('[data-edit-rate]').value || 0;
+        if(!newStart || !newEnd){ showToast('Start and end dates required', 'warn'); return; }
+        // Find the block being edited and delete its old date range, then save new
+        const bi = +saveBtn.dataset.saveEdit.split('|')[1];
+        const eqBlocks = blocks.filter(b=>b.equipmentId===eqId);
+        const oldBlock = eqBlocks[bi];
+        if(oldBlock){
+          a.deleteCampaignRange({equipmentId:eqId, startDate:oldBlock.start, endDate:oldBlock.end});
+          a.saveCampaignBlock({equipmentId:eqId, status:newStatus, productId:newProduct, startDate:newStart, endDate:newEnd, rateStn:newRate});
+          persist(); renderPlan(); showToast('Block updated ✓');
+          openCampaignDialog(); // full refresh
+        }
+        return;
+      }
+
+      // Delete block
+      const delBtn = e.target.closest('[data-del-block]');
+      if(delBtn){
+        const [eqId, bi] = delBtn.dataset.delBlock.split('|');
+        const eqBlocks = blocks.filter(b=>b.equipmentId===eqId);
+        const b = eqBlocks[+bi];
+        if(!b) return;
+        const eq = s.getEquipment(eqId);
+        if(!confirm(`Delete ${b.days}d ${b.status} block for ${eq?.name||eqId} (${b.start} → ${b.end})?`)) return;
+        a.deleteCampaignRange({equipmentId:eqId, startDate:b.start, endDate:b.end});
+        persist(); renderPlan(); showToast('Block deleted ✓');
+        openCampaignDialog();
+        return;
+      }
+    });
+
+    // Also wire status change via change event (not just click)
+    blockListEl.addEventListener('change', e => {
+      const statusSel = e.target.closest('[data-edit-status]');
+      if(statusSel){
+        const row = statusSel.closest('.camp-edit-row');
+        if(row){
+          const wrap = row.querySelector('.edit-product-wrap');
+          if(wrap) wrap.style.display = statusSel.value==='produce' ? '' : 'none';
+        }
+      }
+    });
+  }
+
+  renderBlockList();
+
   q('campClose').onclick=()=>host.classList.remove('open');
   host.onclick=e=>{ if(e.target===host) host.classList.remove('open'); };
   q('campApply').onclick=e=>{ e.preventDefault(); const payload={equipmentId:q('campEq').value,status:q('campStatus').value,productId:q('campProduct').value,startDate:q('campStart').value,endDate:q('campEnd').value,rateStn:+q('campRate').value||0}; if(payload.status==='produce'&&!payload.productId){q('campMsg').textContent='Select a product.';return;} a.saveCampaignBlock(payload); persist(); q('campMsg').textContent='✓ Campaign block applied'; renderPlan(); openCampaignDialog(); showToast('Campaign applied ✓'); };

@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
     :root {
       --bg: #0f1117;
@@ -304,6 +305,7 @@
       <span id="modeBadge" class="mode-badge mode-sandbox" title="Click to toggle mode">SANDBOX</span>
       <button id="sandboxBtn" class="btn" style="font-size:11px" title="Manage scenarios">📂 Scenarios</button>
       <button id="settingsBtn" class="btn" style="font-size:11px" title="Organization settings">⚙ Settings</button>
+      <button id="dataIOBtn" class="btn" style="font-size:11px" title="Save / Load / Export">💾 Data</button>
       <button id="pushOfficialBtn" class="btn btn-primary">↑ Push to Official</button>
     </div>
   </div>
@@ -320,6 +322,7 @@
 
 <!-- Modals -->
 <div class="modal-backdrop" id="settingsDialog"></div>
+<div class="modal-backdrop" id="dataIODialog"></div>
 <div class="modal-backdrop" id="sandboxDialog"></div>
 <div class="modal-backdrop" id="campaignDialog"></div>
 <div class="modal-backdrop" id="dailyActualsDialog"></div>

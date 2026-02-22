@@ -1207,6 +1207,7 @@ function openSettingsDialog(){
           <span style="flex:1"></span>
           <button class="btn" style="font-size:10px;padding:2px 8px" data-edit-country="${c.id}">Edit</button>
           <button class="btn" style="font-size:10px;padding:2px 8px;color:var(--danger)" data-del-country="${c.id}">Delete</button>
+          <button class="btn" style="font-size:10px;padding:2px 8px" data-add-region="${c.id}">+ Region</button>
         </div>
         ${regions.length ? regions.map(r => {
           const subs = org.subRegions.filter(s=>s.regionId===r.id);
@@ -1274,10 +1275,11 @@ function openSettingsDialog(){
 
     // Delegate all tree button clicks
     host.querySelector('#orgTree').addEventListener('click', e => {
-      const btn = e.target.closest('button[data-edit-country],button[data-del-country],button[data-edit-region],button[data-del-region],button[data-add-sub],button[data-edit-sub],button[data-del-sub],button[data-add-fac],button[data-edit-fac],button[data-del-fac]');
+      const btn = e.target.closest('button[data-edit-country],button[data-del-country],button[data-add-region],button[data-edit-region],button[data-del-region],button[data-add-sub],button[data-edit-sub],button[data-del-sub],button[data-add-fac],button[data-edit-fac],button[data-del-fac]');
       if(!btn) return;
       const a = actions(state);
       if(btn.dataset.editCountry)  showForm('country', btn.dataset.editCountry, null);
+      if(btn.dataset.addRegion)    showForm('region', null, btn.dataset.addRegion);
       if(btn.dataset.delCountry){  if(!confirm('Delete country and all its data?')) return; a.deleteCountry(btn.dataset.delCountry); persist(); renderSettingsContent(); }
       if(btn.dataset.editRegion)   showForm('region', btn.dataset.editRegion, null);
       if(btn.dataset.delRegion){   if(!confirm('Delete region and all its data?')) return; a.deleteRegion(btn.dataset.delRegion); persist(); renderSettingsContent(); }

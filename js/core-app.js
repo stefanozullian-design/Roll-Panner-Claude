@@ -637,42 +637,78 @@ function renderDemand(){
   const a = actions(state);
   const start = startOfMonth(yesterdayLocal());
   const dates = dateRange(start, 35);
+  const todayStr = today();
+  const facId = state.ui.selectedFacilityId;
+
+  const isWeekendDate = d => [0,6].includes(new Date(d+'T00:00:00').getDay());
+  const wkdColStyle = 'background:rgba(239,68,68,0.06);border-left:1px solid rgba(239,68,68,0.3);';
+
+  // Date header
+  const dateHeaders = dates.map(d => {
+    const isWk = isWeekendDate(d);
+    const isTd = d === todayStr;
+    let sty = isWk ? wkdColStyle : '';
+    if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
+    const mm = d.slice(5,7); const dd = d.slice(8,10);
+    return `<th style="min-width:48px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">${mm}/${dd}</th>`;
+  }).join('');
+
+  // Product rows
+  const productRows = s.finishedProducts.map(fp => {
+    const cells = dates.map(d => {
+      const isWk = isWeekendDate(d);
+      const isTd = d === todayStr;
+      let sty = isWk ? wkdColStyle : '';
+      if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
+
+      const actual = s.dataset.actuals.shipments.find(r => r.date===d && r.facilityId===facId && r.productId===fp.id);
+      const fc = s.dataset.demandForecast.find(r => r.date===d && r.facilityId===facId && r.productId===fp.id);
+
+      if(actual){
+        return `<td class="num" style="${sty}background:rgba(34,197,94,0.12);color:#86efac;font-size:10px;font-weight:600;" title="Confirmed actual shipment">${fmt0(actual.qtyStn)}</td>`;
+      }
+      return `<td style="${sty}padding:1px 2px;"><input class="cell-input demand-input" data-date="${d}" data-product="${fp.id}" value="${fc?fc.qtyStn:''}" style="width:100%;min-width:40px;background:transparent;border:none;color:var(--fg);font-size:10px;text-align:right;padding:3px 4px;border-radius:3px;" /></td>`;
+    }).join('');
+
+    return `<tr>
+      <td class="row-header" style="position:sticky;left:0;background:var(--surface);z-index:2;font-size:11px;font-weight:600;" title="${esc(fp.name)}">${esc(fp.name)}</td>
+      ${cells}
+    </tr>`;
+  }).join('') || `<tr><td class="text-muted" colspan="36" style="text-align:center;padding:20px;font-size:12px;">No finished products defined.</td></tr>`;
 
   root.innerHTML = `
   <div class="card">
     <div class="card-header">
-      <div><div class="card-title">Demand Planning</div><div class="card-sub text-muted">Green = confirmed actual shipment (read-only). Enter forecast in white cells.</div></div>
+      <div>
+        <div class="card-title">📦 Demand Planning</div>
+        <div class="card-sub text-muted" style="font-size:11px">Green = confirmed actual (read-only) · White cells = forecast · pink cols = weekends</div>
+      </div>
       <div class="flex gap-2">
         <button id="openForecastTool" class="btn">⚙ Forecast Tool</button>
         <button id="saveDemandBtn" class="btn btn-primary">Save Forecast</button>
       </div>
     </div>
-    <div class="card-body">
-      ${!s.finishedProducts.length ? '<div style="padding:20px;background:var(--warn-bg);border:1px solid rgba(245,158,11,0.3);border-radius:8px;color:#fcd34d;font-size:12px">⚠ No finished products defined. Add them in Products & Recipes.</div>' : ''}
-      <div class="table-scroll" style="max-height:65vh">
-        <table class="data-table">
-          <thead><tr><th style="min-width:160px;position:sticky;left:0;background:#0d1018;z-index:3">Product</th>${dates.map(d=>{
-            const isWk=[0,6].includes(new Date(d+'T00:00:00').getDay());
-            return `<th style="min-width:56px;${isWk?'color:var(--muted)':''}">${d.slice(5)}</th>`;
-          }).join('')}</tr></thead>
-          <tbody>
-            ${s.finishedProducts.map(fp=>`<tr>
-              <td style="position:sticky;left:0;background:var(--surface);z-index:2;font-weight:600">${esc(fp.name)}</td>
-              ${dates.map(d=>{
-                const actual=s.dataset.actuals.shipments.find(r=>r.date===d&&r.facilityId===state.ui.selectedFacilityId&&r.productId===fp.id);
-                const fc=s.dataset.demandForecast.find(r=>r.date===d&&r.facilityId===state.ui.selectedFacilityId&&r.productId===fp.id);
-                if(actual) return `<td class="num" style="background:rgba(34,197,94,0.1);color:#86efac;font-size:11px" title="Actual shipment">${fmt0(actual.qtyStn)}</td>`;
-                return `<td><input class="cell-input demand-input" data-date="${d}" data-product="${fp.id}" value="${fc?fc.qtyStn:''}"></td>`;
-              }).join('')}
-            </tr>`).join('')||'<tr><td class="text-muted" style="text-align:center;padding:20px">No finished products</td></tr>'}
-          </tbody>
+    <div class="card-body" style="padding:0">
+      ${!s.finishedProducts.length ? '<div style="padding:20px;background:var(--warn-bg);border:1px solid rgba(245,158,11,0.3);border-radius:8px;color:#fcd34d;font-size:12px;margin:16px;">⚠ No finished products defined. Add them in Products & Recipes.</div>' : ''}
+      <div class="table-scroll">
+        <table class="data-table plan-table" style="min-width:max-content;width:100%">
+          <thead><tr>
+            <th class="row-header" style="min-width:160px;position:sticky;left:0;background:#0a0d14;z-index:5;">Product</th>
+            ${dateHeaders}
+          </tr></thead>
+          <tbody>${productRows}</tbody>
         </table>
       </div>
     </div>
+  </div>
+  <div style="font-size:11px;color:var(--muted);padding:4px 0 16px">
+    🟢 Green = confirmed actual shipment (locked) · Enter forecast quantities in empty cells · Pink columns = weekend
   </div>`;
 
   root.querySelector('#saveDemandBtn').onclick = () => {
-    const rows = [...root.querySelectorAll('.demand-input')].map(i=>({date:i.dataset.date,productId:i.dataset.product,qtyStn:+i.value||0})).filter(r=>r.qtyStn>0);
+    const rows = [...root.querySelectorAll('.demand-input')]
+      .map(i=>({date:i.dataset.date, productId:i.dataset.product, qtyStn:+i.value||0}))
+      .filter(r=>r.qtyStn>0);
     a.saveDemandForecastRows(rows); persist(); renderDemand(); renderPlan(); showToast('Forecast saved ✓');
   };
   root.querySelector('#openForecastTool').onclick = () => openForecastToolDialog();

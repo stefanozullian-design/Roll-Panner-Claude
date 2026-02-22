@@ -169,14 +169,42 @@ function renderPlan(){
     </div>
   </div>`;
 
+  // Group consecutive alerts by storage+severity into date ranges
+  const groupAlerts = (alerts) => {
+    if(!alerts.length) return [];
+    const sorted = [...alerts].sort((a,b)=>a.storageId.localeCompare(b.storageId)||a.date.localeCompare(b.date));
+    const groups = [];
+    sorted.forEach(a => {
+      const last = groups[groups.length-1];
+      const prevD = last ? new Date(last.endDate+'T00:00:00') : null;
+      if(prevD) prevD.setDate(prevD.getDate()+1);
+      if(last && last.storageId===a.storageId && last.severity===a.severity && prevD && prevD.toISOString().slice(0,10)===a.date){
+        last.endDate = a.date; last.days++;
+      } else {
+        groups.push({storageId:a.storageId, storageName:a.storageName, severity:a.severity, startDate:a.date, endDate:a.date, days:1});
+      }
+    });
+    return groups;
+  };
+
+  const stockoutGroups = groupAlerts(stockouts);
+  const overflowGroups = groupAlerts(overflows);
+  const warningGroups  = groupAlerts(warnings).slice(0,6);
+
+  const makeChip = (g, cls, icon, label) => {
+    const range = g.days>1 ? `${g.startDate.slice(5)}→${g.endDate.slice(5)} (${g.days}d)` : g.startDate.slice(5);
+    return `<div class="alert-chip ${cls}" data-jump-date="${g.startDate}" style="cursor:pointer" title="Click to jump to ${g.startDate}">${icon} ${range} ${esc(g.storageName)} — ${label}</div>`;
+  };
+
   const alertChips = [
-    ...stockouts.map(a=>`<div class="alert-chip chip-stockout">🔴 ${a.date.slice(5)} ${esc(a.storageName)} — STOCKOUT</div>`),
-    ...overflows.map(a=>`<div class="alert-chip chip-full">🟡 ${a.date.slice(5)} ${esc(a.storageName)} — FULL</div>`),
-    ...warnings.slice(0,4).map(a=>`<div class="alert-chip chip-high">△ ${a.date.slice(5)} ${esc(a.storageName)} &gt;75%</div>`)
+    ...stockoutGroups.map(g => makeChip(g,'chip-stockout','🔴','STOCKOUT')),
+    ...overflowGroups.map(g => makeChip(g,'chip-full','🟡','FULL')),
+    ...warningGroups.map(g  => makeChip(g,'chip-high','△','>75%'))
   ].join('');
+
   const alertStripHTML = (stockouts.length+overflows.length+warnings.length)>0
-    ? `<div style="margin-bottom:16px;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(245,158,11,0.05));border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px 16px;">
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--danger);margin-bottom:8px;">⚡ Action Required</div>
+    ? `<div id="alertStrip" style="margin-bottom:16px;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(245,158,11,0.05));border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px 16px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--danger);margin-bottom:8px;">⚡ Action Required <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0">· click any alert to jump to that date</span></div>
         <div style="display:flex;flex-wrap:wrap;gap:6px;">${alertChips}</div></div>`
     : `<div style="margin-bottom:16px;padding:10px 14px;background:var(--ok-bg);border:1px solid rgba(34,197,94,0.3);border-radius:8px;font-size:12px;color:#86efac;">✅ <strong>All clear</strong> — No stockouts or capacity issues in the planning horizon.</div>`;
 
@@ -222,7 +250,7 @@ function renderPlan(){
     const mm=d.slice(5,7); const dd2=d.slice(8,10);
     let sty = isWk ? wkdColStyle : '';
     if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
-    return `<th style="min-width:44px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">${mm}/${dd2}</th>`;
+    return `<th data-date="${d}" style="min-width:44px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">${mm}/${dd2}</th>`;
   }).join('');
 
   // Cell renderer
@@ -323,8 +351,8 @@ function renderPlan(){
     </div>
     <div class="card-body" style="padding:0">
       ${s.equipment.length===0?'<div style="padding:40px;text-align:center;color:var(--muted)">No equipment configured. Set up your Process Flow first.</div>':''}
-      <div class="table-scroll">
-        <table class="data-table plan-table" style="min-width:max-content;width:100%">
+      <div class="table-scroll" id="planTableScroll">
+        <table class="data-table plan-table" id="planTable" style="min-width:max-content;width:100%">
           <thead><tr>
             <th class="row-header" style="min-width:160px;position:sticky;left:0;background:#0a0d14;z-index:5;">Row</th>
             ${dateHeaders}
@@ -379,6 +407,52 @@ function renderPlan(){
 
   root.querySelector('#openCampaigns').onclick = () => openCampaignDialog();
   root.querySelector('#openActuals').onclick = () => openDailyActualsDialog();
+
+  // Alert chip click → scroll plan table to that date and flash the column
+  root.querySelectorAll('[data-jump-date]').forEach(chip => {
+    chip.onclick = () => {
+      const targetDate = chip.dataset.jumpDate;
+      const scroll = document.getElementById('planTableScroll');
+      const table  = document.getElementById('planTable');
+      if(!scroll || !table) return;
+
+      // Find the th with that date
+      let targetTh = null;
+      table.querySelectorAll('thead th').forEach(th => {
+        if(th.dataset.date === targetDate) targetTh = th;
+      });
+
+      if(!targetTh){
+        // Date not visible — re-render starting 2 days before the alert
+        const d = new Date(targetDate+'T00:00:00');
+        d.setDate(d.getDate()-2);
+        state.ui.planStart = d.toISOString().slice(0,10);
+        persist(); renderPlan();
+        // After render, try again
+        setTimeout(() => {
+          const s2 = document.getElementById('planTableScroll');
+          const t2 = document.getElementById('planTable');
+          if(!s2||!t2) return;
+          let th2 = null;
+          t2.querySelectorAll('thead th').forEach(th => { if(th.dataset.date===targetDate) th2=th; });
+          if(th2) s2.scrollTo({left:Math.max(0,th2.offsetLeft-180), behavior:'smooth'});
+        }, 150);
+        return;
+      }
+
+      // Scroll horizontally to that column
+      scroll.scrollTo({ left: Math.max(0, targetTh.offsetLeft - 180), behavior: 'smooth' });
+
+      // Flash the column red briefly
+      const colIndex = targetTh.cellIndex;
+      table.querySelectorAll(`tr > *:nth-child(${colIndex+1})`).forEach(c => {
+        const orig = c.style.background;
+        c.style.transition = 'background 0.15s';
+        c.style.background = 'rgba(239,68,68,0.4)';
+        setTimeout(() => { c.style.background = orig; setTimeout(()=>c.style.transition='',500); }, 700);
+      });
+    };
+  });
 }
 
 function renderProducts(){

@@ -32,17 +32,47 @@ function initShell(){
     state.ui.activeTab = btn.dataset.tab; persist(); render();
   };
 
-  // Facility selector — from org hierarchy
+  // Scope selector — shows full org tree (country/region/subregion/facility)
   const fs = el('facilitySelector');
-  const facs = state.org.facilities;
-  if(!facs.length){
-    fs.innerHTML = '<option value="">— No facilities —</option>';
+  const org = state.org;
+  const allIds = [
+    ...org.countries.map(c=>c.id),
+    ...org.regions.map(r=>r.id),
+    ...org.subRegions.map(x=>x.id),
+    ...org.facilities.map(f=>f.id)
+  ];
+  if(!allIds.length){
+    fs.innerHTML = '<option value="">— Set up facilities in ⚙ Settings —</option>';
     fs.disabled = true;
   } else {
     fs.disabled = false;
-    fs.innerHTML = facs.map(f=>`<option value="${f.id}">${esc(s.getFacilityPath(f.id))}</option>`).join('');
-    if(!state.ui.selectedFacilityId || !facs.find(f=>f.id===state.ui.selectedFacilityId)){
-      state.ui.selectedFacilityId = facs[0].id;
+    // Build grouped <optgroup> tree
+    let html = '';
+    org.countries.forEach(c => {
+      const cRegions = org.regions.filter(r=>r.countryId===c.id);
+      html += `<optgroup label="🌎 ${esc(c.name)}">`;
+      html += `<option value="${c.id}">  ${esc(c.code)} — All regions</option>`;
+      cRegions.forEach(r => {
+        const rSubs = org.subRegions.filter(sr=>sr.regionId===r.id);
+        html += `<option value="${r.id}">  📍 ${esc(r.code)} — ${esc(r.name)}</option>`;
+        rSubs.forEach(sr => {
+          const srFacs = org.facilities.filter(f=>f.subRegionId===sr.id);
+          html += `<option value="${sr.id}">    ▸ ${esc(sr.code)} — ${esc(sr.name)}</option>`;
+          srFacs.forEach(f => {
+            html += `<option value="${f.id}">      🏭 ${esc(f.code)} — ${esc(f.name)}</option>`;
+          });
+        });
+      });
+      html += '</optgroup>';
+    });
+    // Fallback: if no countries yet but facilities exist (legacy)
+    if(!org.countries.length && org.facilities.length){
+      org.facilities.forEach(f=>{ html += `<option value="${f.id}">🏭 ${esc(f.name)}</option>`; });
+    }
+    fs.innerHTML = html;
+    // Ensure selection is valid
+    if(!state.ui.selectedFacilityId || !allIds.includes(state.ui.selectedFacilityId)){
+      state.ui.selectedFacilityId = org.facilities[0]?.id || org.subRegions[0]?.id || org.regions[0]?.id || org.countries[0]?.id || '';
     }
     fs.value = state.ui.selectedFacilityId;
     fs.onchange = () => { state.ui.selectedFacilityId = fs.value; persist(); render(); };
@@ -355,6 +385,16 @@ function renderProducts(){
   const s = selectors(state);
   const a = actions(state);
 
+  // For products tab, always show region catalog regardless of scope
+  // But flag which items the current facility has activated
+  const isSingleFac = s.isSingleFacility;
+  const currentFacId = s.facility?.id || null;
+  const activatedIds = new Set(
+    isSingleFac && currentFacId
+      ? (s.dataset.facilityProducts||[]).filter(fp=>fp.facilityId===currentFacId).map(fp=>fp.productId)
+      : []
+  );
+
   const catLabel = cat => ({[Categories.RAW]:'Raw Material',[Categories.FUEL]:'Fuel',[Categories.INT]:'Intermediate',[Categories.FIN]:'Finished Product'}[cat]||cat);
   const catPill = cat => {
     const map = {[Categories.RAW]:'pill-gray',[Categories.FUEL]:'pill-amber',[Categories.INT]:'pill-blue',[Categories.FIN]:'pill-green'};
@@ -401,15 +441,24 @@ function renderProducts(){
         </form>
 
         <div class="table-scroll" style="max-height:360px;border-radius:8px;overflow:hidden;border:1px solid var(--border)">
+          ${isSingleFac ? `<div style="font-size:11px;color:var(--muted);margin-bottom:8px;padding:6px 8px;background:rgba(99,179,237,0.06);border-radius:6px;border:1px solid rgba(99,179,237,0.15)">
+            Checkmark = active in <strong>${esc(s.facility?.name||'this facility')}</strong>. Toggle to control which products this facility uses.
+          </div>` : `<div style="font-size:11px;color:var(--muted);margin-bottom:8px;padding:6px 8px;background:rgba(255,255,255,0.04);border-radius:6px">
+            Showing region catalog. Select a specific facility to activate/deactivate products per facility.
+          </div>`}
           <table class="data-table">
-            <thead><tr><th>Name</th><th>Category</th><th>Code</th><th>Actions</th></tr></thead>
+            <thead><tr>${isSingleFac?'<th style="width:36px">Active</th>':''}<th>Name</th><th>Category</th><th>Code</th><th>Actions</th></tr></thead>
             <tbody>
-              ${s.materials.map(m=>`<tr>
-                <td>${esc(m.name)}</td>
-                <td>${catPill(m.category)}</td>
-                <td><span class="text-mono" style="font-size:11px">${esc(m.code||'')}</span></td>
-                <td><div class="row-actions"><button class="action-btn" data-edit-material="${m.id}">Edit</button><button class="action-btn del" data-del-material="${m.id}">Delete</button></div></td>
-              </tr>`).join('')||'<tr><td colspan="4" class="text-muted" style="text-align:center;padding:20px">No materials yet</td></tr>'}
+              ${s.regionCatalog.map(m=>{
+                const isActive = !isSingleFac || activatedIds.size===0 || activatedIds.has(m.id);
+                return '<tr style="' + (!isActive?'opacity:0.45':'') + '">'
+                  + (isSingleFac ? '<td style="text-align:center"><input type="checkbox" class="fac-product-toggle" data-product="' + m.id + '" ' + (isActive?'checked':'') + ' style="cursor:pointer;width:14px;height:14px;accent-color:var(--accent)"></td>' : '')
+                  + '<td>' + esc(m.name) + '</td>'
+                  + '<td>' + catPill(m.category) + '</td>'
+                  + '<td><span class="text-mono" style="font-size:11px">' + esc(m.code||'') + '</span></td>'
+                  + '<td><div class="row-actions"><button class="action-btn" data-edit-material="' + m.id + '">Edit</button><button class="action-btn del" data-del-material="' + m.id + '">Delete</button></div></td>'
+                  + '</tr>';
+              }).join('')||'<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">No materials in region catalog yet</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -530,6 +579,18 @@ function renderProducts(){
   };
   root.querySelector('#clearMaterialEdit').onclick = clearMaterialForm;
   root.querySelector('#cancelMaterialEdit').onclick = clearMaterialForm;
+
+  // Facility product activation toggles
+  root.querySelectorAll('.fac-product-toggle').forEach(cb => {
+    cb.onchange = () => {
+      const pid = cb.dataset.product;
+      const facId = s.facility?.id;
+      if(!facId) return;
+      if(cb.checked) a.activateProductForFacility(facId, pid);
+      else a.deactivateProductForFacility(facId, pid);
+      persist(); renderProducts();
+    };
+  });
 
   root.querySelectorAll('[data-edit-material]').forEach(btn=>btn.onclick=()=>{
     const m=s.materials.find(x=>x.id===btn.dataset.editMaterial); if(!m) return;

@@ -87,18 +87,36 @@
     .mode-official { background: var(--ok-bg); border: 1px solid var(--ok); color: var(--ok); }
 
     /* ── TABS ── */
-    .tab-bar {
-      display: flex; gap: 2px; padding: 0 20px 0;
+    .nav-top {
+      display: flex; gap: 2px; padding: 0 20px;
       max-width: 1600px; margin: 0 auto;
       border-top: 1px solid var(--border);
     }
-    .tab-btn {
-      padding: 8px 16px; border: none; background: none; color: var(--muted);
-      cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 500;
-      border-bottom: 2px solid transparent; transition: all .15s; letter-spacing: 0.02em;
+    .nav-top-btn {
+      padding: 9px 18px; border: none; background: none; color: var(--muted);
+      cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
+      border-bottom: 2px solid transparent; transition: all .15s; white-space: nowrap;
     }
-    .tab-btn:hover { color: var(--text); }
-    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .nav-top-btn:hover { color: var(--text); }
+    .nav-top-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .nav-sub {
+      display: flex; gap: 2px; padding: 0 20px;
+      max-width: 1600px; margin: 0 auto;
+      background: rgba(255,255,255,0.02);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      min-height: 36px; align-items: stretch;
+    }
+    .nav-sub-btn {
+      padding: 6px 14px; border: none; background: none; color: var(--muted);
+      cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 500;
+      border-bottom: 2px solid transparent; transition: all .15s;
+    }
+    .nav-sub-btn:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+    .nav-sub-btn.active { color: var(--accent); border-bottom-color: var(--accent); background: rgba(99,179,237,0.06); }
+    .nav-sub-btn.placeholder { color: rgba(255,255,255,0.2); cursor: default; font-style: italic; }
+    .nav-sub-btn.placeholder:hover { background: none; color: rgba(255,255,255,0.2); }
 
     /* ── LAYOUT ── */
     main { max-width: 1600px; margin: 0 auto; padding: 20px; }
@@ -309,15 +327,20 @@
       <button id="pushOfficialBtn" class="btn btn-primary">↑ Push to Official</button>
     </div>
   </div>
-  <div class="tab-bar" id="tabs"></div>
+  <div class="nav-top" id="navTop"></div>
+  <div class="nav-sub" id="navSub"></div>
 </div>
 
 <main>
   <section id="tab-plan" class="tab-panel"></section>
   <section id="tab-products" class="tab-panel"></section>
   <section id="tab-flow" class="tab-panel"></section>
-  <section id="tab-demand" class="tab-panel"></section>
-  <section id="tab-data" class="tab-panel"></section>
+  <section id="tab-demand-external" class="tab-panel"></section>
+  <section id="tab-demand-internal" class="tab-panel"></section>
+  <section id="tab-demand-total" class="tab-panel"></section>
+  <section id="tab-logistics-shipments" class="tab-panel"></section>
+  <section id="tab-logistics-imports" class="tab-panel"></section>
+  <section id="tab-logistics-transfers" class="tab-panel"></section>
 </main>
 
 <!-- Modals -->

@@ -87,29 +87,25 @@ function renderPlan(){
   const plan = buildProductionPlanView(state, startDate, 35);
   const todayStr = today();
 
-  // Compute KPIs from plan
   const allAlerts = Object.entries(plan.alertSummary||{})
     .flatMap(([date,arr])=>(arr||[]).map(a=>({...a,date})));
   const stockouts = allAlerts.filter(a=>a.severity==='stockout');
   const overflows = allAlerts.filter(a=>a.severity==='full');
-  const warnings = allAlerts.filter(a=>a.warn && a.severity!=='stockout' && a.severity!=='full');
-
-  // Days until first stockout
+  const warnings  = allAlerts.filter(a=>a.warn && a.severity!=='stockout' && a.severity!=='full');
   let firstStockout = stockouts.length ? stockouts.reduce((min,a)=>a.date<min?a.date:min, stockouts[0].date) : null;
-  const daysUntilStockout = firstStockout ? Math.max(0, Math.round((new Date(firstStockout)-new Date(todayStr))/(86400000))) : null;
+  const daysUntilStockout = firstStockout ? Math.max(0, Math.round((new Date(firstStockout)-new Date(todayStr))/86400000)) : null;
 
-  /* ── KPI section ── */
   const kpiHTML = `<div class="kpi-row">
     <div class="kpi-card ${stockouts.length?'kpi-danger':'kpi-ok'}">
       <div class="kpi-label">🚨 Stockout Alerts</div>
       <div class="kpi-value" style="color:${stockouts.length?'var(--danger)':'var(--ok)'}">${stockouts.length}</div>
-      <div class="kpi-sub">${stockouts.length ? `in next 35 days` : 'None detected ✓'}</div>
+      <div class="kpi-sub">${stockouts.length?'in next 35 days':'None detected ✓'}</div>
     </div>
-    ${daysUntilStockout!==null ? `<div class="kpi-card kpi-danger">
+    ${daysUntilStockout!==null?`<div class="kpi-card kpi-danger">
       <div class="kpi-label">⏱ First Stockout</div>
       <div class="kpi-value" style="color:var(--warn)">${daysUntilStockout}d</div>
       <div class="kpi-sub">${firstStockout?.slice(5)} · ${stockouts[0]?.storageName||''}</div>
-    </div>` : ''}
+    </div>`:''}
     <div class="kpi-card ${overflows.length?'kpi-warn':'kpi-neutral'}">
       <div class="kpi-label">⚠ Capacity Breaches</div>
       <div class="kpi-value" style="color:${overflows.length?'var(--warn)':'var(--muted)'}">${overflows.length}</div>
@@ -127,116 +123,189 @@ function renderPlan(){
     </div>
   </div>`;
 
-  /* ── Alert strip ── */
-  const alertChips = [...stockouts.map(a=>`<div class="alert-chip chip-stockout">🔴 ${a.date.slice(5)} ${esc(a.storageName)} — STOCKOUT</div>`),
+  const alertChips = [
+    ...stockouts.map(a=>`<div class="alert-chip chip-stockout">🔴 ${a.date.slice(5)} ${esc(a.storageName)} — STOCKOUT</div>`),
     ...overflows.map(a=>`<div class="alert-chip chip-full">🟡 ${a.date.slice(5)} ${esc(a.storageName)} — FULL</div>`),
     ...warnings.slice(0,4).map(a=>`<div class="alert-chip chip-high">△ ${a.date.slice(5)} ${esc(a.storageName)} &gt;75%</div>`)
   ].join('');
+  const alertStripHTML = (stockouts.length+overflows.length+warnings.length)>0
+    ? `<div style="margin-bottom:16px;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(245,158,11,0.05));border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px 16px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--danger);margin-bottom:8px;">⚡ Action Required</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">${alertChips}</div></div>`
+    : `<div style="margin-bottom:16px;padding:10px 14px;background:var(--ok-bg);border:1px solid rgba(34,197,94,0.3);border-radius:8px;font-size:12px;color:#86efac;">✅ <strong>All clear</strong> — No stockouts or capacity issues in the planning horizon.</div>`;
 
-  const alertStripHTML = (stockouts.length+overflows.length+warnings.length)>0 ? `
-  <div style="margin-bottom:16px;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(245,158,11,0.05));border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px 16px;">
-    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--danger);margin-bottom:8px;display:flex;align-items:center;gap:6px;">
-      ⚡ Action Required
-    </div>
-    <div style="display:flex;flex-wrap:wrap;gap:6px;">${alertChips}</div>
-  </div>` : `<div style="margin-bottom:16px;padding:10px 14px;background:var(--ok-bg);border:1px solid rgba(34,197,94,0.3);border-radius:8px;font-size:12px;color:#86efac;display:flex;align-items:center;gap:8px;">✅ <strong>All clear</strong> — No stockouts or capacity issues in the planning horizon.</div>`;
-
-  /* ── Plan table renderer ── */
   const productColor = pid => {
     const base = ['#3b82f6','#a78bfa','#22c55e','#f59e0b','#ec4899','#06b6d4','#f97316','#84cc16'];
     let h=0; (pid||'').split('').forEach(c=>h=(h*31+c.charCodeAt(0))>>>0);
     return base[h%base.length];
   };
+  const isWeekendDate = d => [0,6].includes(new Date(d+'T00:00:00').getDay());
+  const wkdColStyle = 'background:rgba(239,68,68,0.06);border-left:1px solid rgba(239,68,68,0.3);';
 
-  const renderPlanTable = (rows, title) => {
-    const cols = plan.dates.map(d => {
-      const isToday = d===todayStr;
-      const isWeekend = [0,6].includes(new Date(d+'T00:00:00').getDay());
-      const mm = d.slice(5,7); const dd = d.slice(8,10);
-      return `<th class="${isToday?'cell-today':''}" style="${isWeekend?'color:var(--muted)':''}">${mm}/${dd}</th>`;
-    }).join('');
+  // Build unified row list from all 4 sections
+  const SECTIONS = [
+    { id:'bod',  title:'INVENTORY — BEGINNING OF DAY (STn)', rows: plan.inventoryBODRows  },
+    { id:'prod', title:'EQUIPMENT PRODUCTION (STn/day)',      rows: plan.productionRows     },
+    { id:'out',  title:'OUTFLOWS — SHIPMENTS & CONSUMPTION (STn)', rows: plan.outflowRows  },
+    { id:'eod',  title:'INVENTORY — END OF DAY (STn)',        rows: plan.inventoryEODRows   },
+  ];
+  const unifiedRows = [];
+  let subCounter = 0;
+  SECTIONS.forEach(sec => {
+    unifiedRows.push({ _type:'section-header', _secId:sec.id, label:sec.title });
+    let currentSubId = null;
+    sec.rows.forEach(r => {
+      if(r.kind==='group'){
+        unifiedRows.push({ _type:'group-label', _secId:sec.id, label:r.label });
+        currentSubId = null;
+        return;
+      }
+      if(r.kind==='subtotal'){
+        const subId = `sub_${subCounter++}`;
+        currentSubId = subId;
+        unifiedRows.push({ ...r, _type:'subtotal-header', _secId:sec.id, _subId:subId });
+        return;
+      }
+      unifiedRows.push({ ...r, _type:'child', _secId:sec.id, _subId:currentSubId });
+    });
+  });
 
-    const cellRows = rows.map(r => {
-      if(r.kind==='group') return `<tr><td colspan="${1+plan.dates.length}" class="plan-section-header">${esc(r.label)}</td></tr>`;
-      const isSubtotal = r.kind==='subtotal';
-      const rowCells = plan.dates.map(d => {
-        const isToday = d===todayStr;
-        const todayClass = isToday ? ' cell-today' : '';
-        const v = r.values?.[d]||0;
+  // Date header
+  const dateHeaders = plan.dates.map(d => {
+    const isWk = isWeekendDate(d); const isTd = d===todayStr;
+    const mm=d.slice(5,7); const dd2=d.slice(8,10);
+    let sty = isWk ? wkdColStyle : '';
+    if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
+    return `<th style="min-width:44px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">${mm}/${dd2}</th>`;
+  }).join('');
 
-        if(r.rowType==='equipment' && r.equipmentId){
-          const meta = plan.equipmentCellMeta?.[`${d}|${r.equipmentId}`];
-          if(!meta || meta.status==='idle') return `<td class="num cell-idle${todayClass}" style="color:var(--muted);font-size:10px"></td>`;
-          if(meta.status==='maintenance') return `<td class="num cell-maint${todayClass}" style="font-size:10px">MNT</td>`;
-          const color = productColor(meta.productId);
-          const capped = meta.constraint?.type==='capped';
-          const isActual = meta.source==='actual';
-          const title = `${isActual?'✓ Actual':'Plan'}: ${meta.totalQty?.toFixed(0)} STn${meta.productId?' · '+esc(s.getMaterial(meta.productId)?.code||meta.productId):''}${capped?' ⚠ capped: '+meta.constraint.reason:''}`;
-          return `<td class="num${todayClass}" style="background:${color}18;border-left:2px solid ${color}40;font-size:10px;" title="${esc(title)}">${fmt0(v)}${isActual?' <span style="color:'+color+'80;font-size:8px">✓</span>':''}${capped?' <span style="color:var(--warn);font-size:8px">⚠</span>':''}</td>`;
-        }
+  // Cell renderer
+  const renderDataCells = r => plan.dates.map(d => {
+    const isWk = isWeekendDate(d); const isTd = d===todayStr;
+    const isSubtotal = r._type==='subtotal-header';
+    const v = r.values?.[d]||0;
+    let baseSty = isWk ? wkdColStyle : '';
+    if(isTd) baseSty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
 
-        if(r.storageId){
-          const imeta = plan.inventoryCellMeta?.[`${d}|${r.storageId}`];
-          if(imeta){
-            let cls='num'; let sty='';
-            const ttip = imeta.reason || (imeta.warn==='high75'?`>75% capacity (${fmt0(imeta.eod)}/${fmt0(imeta.maxCap)})`:'');
-            if(imeta.severity==='stockout'){ cls+=' cell-stockout'; }
-            else if(imeta.severity==='full'){ cls+=' cell-full'; }
-            else if(imeta.warn==='high75'){ cls+=' cell-high75'; }
-            const dot = imeta.severity==='stockout' ? '🔴 ' : imeta.severity==='full' ? '🟡 ' : imeta.warn ? '△ ' : '';
-            return `<td class="${cls}${todayClass}" title="${esc(ttip)}" style="font-size:10px${isSubtotal?';font-weight:700':''}${sty}">${dot}${fmt0(v)}</td>`;
-          }
-        }
+    if(r.rowType==='equipment' && r.equipmentId){
+      const meta = plan.equipmentCellMeta?.[`${d}|${r.equipmentId}`];
+      if(!meta || meta.status==='idle') return `<td class="num" style="${baseSty}color:var(--muted);font-size:10px"></td>`;
+      if(meta.status==='maintenance') return `<td class="num" style="${baseSty}font-size:10px;font-style:italic;color:var(--muted)">MNT</td>`;
+      const color = productColor(meta.productId);
+      const capped = meta.constraint?.type==='capped';
+      const isActual = meta.source==='actual';
+      const tip = `${isActual?'✓ Actual':'Plan'}: ${(meta.totalQty||0).toFixed(0)} STn${meta.productId?' · '+(s.getMaterial(meta.productId)?.code||meta.productId):''}${capped?' ⚠ '+meta.constraint.reason:''}`;
+      return `<td class="num" style="${baseSty}background:${color}18;border-left:2px solid ${color}40;font-size:10px;" title="${esc(tip)}">${fmt0(v)}${isActual?`<span style="color:${color}80;font-size:8px"> ✓</span>`:''}${capped?'<span style="color:var(--warn);font-size:8px"> ⚠</span>':''}</td>`;
+    }
+    if(r.storageId){
+      const imeta = plan.inventoryCellMeta?.[`${d}|${r.storageId}`];
+      if(imeta){
+        const tip = imeta.reason||(imeta.warn==='high75'?`>75% capacity (${fmt0(imeta.eod)}/${fmt0(imeta.maxCap)})`:'');
+        if(imeta.severity==='stockout')    baseSty += 'background:rgba(239,68,68,0.18);color:#fca5a5;font-weight:700;';
+        else if(imeta.severity==='full')   baseSty += 'background:rgba(245,158,11,0.18);color:#fcd34d;font-weight:700;';
+        else if(imeta.warn==='high75')     baseSty += 'color:var(--warn);';
+        const dot = imeta.severity==='stockout'?'🔴 ':imeta.severity==='full'?'🟡 ':imeta.warn?'△ ':'';
+        return `<td class="num" style="${baseSty}font-size:10px${isSubtotal?';font-weight:700':''}" title="${esc(tip)}">${dot}${fmt0(v)}</td>`;
+      }
+    }
+    return `<td class="num" style="${baseSty}font-size:10px;${isSubtotal?'font-weight:700;':'color:var(--muted);'}">${v?fmt0(v):''}</td>`;
+  }).join('');
 
-        return `<td class="num${todayClass}" style="font-size:10px${isSubtotal?';font-weight:700':'color:var(--muted)'}">${v?fmt0(v):''}</td>`;
-      }).join('');
-
-      const labelStyle = isSubtotal ? 'font-weight:700;background:rgba(255,255,255,0.03);' : '';
-      return `<tr><td class="row-header" style="${labelStyle}" title="${esc(r.productLabel||r.label)}">${esc(r.label)}</td>${rowCells}</tr>`;
-    }).join('');
-
-    return `<div style="margin-bottom:2px;padding:4px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--muted)">${title}</div>
-    <div class="table-scroll" style="max-height:280px;margin-bottom:16px;border-radius:8px;overflow:hidden;border:1px solid var(--border)">
-      <table class="data-table plan-table" style="min-width:max-content;width:100%">
-        <thead><tr><th class="row-header" style="min-width:140px">–</th>${cols}</tr></thead>
-        <tbody>${cellRows}</tbody>
-      </table>
-    </div>`;
-  };
+  // Build HTML rows
+  const tableRows = unifiedRows.map(r => {
+    if(r._type==='section-header'){
+      return `<tr class="plan-section-collapse" data-sec="${r._secId}" style="cursor:pointer;user-select:none;">
+        <td colspan="${1+plan.dates.length}" style="background:#0a0d14;border:1px solid var(--border);padding:5px 10px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);">
+          <span class="collapse-icon" data-sec="${r._secId}" style="margin-right:6px;display:inline-block;transition:transform .15s;">▶</span>${esc(r.label)}
+        </td></tr>`;
+    }
+    if(r._type==='group-label'){
+      return `<tr class="sec-child sec-${r._secId}" style="display:none;">
+        <td colspan="${1+plan.dates.length}" style="background:rgba(255,255,255,0.015);border:1px solid var(--border);padding:4px 10px 4px 22px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">${esc(r.label)}</td>
+      </tr>`;
+    }
+    if(r._type==='subtotal-header'){
+      return `<tr class="plan-sub-collapse sec-child sec-${r._secId}" data-sub="${r._subId}" style="cursor:pointer;user-select:none;display:none;">
+        <td class="row-header" style="background:rgba(255,255,255,0.04);font-weight:700;padding-left:14px;" title="${esc(r.productLabel||r.label)}">
+          <span class="collapse-icon sub-icon" data-sub="${r._subId}" style="margin-right:5px;display:inline-block;transition:transform .15s;font-size:9px;">▶</span>${esc(r.label)}
+        </td>${renderDataCells(r)}</tr>`;
+    }
+    return `<tr class="sec-child sec-${r._secId}${r._subId?' sub-child sub-'+r._subId:''}" style="display:none;">
+      <td class="row-header" style="padding-left:${r._subId?'26px':'14px'};" title="${esc(r.productLabel||r.label)}">${esc(r.label)}</td>
+      ${renderDataCells(r)}</tr>`;
+  }).join('');
 
   root.innerHTML = `
   ${kpiHTML}
   ${alertStripHTML}
-
   <div class="card" style="margin-bottom:16px">
     <div class="card-header">
       <div>
         <div class="card-title">📊 35-Day Production Plan</div>
-        <div class="card-sub text-muted" style="font-size:11px">Starting ${startDate} · Campaign colors show producing product · ✓ = actual data · ⚠ = constrained</div>
+        <div class="card-sub text-muted" style="font-size:11px">Starting ${startDate} · ▶ click rows to expand · ✓ = actual · ⚠ = constrained · pink cols = weekends</div>
       </div>
       <div class="flex gap-2">
         <button class="btn" id="openCampaigns">🎯 Campaigns</button>
         <button class="btn btn-primary" id="openActuals">📝 Daily Actuals</button>
       </div>
     </div>
-    <div class="card-body">
-      ${s.equipment.length===0 ? '<div style="padding:40px;text-align:center;color:var(--muted)">No equipment configured. Set up your Process Flow first (kilns, finish mills, storages).</div>' : ''}
-      ${renderPlanTable(plan.inventoryBODRows, 'Inventory — Beginning of Day (STn)')}
-      ${renderPlanTable(plan.productionRows, 'Equipment Production (STn/day)')}
-      ${renderPlanTable(plan.outflowRows, 'Outflows: Shipments & Internal Consumption (STn)')}
-      ${renderPlanTable(plan.inventoryEODRows, 'Inventory — End of Day (STn)')}
+    <div class="card-body" style="padding:0">
+      ${s.equipment.length===0?'<div style="padding:40px;text-align:center;color:var(--muted)">No equipment configured. Set up your Process Flow first.</div>':''}
+      <div class="table-scroll">
+        <table class="data-table plan-table" style="min-width:max-content;width:100%">
+          <thead><tr>
+            <th class="row-header" style="min-width:160px;position:sticky;left:0;background:#0a0d14;z-index:5;">Row</th>
+            ${dateHeaders}
+          </tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
     </div>
   </div>
-
   <div style="font-size:11px;color:var(--muted);padding:4px 0 16px">
-    🔴 Red = Stockout · 🟡 Yellow = Overflow/&gt;75% cap · Colored cells = equipment running campaign · Gray = idle · MNT = maintenance
+    🔴 Stockout · 🟡 Overflow · △ &gt;75% cap · Colored = campaign · MNT = maintenance · Pink cols = weekend
   </div>`;
+
+  // Section collapse logic
+  root.querySelectorAll('.plan-section-collapse').forEach(hdr => {
+    const secId = hdr.dataset.sec;
+    let open = false;
+    const icon = hdr.querySelector('.collapse-icon');
+    hdr.addEventListener('click', () => {
+      open = !open;
+      icon.style.transform = open ? 'rotate(90deg)' : '';
+      root.querySelectorAll(`.sec-child.sec-${secId}`).forEach(row => {
+        const isSub = row.classList.contains('plan-sub-collapse');
+        const isGroupLabel = !isSub && !row.classList.contains('sub-child');
+        if(isSub || isGroupLabel){
+          row.style.display = open ? '' : 'none';
+          if(!open && isSub){
+            const subId = row.dataset.sub;
+            root.querySelectorAll(`.sub-child.sub-${subId}`).forEach(c=>{ c.style.display='none'; });
+            const si = row.querySelector('.sub-icon'); if(si) si.style.transform='';
+          }
+        }
+      });
+    });
+  });
+
+  // Subtotal collapse logic
+  root.querySelectorAll('.plan-sub-collapse').forEach(hdr => {
+    const subId = hdr.dataset.sub;
+    let open = false;
+    const icon = hdr.querySelector('.sub-icon');
+    hdr.addEventListener('click', e => {
+      e.stopPropagation();
+      open = !open;
+      if(icon) icon.style.transform = open ? 'rotate(90deg)' : '';
+      root.querySelectorAll(`.sub-child.sub-${subId}`).forEach(row => { row.style.display = open ? '' : 'none'; });
+    });
+  });
 
   root.querySelector('#openCampaigns').onclick = () => openCampaignDialog();
   root.querySelector('#openActuals').onclick = () => openDailyActualsDialog();
 }
 
-/* ─────────────────── PRODUCTS TAB ─────────────────── */
 function renderProducts(){
   const root = el('tab-products');
   const s = selectors(state);

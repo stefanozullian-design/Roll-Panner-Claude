@@ -266,40 +266,43 @@ function renderPlan(){
     🔴 Stockout · 🟡 Overflow · △ &gt;75% cap · Colored = campaign · MNT = maintenance · Pink cols = weekend
   </div>`;
 
-  // Section collapse logic
-  root.querySelectorAll('.plan-section-collapse').forEach(hdr => {
-    const secId = hdr.dataset.sec;
-    let open = false;
-    const icon = hdr.querySelector('.collapse-icon');
-    hdr.addEventListener('click', () => {
-      open = !open;
-      icon.style.transform = open ? 'rotate(90deg)' : '';
-      root.querySelectorAll(`.sec-child.sec-${secId}`).forEach(row => {
+  // Delegated collapse handler on tbody
+  const secOpenState = {};
+  const subOpenState = {};
+  const tbody = root.querySelector('.plan-table tbody');
+  tbody.addEventListener('click', e => {
+    const subRow = e.target.closest('.plan-sub-collapse');
+    const secRow = e.target.closest('.plan-section-collapse');
+
+    if(subRow){
+      e.stopPropagation();
+      const subId = subRow.dataset.sub;
+      subOpenState[subId] = !subOpenState[subId];
+      const open = subOpenState[subId];
+      const icon = subRow.querySelector('.sub-icon');
+      if(icon) icon.style.transform = open ? 'rotate(90deg)' : '';
+      root.querySelectorAll('.sub-child.sub-' + subId).forEach(row => { row.style.display = open ? '' : 'none'; });
+      return;
+    }
+    if(secRow){
+      const secId = secRow.dataset.sec;
+      secOpenState[secId] = !secOpenState[secId];
+      const open = secOpenState[secId];
+      const icon = secRow.querySelector('.collapse-icon[data-sec="' + secId + '"]');
+      if(icon) icon.style.transform = open ? 'rotate(90deg)' : '';
+      root.querySelectorAll('.sec-child.sec-' + secId).forEach(row => {
         const isSub = row.classList.contains('plan-sub-collapse');
-        const isGroupLabel = !isSub && !row.classList.contains('sub-child');
-        if(isSub || isGroupLabel){
-          row.style.display = open ? '' : 'none';
-          if(!open && isSub){
-            const subId = row.dataset.sub;
-            root.querySelectorAll(`.sub-child.sub-${subId}`).forEach(c=>{ c.style.display='none'; });
-            const si = row.querySelector('.sub-icon'); if(si) si.style.transform='';
-          }
+        const isSubChild = row.classList.contains('sub-child');
+        if(isSubChild) return;
+        row.style.display = open ? '' : 'none';
+        if(!open && isSub){
+          const subId = row.dataset.sub;
+          subOpenState[subId] = false;
+          root.querySelectorAll('.sub-child.sub-' + subId).forEach(c => { c.style.display = 'none'; });
+          const si = row.querySelector('.sub-icon'); if(si) si.style.transform = '';
         }
       });
-    });
-  });
-
-  // Subtotal collapse logic
-  root.querySelectorAll('.plan-sub-collapse').forEach(hdr => {
-    const subId = hdr.dataset.sub;
-    let open = false;
-    const icon = hdr.querySelector('.sub-icon');
-    hdr.addEventListener('click', e => {
-      e.stopPropagation();
-      open = !open;
-      if(icon) icon.style.transform = open ? 'rotate(90deg)' : '';
-      root.querySelectorAll(`.sub-child.sub-${subId}`).forEach(row => { row.style.display = open ? '' : 'none'; });
-    });
+    }
   });
 
   root.querySelector('#openCampaigns').onclick = () => openCampaignDialog();

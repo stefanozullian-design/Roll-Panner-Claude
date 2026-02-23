@@ -228,9 +228,7 @@ function render(){
   if(t==='plan')             renderPlan();
   else if(t==='products')    renderProducts();
   else if(t==='flow')        renderFlow();
-  else if(t==='demand-external') renderDemand('external');
-  else if(t==='demand-internal') renderDemand('internal');
-  else if(t==='demand-total')    renderDemand('total');
+  else if(t==='demand-external' || t==='demand-internal' || t==='demand-total') renderDemand('total');
   else if(t==='logistics-shipments'||t==='logistics-imports'||t==='logistics-transfers') renderLogisticsPlaceholder(t);
 }
 
@@ -1138,15 +1136,16 @@ function renderFlow(){
 }
 
 /* ─────────────────── DEMAND TAB ─────────────────── */
-function renderDemand(mode='external'){
-  const rootId = mode==='total' ? 'tab-demand-total' : mode==='internal' ? 'tab-demand-internal' : 'tab-demand-external';
+function renderDemand(mode='total'){
+  // Always render into demand-total; external/internal redirect here for now
+  const rootId = 'tab-demand-total';
   const root = el(rootId);
   if(!root) return;
   const s = selectors(state);
   const a = actions(state);
   const todayStr = today();
-  const facId = state.ui.selectedFacilityId;
-  const demandTableId = `demand-table-${mode}`;
+  const demandTableId = 'demand-table-total';
+  const ds = s.dataset;
 
   const allDates = buildFullSpine();
   const months   = groupByMonth(allDates);
@@ -1157,89 +1156,176 @@ function renderDemand(mode='external'){
   const isWeekendDate = d => [0,6].includes(new Date(d+'T00:00:00').getDay());
   const wkdColStyle = 'background:rgba(239,68,68,0.06);border-left:1px solid rgba(239,68,68,0.3);';
 
-  // Month-grouped date headers
+  // Facilities in scope
+  const scopeFacIds = s.facilityIds;
+  const scopeFacs   = s.org.facilities.filter(f => scopeFacIds.includes(f.id));
+
+  // For each facility get its active finished products
+  const getFacProducts = facId => s.getFacilityProducts(facId).filter(m => m.category === 'FINISHED_PRODUCT');
+
+  // Get value for a facility+product+date: actual first, then forecast
+  const getVal = (facId, pid, date) => {
+    const actual = ds.actuals.shipments.find(r => r.date===date && r.facilityId===facId && r.productId===pid);
+    if(actual) return { v: +actual.qtyStn||0, isActual: true };
+    const fc = ds.demandForecast.find(r => r.date===date && r.facilityId===facId && r.productId===pid);
+    return { v: fc ? (+fc.qtyStn||0) : 0, isActual: false };
+  };
+
+  // ── Date header ──
   const dateHeaders = months.map(mon => {
     const isCol = collapsed.has(mon.ym);
     const monthTh = `<th class="month-total-th" data-month-ym="${mon.ym}" style="min-width:64px;background:rgba(99,179,237,0.12);border-left:2px solid rgba(99,179,237,0.35);border-right:1px solid rgba(99,179,237,0.2);font-size:9px;font-weight:700;color:#93c5fd;text-align:center;cursor:pointer;user-select:none;white-space:nowrap;padding:3px 6px;" title="Click to toggle ${mon.label}"><span data-month-toggle="${mon.ym}" style="font-size:8px;margin-right:3px">${isCol?'▶':'▼'}</span>${mon.label}</th>`;
     const dayThs = mon.dates.map(d => {
       const isWk = isWeekendDate(d); const isTd = d===todayStr;
-      const dd2 = d.slice(8,10);
       let sty = isWk ? wkdColStyle : '';
       if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
-      return `<th class="day-col-${mon.ym}" style="min-width:44px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">` + dd2 + `</th>`;
+      return `<th class="day-col-${mon.ym}" style="min-width:44px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">${d.slice(8,10)}</th>`;
     }).join('');
     return monthTh + dayThs;
   }).join('');
 
-  // Product rows — month total + day cells
-  const productRows = s.finishedProducts.map(fp => {
-    const allCells = months.map(mon => {
-      const monthTotal = mon.dates.reduce((sum, d) => {
-        const actual = s.dataset.actuals.shipments.find(r => r.date===d && r.facilityId===facId && r.productId===fp.id);
-        const fc = s.dataset.demandForecast.find(r => r.date===d && r.facilityId===facId && r.productId===fp.id);
-        return sum + (+((actual||fc)?.qtyStn)||0);
-      }, 0);
-      const monthCell = `<td class="num" style="background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd">${monthTotal?fmt0(monthTotal):''}</td>`;
-      const dayCells = mon.dates.map(d => {
-        const isWk = isWeekendDate(d); const isTd = d===todayStr;
-        let sty = isWk ? wkdColStyle : '';
-        if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
-        const actual = s.dataset.actuals.shipments.find(r => r.date===d && r.facilityId===facId && r.productId===fp.id);
-        const fc = s.dataset.demandForecast.find(r => r.date===d && r.facilityId===facId && r.productId===fp.id);
-        if(actual) return `<td class="num day-col-${mon.ym}" style="${sty}background:rgba(34,197,94,0.12);color:#86efac;font-size:10px;font-weight:600;" title="Confirmed actual">${fmt0(actual.qtyStn)}</td>`;
-        return `<td class="day-col-${mon.ym}" style="${sty}padding:1px 2px;"><input class="cell-input demand-input" data-date="${d}" data-product="${fp.id}" value="${fc?fc.qtyStn:''}" style="width:100%;min-width:44px;background:transparent;border:none;color:var(--fg);font-size:10px;text-align:right;padding:3px 4px;border-radius:3px;" /></td>`;
-      }).join('');
-      return monthCell + dayCells;
+  // ── Row builder helpers ──
+  const makeCells = (getCellData) => months.map(mon => {
+    let monthTotal = 0;
+    const dayCells = mon.dates.map(d => {
+      const isWk = isWeekendDate(d); const isTd = d===todayStr;
+      let sty = isWk ? wkdColStyle : '';
+      if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
+      const cell = getCellData(d, mon.ym, sty);
+      monthTotal += cell.total || 0;
+      return cell.html;
     }).join('');
-    return `<tr><td class="row-header" style="position:sticky;left:0;background:var(--surface);z-index:2;font-size:11px;font-weight:600;" title="${esc(fp.name)}">${esc(fp.name)}</td>${allCells}</tr>`;
-  }).join('') || `<tr><td class="text-muted" colspan="9999" style="text-align:center;padding:20px;font-size:12px;">No finished products defined.</td></tr>`;
+    const monthCell = `<td class="num" style="background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd">${monthTotal ? fmt0(monthTotal) : ''}</td>`;
+    return monthCell + dayCells;
+  }).join('');
+
+  // ── Build rows ──
+  let bodyRows = '';
+
+  if(!scopeFacs.length){
+    bodyRows = `<tr><td class="text-muted" colspan="9999" style="text-align:center;padding:20px;font-size:12px;">No facilities in scope. Select a facility or region.</td></tr>`;
+  } else {
+
+    // GRAND TOTAL row — sum of all facilities × all products
+    const grandTotalCells = makeCells((d) => {
+      let total = 0;
+      scopeFacs.forEach(fac => {
+        getFacProducts(fac.id).forEach(fp => { total += getVal(fac.id, fp.id, d).v; });
+      });
+      return { total, html: `<td class="num day-col-${months.find(m=>m.dates.includes(d))?.ym||''}" style="font-size:10px;font-weight:700;">${total ? fmt0(total) : ''}</td>` };
+    });
+    bodyRows += `<tr style="background:rgba(99,179,237,0.08);">
+      <td class="row-header" style="position:sticky;left:0;background:#0f1a2e;z-index:3;font-size:11px;font-weight:700;color:#93c5fd;padding-left:8px;">▶ TOTAL ALL FACILITIES</td>
+      ${grandTotalCells}
+    </tr>`;
+
+    // Per facility block
+    scopeFacs.forEach(fac => {
+      const facProds = getFacProducts(fac.id);
+      if(!facProds.length) return;
+
+      // Facility subtotal row — collapsible
+      const facRowId = `fac-rows-${fac.id}`;
+      const facTotalCells = makeCells((d) => {
+        let total = 0;
+        facProds.forEach(fp => { total += getVal(fac.id, fp.id, d).v; });
+        const mon = months.find(m => m.dates.includes(d));
+        return { total, html: `<td class="num day-col-${mon?.ym||''}" style="font-size:10px;font-weight:700;">${total ? fmt0(total) : ''}</td>` };
+      });
+      bodyRows += `<tr class="fac-header-row" data-fac-toggle="${fac.id}" style="cursor:pointer;background:rgba(255,255,255,0.04);border-top:2px solid var(--border2);">
+        <td class="row-header" style="position:sticky;left:0;background:#131c2e;z-index:3;font-size:11px;font-weight:700;padding-left:8px;">
+          <span class="fac-chevron" data-fac-id="${fac.id}" style="font-size:9px;margin-right:4px;">▶</span>${esc(fac.name)} / SHIPMENT / CEM
+        </td>
+        ${facTotalCells}
+      </tr>`;
+
+      // Product rows under this facility (hidden by default, toggled)
+      facProds.forEach(fp => {
+        const prodCells = makeCells((d, ym, sty) => {
+          const { v, isActual } = getVal(fac.id, fp.id, d);
+          let html;
+          if(isActual){
+            html = `<td class="num day-col-${ym}" style="${sty}background:rgba(34,197,94,0.12);color:#86efac;font-size:10px;font-weight:600;" title="Actual">${v ? fmt0(v) : ''}</td>`;
+          } else {
+            html = `<td class="day-col-${ym}" style="${sty}padding:1px 2px;"><input class="cell-input demand-input" data-fac="${fac.id}" data-date="${d}" data-product="${fp.id}" value="${v||''}" style="width:100%;min-width:44px;background:transparent;border:none;color:var(--text);font-size:10px;text-align:right;padding:3px 4px;border-radius:3px;" /></td>`;
+          }
+          return { total: v, html };
+        });
+        bodyRows += `<tr class="fac-product-row fac-rows-${fac.id}" style="display:none;">
+          <td class="row-header" style="position:sticky;left:0;background:var(--surface);z-index:2;font-size:11px;padding-left:24px;" title="${esc(fp.name)}">${esc(fac.code||fac.name)} / ${esc(fp.name)}</td>
+          ${prodCells}
+        </tr>`;
+      });
+    });
+  }
 
   root.innerHTML = `
   <div class="card">
     <div class="card-header">
       <div>
-        <div class="card-title">${modeLabel}</div>
-        <div class="card-sub text-muted" style="font-size:11px">3-year view · Click month header to expand/collapse · Green = confirmed actual · White = forecast · Pink = weekends</div>
+        <div class="card-title">📊 Demand Plan — Total Shipments</div>
+        <div class="card-sub text-muted" style="font-size:11px">All facilities · 3-year view · Click facility row to expand · 🟢 Green = confirmed actual · White = forecast · Pink = weekends</div>
       </div>
-      <div class="flex gap-2">
+      <div style="display:flex;gap:8px;">
         <button id="openForecastTool" class="btn">⚙ Forecast Tool</button>
-        <button id="saveDemandBtn" class="btn btn-primary">Save Forecast</button>
+        <button id="saveDemandBtn" class="btn btn-primary">💾 Save Forecast</button>
       </div>
     </div>
     <div class="card-body" style="padding:0">
-      ${!s.finishedProducts.length ? '<div style="padding:20px;background:var(--warn-bg);border:1px solid rgba(245,158,11,0.3);border-radius:8px;color:#fcd34d;font-size:12px;margin:16px;">⚠ No finished products defined. Add them in Products & Recipes.</div>' : ''}
-      <div class="table-scroll">
+      <div class="table-scroll" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 180px)">
         <table class="data-table plan-table" id="${demandTableId}" style="min-width:max-content;width:100%">
           <thead><tr>
-            <th class="row-header" style="min-width:160px;position:sticky;left:0;background:#0a0d14;z-index:5;">Product</th>
+            <th class="row-header" style="min-width:200px;position:sticky;left:0;background:#0a0d14;z-index:5;">Facility / Product</th>
             ${dateHeaders}
           </tr></thead>
-          <tbody>${productRows}</tbody>
+          <tbody>${bodyRows}</tbody>
         </table>
       </div>
     </div>
   </div>
   <div style="font-size:11px;color:var(--muted);padding:4px 0 16px">
-    🟢 Green = confirmed actual shipment (locked) · Enter forecast quantities in empty cells · Pink columns = weekend
+    🟢 Green = confirmed actual (locked) · Enter forecast in white cells · Click facility row to expand/collapse · Pink = weekend
   </div>`;
 
+  // ── Facility row expand/collapse ──
+  root.querySelectorAll('.fac-header-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const facId = row.dataset.facToggle;
+      const chevron = row.querySelector('.fac-chevron');
+      const productRows = root.querySelectorAll(`.fac-rows-${facId}`);
+      const isOpen = productRows.length && productRows[0].style.display !== 'none';
+      productRows.forEach(r => r.style.display = isOpen ? 'none' : '');
+      if(chevron) chevron.textContent = isOpen ? '▶' : '▼';
+    });
+  });
+
+  // ── Save forecast ──
   root.querySelector('#saveDemandBtn').onclick = () => {
     const rows = [...root.querySelectorAll('.demand-input')]
-      .map(i=>({date:i.dataset.date, productId:i.dataset.product, qtyStn:+i.value||0}))
-      .filter(r=>r.qtyStn>0);
-    a.saveDemandForecastRows(rows); persist(); renderDemand(mode); renderPlan(); showToast('Forecast saved ✓');
+      .map(i => ({ date: i.dataset.date, facilityId: i.dataset.fac, productId: i.dataset.product, qtyStn: +i.value||0 }))
+      .filter(r => r.qtyStn > 0 && r.facilityId && r.productId);
+    // Save per facility
+    const byFac = {};
+    rows.forEach(r => { if(!byFac[r.facilityId]) byFac[r.facilityId] = []; byFac[r.facilityId].push(r); });
+    Object.entries(byFac).forEach(([facId, facRows]) => {
+      facRows.forEach(r => {
+        const key = `${r.date}|${facId}|${r.productId}`;
+        ds.demandForecast = ds.demandForecast.filter(x => `${x.date}|${x.facilityId}|${x.productId}` !== key);
+        ds.demandForecast.push({ date: r.date, facilityId: facId, productId: r.productId, qtyStn: r.qtyStn, source: 'forecast' });
+      });
+    });
+    persist(); renderDemand('total'); renderPlan(); showToast('Forecast saved ✓');
   };
 
-  // Month collapse toggle (synced across all tables)
+  // ── Month collapse toggle (synced with supply plan) ──
   root.querySelector(`#${demandTableId}`)?.querySelector('thead')?.addEventListener('click', e => {
     const th = e.target.closest('[data-month-ym]');
     if(!th) return;
     toggleMonth(th.dataset.monthYm, demandTableId);
     applyCollapseStyle('planTable', loadCollapsedMonths());
-    applyCollapseStyle('demand-table-external', loadCollapsedMonths());
-    applyCollapseStyle('demand-table-internal', loadCollapsedMonths());
     applyCollapseStyle('demand-table-total', loadCollapsedMonths());
   });
+
   root.querySelector('#openForecastTool').onclick = () => openForecastToolDialog();
 }
 
@@ -1341,7 +1427,7 @@ function openForecastToolDialog(){
     const keys=new Set(rows.map(r=>`${r.date}|${fac}|${r.productId}`));
     s.dataset.demandForecast=s.dataset.demandForecast.filter(x=>!keys.has(`${x.date}|${x.facilityId}|${x.productId}`));
     rows.filter(r=>(+r.qtyStn||0)>0&&!hasActual(r.date,r.productId)).forEach(r=>s.dataset.demandForecast.push({date:r.date,facilityId:fac,productId:r.productId,qtyStn:+r.qtyStn,source:'forecast'}));
-    persist(); renderDemand(state.ui.activeTab.replace('demand-','')||'external'); renderPlan();
+    persist(); renderDemand('total'); renderPlan();
     q('fcMsg').innerHTML=`<span style="color:var(--ok)">✓ Applied</span> — `+[...msg].join(' · ');
     showToast('Forecast applied ✓');
   };
@@ -2148,27 +2234,7 @@ function openDataIODialog(){
 
   // ── JSON SAVE ──
   const saveOfficial = () => {
-    downloadJSON({
-      _type: 'official',
-      _savedAt: new Date().toISOString(),
-      _version: 2,
-      org: state.org,
-      catalog: state.catalog,
-      data: {
-        facilityProducts: state.official.facilityProducts || [],
-        recipes:          state.official.recipes          || [],
-        equipment:        state.official.equipment        || [],
-        storages:         state.official.storages         || [],
-        capabilities:     state.official.capabilities     || [],
-        demandForecast:   state.official.demandForecast   || [],
-        campaigns:        state.official.campaigns        || [],
-        actuals: {
-          inventoryEOD: state.official.actuals?.inventoryEOD || [],
-          production:   state.official.actuals?.production   || [],
-          shipments:    state.official.actuals?.shipments    || [],
-        }
-      }
-    }, `official_${dateStr}.json`);
+    downloadJSON({ _type:'official', _savedAt: new Date().toISOString(), org: state.org, catalog: state.catalog, data: state.official }, `official_${dateStr}.json`);
     showToast('Official saved ✓', 'ok');
   };
 
@@ -2190,27 +2256,13 @@ function openDataIODialog(){
         try {
           const obj = JSON.parse(e.target.result);
           if(target === 'official'){
-            if(!confirm(`Load "${file.name}" into Official? This will overwrite all Official data including equipment, recipes, storages and capabilities.`)) return;
-            if(obj.org)     state.org     = obj.org;
+            if(!confirm(`Load "${file.name}" into Official? This will overwrite Official data.`)) return;
+            if(obj.org) state.org = obj.org;
             if(obj.catalog) state.catalog = obj.catalog;
-            if(obj.data)    state.official = obj.data;
+            if(obj.data) state.official = obj.data;
             else if(obj.sandbox) state.official = obj.sandbox; // legacy
-            // Ensure all expected fields exist
-            state.official.facilityProducts = state.official.facilityProducts || [];
-            state.official.recipes          = state.official.recipes          || [];
-            state.official.equipment        = state.official.equipment        || [];
-            state.official.storages         = state.official.storages         || [];
-            state.official.capabilities     = state.official.capabilities     || [];
-            state.official.demandForecast   = state.official.demandForecast   || [];
-            state.official.campaigns        = state.official.campaigns        || [];
-            state.official.actuals          = state.official.actuals          || { inventoryEOD:[], production:[], shipments:[] };
-            state.official.actuals.inventoryEOD = state.official.actuals.inventoryEOD || [];
-            state.official.actuals.production   = state.official.actuals.production   || [];
-            state.official.actuals.shipments    = state.official.actuals.shipments    || [];
-            // Switch to official mode so user sees loaded data immediately
-            state.ui.mode = 'official';
             persist(); render();
-            showToast('Official loaded ✓ — you are now in Official mode', 'ok');
+            showToast('Official loaded ✓', 'ok');
           } else {
             // Load into a new sandbox scenario
             const name = obj._name || file.name.replace('.json','');

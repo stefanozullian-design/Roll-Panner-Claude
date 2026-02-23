@@ -8,39 +8,72 @@ export const Categories = {
 };
 
 // Resolve which facilities are in scope for the current selection
-// selectedFacilityId can be a facilityId, subRegionId, regionId, or countryId
+// selectedFacilityIds can be an array of facilityId, subRegionId, regionId, or countryId
 export function resolveScope(state){
-  const sel = state.ui.selectedFacilityId;
   const org = state.org;
 
-  // Direct facility match
-  if(org.facilities.find(f=>f.id===sel)){
-    const fac = org.facilities.find(f=>f.id===sel);
-    const sr  = org.subRegions.find(s=>s.id===fac.subRegionId);
-    const r   = sr ? org.regions.find(x=>x.id===sr.regionId) : null;
-    return { type:'facility', facilityIds:[sel], regionId: r?.id||null, subRegionId: sr?.id||null };
+  // Support both legacy single id and new multi-select array
+  const rawIds = state.ui.selectedFacilityIds?.length
+    ? state.ui.selectedFacilityIds
+    : state.ui.selectedFacilityId
+      ? [state.ui.selectedFacilityId]
+      : [];
+
+  if(!rawIds.length) {
+    return { type:'none', facilityIds:[], regionId: null, subRegionId: null };
   }
-  // Sub-region match
-  if(org.subRegions.find(s=>s.id===sel)){
-    const sr = org.subRegions.find(s=>s.id===sel);
-    const r  = org.regions.find(x=>x.id===sr.regionId);
-    const fids = org.facilities.filter(f=>f.subRegionId===sel).map(f=>f.id);
-    return { type:'subregion', facilityIds:fids, regionId: r?.id||null, subRegionId: sel };
-  }
-  // Region match
-  if(org.regions.find(r=>r.id===sel)){
-    const srIds = org.subRegions.filter(s=>s.regionId===sel).map(s=>s.id);
-    const fids  = org.facilities.filter(f=>srIds.includes(f.subRegionId)).map(f=>f.id);
-    return { type:'region', facilityIds:fids, regionId: sel, subRegionId: null };
-  }
-  // Country match
-  if(org.countries.find(c=>c.id===sel)){
-    const rIds  = org.regions.filter(r=>r.countryId===sel).map(r=>r.id);
-    const srIds = org.subRegions.filter(s=>rIds.includes(s.regionId)).map(s=>s.id);
-    const fids  = org.facilities.filter(f=>srIds.includes(f.subRegionId)).map(f=>f.id);
-    return { type:'country', facilityIds:fids, regionId: null, subRegionId: null };
-  }
-  return { type:'none', facilityIds:[], regionId: null, subRegionId: null };
+
+  // Expand each selected id to facility ids
+  const allFacIds = new Set();
+  let regionIds = new Set();
+  let subRegionIds = new Set();
+
+  rawIds.forEach(sel => {
+    // Direct facility
+    if(org.facilities.find(f=>f.id===sel)){
+      allFacIds.add(sel);
+      const fac = org.facilities.find(f=>f.id===sel);
+      const sr = org.subRegions.find(s=>s.id===fac.subRegionId);
+      if(sr) { subRegionIds.add(sr.id); const r = org.regions.find(x=>x.id===sr.regionId); if(r) regionIds.add(r.id); }
+      return;
+    }
+    // Sub-region
+    if(org.subRegions.find(s=>s.id===sel)){
+      const sr = org.subRegions.find(s=>s.id===sel);
+      subRegionIds.add(sel);
+      const r = org.regions.find(x=>x.id===sr.regionId); if(r) regionIds.add(r.id);
+      org.facilities.filter(f=>f.subRegionId===sel).forEach(f=>allFacIds.add(f.id));
+      return;
+    }
+    // Region
+    if(org.regions.find(r=>r.id===sel)){
+      regionIds.add(sel);
+      const srIds = org.subRegions.filter(s=>s.regionId===sel).map(s=>s.id);
+      srIds.forEach(sid=>subRegionIds.add(sid));
+      org.facilities.filter(f=>srIds.includes(f.subRegionId)).forEach(f=>allFacIds.add(f.id));
+      return;
+    }
+    // Country
+    if(org.countries.find(c=>c.id===sel)){
+      const rIds = org.regions.filter(r=>r.countryId===sel).map(r=>r.id);
+      rIds.forEach(rid=>regionIds.add(rid));
+      const srIds = org.subRegions.filter(s=>rIds.includes(s.regionId)).map(s=>s.id);
+      srIds.forEach(sid=>subRegionIds.add(sid));
+      org.facilities.filter(f=>srIds.includes(f.subRegionId)).forEach(f=>allFacIds.add(f.id));
+    }
+  });
+
+  const facilityIds = [...allFacIds];
+  const type = facilityIds.length === 1 ? 'facility'
+    : rawIds.every(id=>org.facilities.find(f=>f.id===id)) ? 'facility'
+    : rawIds.some(id=>org.subRegions.find(s=>s.id===id)) ? 'subregion'
+    : rawIds.some(id=>org.regions.find(r=>r.id===id)) ? 'region'
+    : 'country';
+
+  const regionId = regionIds.size === 1 ? [...regionIds][0] : (regionIds.size > 1 ? [...regionIds][0] : null);
+  const subRegionId = subRegionIds.size === 1 ? [...subRegionIds][0] : null;
+
+  return { type, facilityIds, regionId, subRegionId };
 }
 
 function getFacilityRegionId(state){
@@ -59,8 +92,11 @@ export function selectors(state){
   const ds = getDataset(state);
   const scope = resolveScope(state);
   const { facilityIds, regionId } = scope;
-  // Primary facility = first in scope (for single-facility operations)
-  const fac = scope.type==='facility' ? state.ui.selectedFacilityId : (facilityIds[0]||null);
+  // Primary facility = first selected facility (for single-facility operations like equipment, recipes)
+  const rawIds = state.ui.selectedFacilityIds?.length ? state.ui.selectedFacilityIds : [];
+  const fac = facilityIds.length === 1 ? facilityIds[0]
+    : rawIds.find(id => state.org.facilities.find(f=>f.id===id))
+    || facilityIds[0] || null;
 
   // Materials: from regional catalog filtered to what any in-scope facility has activated
   // If scope is single facility: only show products that facility has activated
@@ -86,7 +122,7 @@ export function selectors(state){
     catalog: state.catalog,
     scope,
     facilityIds,
-    isSingleFacility: scope.type === 'facility',
+    isSingleFacility: facilityIds.length === 1,
     facility: state.org.facilities.find(f=>f.id===fac),
     facilities: state.org.facilities,
     regionId,

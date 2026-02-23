@@ -711,18 +711,38 @@ function renderProducts(){
           </div>
         </form>
 
-        <div class="table-scroll" style="max-height:360px;border-radius:8px;overflow:hidden;border:1px solid var(--border)">
-          ${isSingleFac ? `<div style="font-size:11px;color:var(--muted);margin-bottom:8px;padding:6px 8px;background:rgba(99,179,237,0.06);border-radius:6px;border:1px solid rgba(99,179,237,0.15)">
+        <div style="border-radius:8px;border:1px solid var(--border);overflow:hidden">
+          ${isSingleFac ? `<div style="font-size:11px;color:var(--muted);padding:6px 8px;background:rgba(99,179,237,0.06);border-bottom:1px solid rgba(99,179,237,0.15)">
             Checkmark = active in <strong>${esc(s.facility?.name||'this facility')}</strong>. Toggle to control which products this facility uses.
-          </div>` : `<div style="font-size:11px;color:var(--muted);margin-bottom:8px;padding:6px 8px;background:rgba(255,255,255,0.04);border-radius:6px">
+          </div>` : `<div style="font-size:11px;color:var(--muted);padding:6px 8px;background:rgba(255,255,255,0.04);border-bottom:1px solid var(--border)">
             Showing region catalog. Select a specific facility to activate/deactivate products per facility.
           </div>`}
-          <table class="data-table">
+          <div style="display:flex;gap:6px;padding:8px;background:var(--surface2);border-bottom:1px solid var(--border);flex-wrap:wrap;align-items:center">
+            <select id="prodFilterCategory" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer">
+              <option value="">All Categories</option>
+              <option value="${Categories.FIN}">Finished Product</option>
+              <option value="${Categories.INT}">Intermediate</option>
+              <option value="${Categories.RAW}">Raw Material</option>
+              <option value="${Categories.FUEL}">Fuel</option>
+            </select>
+            <select id="prodFilterPlant" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer">
+              <option value="">All Plants</option>
+              ${(s.org?.facilities||[]).map(f=>`<option value="${esc(f.id)}">${esc(f.name||f.id)}</option>`).join('')}
+            </select>
+            <button id="prodFilterReset" style="background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer">✕ Reset</button>
+            <span id="prodFilterCount" style="margin-left:auto;font-size:11px;color:var(--muted)"></span>
+          </div>
+          <div class="table-scroll" style="max-height:260px;overflow-y:auto !important">
+          <table class="data-table" id="prodDirectoryTable">
             <thead><tr>${isSingleFac?'<th style="width:36px">Active</th>':''}<th>Name</th><th>Category</th><th>Code</th><th>Actions</th></tr></thead>
             <tbody>
               ${s.regionCatalog.map(m=>{
                 const isActive = !isSingleFac || activatedIds.size===0 || activatedIds.has(m.id);
-                return '<tr style="' + (!isActive?'opacity:0.45':'') + '">'
+                const facIds = (s.org?.facilities||[]).filter(f=>{
+                  const fps = s.dataset?.facilityProducts||[];
+                  return fps.some(fp=>fp.facilityId===f.id && fp.productId===m.id);
+                }).map(f=>f.id).join(',');
+                return '<tr data-category="' + esc(m.category||'') + '" data-facids="' + facIds + '" style="' + (!isActive?'opacity:0.45':'') + '">'
                   + (isSingleFac ? '<td style="text-align:center"><input type="checkbox" class="fac-product-toggle" data-product="' + m.id + '" ' + (isActive?'checked':'') + ' style="cursor:pointer;width:14px;height:14px;accent-color:var(--accent)"></td>' : '')
                   + '<td>' + esc(m.name) + '</td>'
                   + '<td>' + catPill(m.category) + '</td>'
@@ -732,6 +752,7 @@ function renderProducts(){
               }).join('')||'<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">No materials in region catalog yet</td></tr>'}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
     </div>
@@ -795,6 +816,30 @@ function renderProducts(){
       </div>
     </div>
   </div>`;
+
+  // ── Product directory filters ──
+  const applyProdFilters = () => {
+    const catVal  = (el('prodFilterCategory')?.value || '').trim();
+    const plantVal = (el('prodFilterPlant')?.value || '').trim();
+    const rows = document.querySelectorAll('#prodDirectoryTable tbody tr[data-category]');
+    let visible = 0;
+    rows.forEach(tr => {
+      const matchCat   = !catVal   || tr.dataset.category === catVal;
+      const matchPlant = !plantVal || (tr.dataset.facids||'').split(',').includes(plantVal);
+      const show = matchCat && matchPlant;
+      tr.style.display = show ? '' : 'none';
+      if(show) visible++;
+    });
+    const countEl = el('prodFilterCount');
+    if(countEl) countEl.textContent = (catVal || plantVal) ? `${visible} of ${rows.length} shown` : '';
+  };
+  el('prodFilterCategory')?.addEventListener('change', applyProdFilters);
+  el('prodFilterPlant')?.addEventListener('change', applyProdFilters);
+  el('prodFilterReset')?.addEventListener('click', () => {
+    const cf = el('prodFilterCategory'); if(cf) cf.value = '';
+    const pf = el('prodFilterPlant');   if(pf) pf.value = '';
+    applyProdFilters();
+  });
 
   // Wire material form
   const comps = root.querySelector('#recipeComponents');

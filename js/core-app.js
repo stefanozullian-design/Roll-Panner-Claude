@@ -2148,7 +2148,27 @@ function openDataIODialog(){
 
   // ── JSON SAVE ──
   const saveOfficial = () => {
-    downloadJSON({ _type:'official', _savedAt: new Date().toISOString(), org: state.org, catalog: state.catalog, data: state.official }, `official_${dateStr}.json`);
+    downloadJSON({
+      _type: 'official',
+      _savedAt: new Date().toISOString(),
+      _version: 2,
+      org: state.org,
+      catalog: state.catalog,
+      data: {
+        facilityProducts: state.official.facilityProducts || [],
+        recipes:          state.official.recipes          || [],
+        equipment:        state.official.equipment        || [],
+        storages:         state.official.storages         || [],
+        capabilities:     state.official.capabilities     || [],
+        demandForecast:   state.official.demandForecast   || [],
+        campaigns:        state.official.campaigns        || [],
+        actuals: {
+          inventoryEOD: state.official.actuals?.inventoryEOD || [],
+          production:   state.official.actuals?.production   || [],
+          shipments:    state.official.actuals?.shipments    || [],
+        }
+      }
+    }, `official_${dateStr}.json`);
     showToast('Official saved ✓', 'ok');
   };
 
@@ -2170,13 +2190,27 @@ function openDataIODialog(){
         try {
           const obj = JSON.parse(e.target.result);
           if(target === 'official'){
-            if(!confirm(`Load "${file.name}" into Official? This will overwrite Official data.`)) return;
-            if(obj.org) state.org = obj.org;
+            if(!confirm(`Load "${file.name}" into Official? This will overwrite all Official data including equipment, recipes, storages and capabilities.`)) return;
+            if(obj.org)     state.org     = obj.org;
             if(obj.catalog) state.catalog = obj.catalog;
-            if(obj.data) state.official = obj.data;
+            if(obj.data)    state.official = obj.data;
             else if(obj.sandbox) state.official = obj.sandbox; // legacy
+            // Ensure all expected fields exist
+            state.official.facilityProducts = state.official.facilityProducts || [];
+            state.official.recipes          = state.official.recipes          || [];
+            state.official.equipment        = state.official.equipment        || [];
+            state.official.storages         = state.official.storages         || [];
+            state.official.capabilities     = state.official.capabilities     || [];
+            state.official.demandForecast   = state.official.demandForecast   || [];
+            state.official.campaigns        = state.official.campaigns        || [];
+            state.official.actuals          = state.official.actuals          || { inventoryEOD:[], production:[], shipments:[] };
+            state.official.actuals.inventoryEOD = state.official.actuals.inventoryEOD || [];
+            state.official.actuals.production   = state.official.actuals.production   || [];
+            state.official.actuals.shipments    = state.official.actuals.shipments    || [];
+            // Switch to official mode so user sees loaded data immediately
+            state.ui.mode = 'official';
             persist(); render();
-            showToast('Official loaded ✓', 'ok');
+            showToast('Official loaded ✓ — you are now in Official mode', 'ok');
           } else {
             // Load into a new sandbox scenario
             const name = obj._name || file.name.replace('.json','');

@@ -32,8 +32,8 @@ const el = id => document.getElementById(id);
 
 /* ─────────────────── MONTH-COLLAPSE SPINE ─────────────────── */
 // Build full date spine: Jan 2024 → Dec 2026
-const SPINE_START = '2024-01-01';
-const SPINE_END   = '2026-12-31';
+const SPINE_START = '2025-01-01';
+const SPINE_END   = '2027-12-31';
 
 function buildFullSpine(){
   const dates = [];

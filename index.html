@@ -6,7 +6,6 @@
   <title>Cement Production Planner</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
     :root {
@@ -258,6 +257,46 @@
     .kpi-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 6px; }
     .kpi-value { font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 600; line-height: 1; }
     .kpi-sub { font-size: 10px; color: var(--muted); margin-top: 4px; }
+
+    /* ── COLLAPSIBLE KPI PANEL ── */
+    .kpi-section { border-bottom: 1px solid var(--border); margin-bottom: 0; }
+    .kpi-toggle-strip {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 20px 6px 16px; cursor: pointer; user-select: none;
+      transition: background 0.15s; border-bottom: 1px solid transparent;
+    }
+    .kpi-toggle-strip:hover { background: var(--surface2); }
+    .kpi-toggle-strip.kpi-collapsed { border-bottom-color: var(--border); }
+    .kpi-toggle-arrow {
+      width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+      background: var(--surface2); border: 1px solid var(--border2); border-radius: 4px;
+      transition: transform 0.25s ease; flex-shrink: 0;
+    }
+    .kpi-toggle-arrow svg { width: 9px; height: 9px; transition: stroke 0.15s; }
+    .kpi-toggle-strip:hover .kpi-toggle-arrow svg { stroke: #e2e8f0; }
+    .kpi-toggle-arrow.kpi-arrow-closed { transform: rotate(-90deg); }
+    .kpi-toggle-label {
+      font-size: 11px; color: var(--muted); letter-spacing: 0.8px;
+      text-transform: uppercase; font-weight: 600;
+    }
+    .kpi-summary-pills {
+      display: flex; gap: 8px; margin-left: 8px;
+      opacity: 0; pointer-events: none; transition: opacity 0.2s;
+    }
+    .kpi-toggle-strip.kpi-collapsed .kpi-summary-pills { opacity: 1; pointer-events: auto; }
+    .kpi-pill {
+      display: flex; align-items: center; gap: 5px;
+      background: var(--surface2); border: 1px solid var(--border2);
+      border-radius: 99px; padding: 2px 9px; font-size: 11px; color: var(--muted); font-weight: 500;
+    }
+    .kpi-pill-dot { width: 6px; height: 6px; border-radius: 50%; }
+    .kpi-panel-body {
+      overflow: hidden;
+      transition: max-height 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease;
+      max-height: 400px; opacity: 1;
+    }
+    .kpi-panel-body.kpi-collapsed { max-height: 0; opacity: 0; }
+    .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; padding: 12px 0 0; margin-bottom: 12px; }
 
     /* ── RATE HELPER BOX ── */
     .rate-helper { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }

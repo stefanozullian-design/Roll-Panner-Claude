@@ -32,8 +32,8 @@ const el = id => document.getElementById(id);
 
 /* ─────────────────── MONTH-COLLAPSE SPINE ─────────────────── */
 // Build full date spine: Jan 2024 → Dec 2026
-const SPINE_START = '2025-01-01';
-const SPINE_END   = '2027-12-31';
+const SPINE_START = '2024-01-01';
+const SPINE_END   = '2026-12-31';
 
 function buildFullSpine(){
   const dates = [];
@@ -401,33 +401,53 @@ function renderPlan(){
   let firstStockout = stockouts.length ? stockouts.reduce((min,a)=>a.date<min?a.date:min, stockouts[0].date) : null;
   const daysUntilStockout = firstStockout ? Math.max(0, Math.round((new Date(firstStockout)-new Date(todayStr))/86400000)) : null;
 
-  const kpiHTML = `<div class="kpi-row">
-    <div class="kpi-card ${stockouts.length?'kpi-danger':'kpi-ok'}">
-      <div class="kpi-label">🚨 Stockout Alerts</div>
-      <div class="kpi-value" style="color:${stockouts.length?'var(--danger)':'var(--ok)'}">${stockouts.length}</div>
-      <div class="kpi-sub">${stockouts.length?'in 2024-2026 horizon':'None detected ✓'}</div>
+  // Persist KPI panel open/closed state
+  const KPI_KEY = 'kpiPanelOpen';
+  const kpiIsOpen = localStorage.getItem(KPI_KEY) !== 'false';
+
+  // Summary pill data for collapsed state
+  const pillStockout = `<div class="kpi-pill"><span class="kpi-pill-dot" style="background:${stockouts.length?'#ef4444':'#22c55e'}"></span>${stockouts.length} Stockout${stockouts.length!==1?'s':''}</div>`;
+  const pillBreaches = `<div class="kpi-pill"><span class="kpi-pill-dot" style="background:${overflows.length?'#eab308':'#64748b'}"></span>${overflows.length} Breach${overflows.length!==1?'es':''}</div>`;
+  const pillInfo     = `<div class="kpi-pill"><span class="kpi-pill-dot" style="background:#60a5fa"></span>${s.finishedProducts.length} Products · ${s.equipment.length} Equipment</div>`;
+
+  const kpiHTML = `<div class="kpi-section">
+    <div class="kpi-toggle-strip${kpiIsOpen?'':' kpi-collapsed'}" id="kpiToggleStrip">
+      <div class="kpi-toggle-arrow${kpiIsOpen?'':' kpi-arrow-closed'}" id="kpiToggleArrow">
+        <svg viewBox="0 0 10 6" xmlns="http://www.w3.org/2000/svg">
+          <path d="M1 1l4 4 4-4" stroke="#64748b" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <span class="kpi-toggle-label">Summary</span>
+      <div class="kpi-summary-pills">${pillStockout}${pillBreaches}${pillInfo}</div>
     </div>
-    ${daysUntilStockout!==null?`<div class="kpi-card kpi-danger">
-      <div class="kpi-label">⏱ First Stockout</div>
-      <div class="kpi-value" style="color:var(--warn)">${daysUntilStockout}d</div>
-      <div class="kpi-sub">${firstStockout?.slice(5)} · ${stockouts[0]?.storageName||''}</div>
-    </div>`:''}
-    <div class="kpi-card ${overflows.length?'kpi-warn':'kpi-neutral'}">
-      <div class="kpi-label">⚠ Capacity Breaches</div>
-      <div class="kpi-value" style="color:${overflows.length?'var(--warn)':'var(--muted)'}">${overflows.length}</div>
-      <div class="kpi-sub">Storage overflow events</div>
-    </div>
-    <div class="kpi-card kpi-neutral">
-      <div class="kpi-label">📦 Finished Products</div>
-      <div class="kpi-value">${s.finishedProducts.length}</div>
-      <div class="kpi-sub">${s.finishedProducts.map(p=>p.code||p.name.slice(0,8)).join(', ')||'—'}</div>
-    </div>
-    <div class="kpi-card kpi-neutral">
-      <div class="kpi-label">🏭 Equipment</div>
-      <div class="kpi-value">${s.equipment.length}</div>
-      <div class="kpi-sub">${s.equipment.filter(e=>e.type==='kiln').length} kilns · ${s.equipment.filter(e=>e.type==='finish_mill').length} mills</div>
-    </div>
-  </div>`;
+    <div class="kpi-panel-body${kpiIsOpen?'':' kpi-collapsed'}" id="kpiPanelBody">
+      <div class="kpi-row">
+        <div class="kpi-card ${stockouts.length?'kpi-danger':'kpi-ok'}">
+          <div class="kpi-label">🚨 Stockout Alerts</div>
+          <div class="kpi-value" style="color:${stockouts.length?'var(--danger)':'var(--ok)'}">${stockouts.length}</div>
+          <div class="kpi-sub">${stockouts.length?'in 2024-2026 horizon':'None detected ✓'}</div>
+        </div>
+        ${daysUntilStockout!==null?`<div class="kpi-card kpi-danger">
+          <div class="kpi-label">⏱ First Stockout</div>
+          <div class="kpi-value" style="color:var(--warn)">${daysUntilStockout}d</div>
+          <div class="kpi-sub">${firstStockout?.slice(5)} · ${stockouts[0]?.storageName||''}</div>
+        </div>`:''}
+        <div class="kpi-card ${overflows.length?'kpi-warn':'kpi-neutral'}">
+          <div class="kpi-label">⚠ Capacity Breaches</div>
+          <div class="kpi-value" style="color:${overflows.length?'var(--warn)':'var(--muted)'}">${overflows.length}</div>
+          <div class="kpi-sub">Storage overflow events</div>
+        </div>
+        <div class="kpi-card kpi-neutral">
+          <div class="kpi-label">📦 Finished Products</div>
+          <div class="kpi-value">${s.finishedProducts.length}</div>
+          <div class="kpi-sub">${s.finishedProducts.map(p=>p.code||p.name.slice(0,8)).join(', ')||'—'}</div>
+        </div>
+        <div class="kpi-card kpi-neutral">
+          <div class="kpi-label">🏭 Equipment</div>
+          <div class="kpi-value">${s.equipment.length}</div>
+          <div class="kpi-sub">${s.equipment.filter(e=>e.type==='kiln').length} kilns · ${s.equipment.filter(e=>e.type==='finish_mill').length} mills</div>
+        </div>
+      </div>`;
 
   // Group consecutive alerts by storage+severity into date ranges
   const groupAlerts = (alerts) => {
@@ -463,10 +483,12 @@ function renderPlan(){
   ].join('');
 
   const alertStripHTML = (stockouts.length+overflows.length+warnings.length)>0
-    ? `<div id="alertStrip" style="margin-bottom:16px;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(245,158,11,0.05));border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px 16px;">
+    ? `<div id="alertStrip" style="margin:0 0 12px;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(245,158,11,0.05));border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px 16px;">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--danger);margin-bottom:8px;">⚡ Action Required <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0">· click any alert to jump to that date</span></div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;">${alertChips}</div></div>`
-    : `<div style="margin-bottom:16px;padding:10px 14px;background:var(--ok-bg);border:1px solid rgba(34,197,94,0.3);border-radius:8px;font-size:12px;color:#86efac;">✅ <strong>All clear</strong> — No stockouts or capacity issues in the planning horizon.</div>`;
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">${alertChips}</div></div>
+      </div></div>`
+    : `<div style="margin:0 0 12px;padding:10px 14px;background:var(--ok-bg);border:1px solid rgba(34,197,94,0.3);border-radius:8px;font-size:12px;color:#86efac;">✅ <strong>All clear</strong> — No stockouts or capacity issues in the planning horizon.</div>
+      </div></div>`;
 
   const productColor = pid => {
     const base = ['#3b82f6','#a78bfa','#22c55e','#f59e0b','#ec4899','#06b6d4','#f97316','#84cc16'];
@@ -478,10 +500,10 @@ function renderPlan(){
 
   // Build unified row list from all 4 sections
   const SECTIONS = [
-    { id:'bod',  title:'INV-BOD [STn]', rows: plan.inventoryBODRows  },
-    { id:'prod', title:'PROD [STn/day]',      rows: plan.productionRows     },
-    { id:'out',  title:'SHIPMENTS [STn]', rows: plan.outflowRows  },
-    { id:'eod',  title:'INV-EOD [STn]',        rows: plan.inventoryEODRows   },
+    { id:'bod',  title:'INVENTORY — BEGINNING OF DAY (STn)', rows: plan.inventoryBODRows  },
+    { id:'prod', title:'EQUIPMENT PRODUCTION (STn/day)',      rows: plan.productionRows     },
+    { id:'out',  title:'OUTFLOWS — SHIPMENTS & CONSUMPTION (STn)', rows: plan.outflowRows  },
+    { id:'eod',  title:'INVENTORY — END OF DAY (STn)',        rows: plan.inventoryEODRows   },
   ];
   const unifiedRows = [];
   let subCounter = 0;
@@ -695,6 +717,19 @@ function renderPlan(){
   <div style="font-size:11px;color:var(--muted);padding:4px 0 16px">
     🔴 Stockout · 🟡 Overflow · △ &gt;75% cap · Colored = producing · <span style="color:#fca5a5">■ IDL</span> = idle/stockout · <span style="color:#fcd34d">■ MNT</span> = maintenance · <span style="color:#c4b5fd">■ OOO</span> = out of order · Pink = weekend
   </div>`;
+
+  // ── KPI PANEL TOGGLE ──
+  const kpiStrip = root.querySelector('#kpiToggleStrip');
+  const kpiBody  = root.querySelector('#kpiPanelBody');
+  const kpiArrow = root.querySelector('#kpiToggleArrow');
+  if(kpiStrip && kpiBody && kpiArrow){
+    kpiStrip.addEventListener('click', () => {
+      const isNowOpen = kpiBody.classList.toggle('kpi-collapsed') === false;
+      kpiStrip.classList.toggle('kpi-collapsed', !isNowOpen);
+      kpiArrow.classList.toggle('kpi-arrow-closed', !isNowOpen);
+      localStorage.setItem(KPI_KEY, String(isNowOpen));
+    });
+  }
 
   // Delegated collapse handler on tbody
   const secOpenState = {};

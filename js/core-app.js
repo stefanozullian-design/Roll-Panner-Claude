@@ -2465,8 +2465,18 @@ function openDataIODialog(){
         try {
           const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
           const ds = selectors(state).dataset;
-          const fac = state.ui.selectedFacilityId;
+
+          // ── FIX: resolve the primary facility from the multi-select array, not the
+          //         legacy single-id field which may be null/stale in multi-facility mode.
+          const resolvedFacilityIds = state.ui.selectedFacilityIds?.length
+            ? state.ui.selectedFacilityIds.filter(id => state.org.facilities.find(f=>f.id===id))
+            : state.ui.selectedFacilityId
+              ? [state.ui.selectedFacilityId]
+              : [];
+          const fac = resolvedFacilityIds[0] || state.org.facilities[0]?.id || '';
+
           let imported = [];
+          const skipped = [];
 
           const readSheet = name => {
             const ws = wb.Sheets[name];
@@ -2474,81 +2484,148 @@ function openDataIODialog(){
             return XLSX.utils.sheet_to_json(ws, {defval:''});
           };
 
+          // ── FIX: robust facility lookup — case-insensitive trim, falls back to
+          //         resolved fac (which is now always a valid facility id).
+          const findFacilityId = (cellValue) => {
+            const v = String(cellValue||'').trim();
+            if(!v) return fac;
+            const match = state.org.facilities.find(f =>
+              f.name.trim().toLowerCase() === v.toLowerCase() ||
+              f.id.trim().toLowerCase()   === v.toLowerCase() ||
+              (f.code||'').trim().toLowerCase() === v.toLowerCase()
+            );
+            return match?.id || fac;
+          };
+
+          // ── FIX: robust equipment lookup — case-insensitive trim so "Kiln 1 "
+          //         (with trailing space from Excel) still matches stored "Kiln 1".
+          const findEquipmentId = (cellValue) => {
+            const v = String(cellValue||'').trim();
+            if(!v) return '';
+            const match = ds.equipment.find(e =>
+              e.name.trim().toLowerCase() === v.toLowerCase() ||
+              e.id.trim().toLowerCase()   === v.toLowerCase()
+            );
+            return match?.id || '';
+          };
+
+          // ── FIX: robust product lookup — case-insensitive trim on name, id, and code.
+          const findProductId = (cellValue) => {
+            const v = String(cellValue||'').trim();
+            if(!v) return '';
+            const match = state.catalog.find(m =>
+              m.name.trim().toLowerCase()         === v.toLowerCase() ||
+              m.id.trim().toLowerCase()           === v.toLowerCase() ||
+              (m.code||'').trim().toLowerCase()   === v.toLowerCase()
+            );
+            return match?.id || '';
+          };
+
+          // ── FIX: robust storage lookup — case-insensitive trim.
+          const findStorageId = (cellValue) => {
+            const v = String(cellValue||'').trim();
+            if(!v) return '';
+            const match = ds.storages.find(s =>
+              s.name.trim().toLowerCase() === v.toLowerCase() ||
+              s.id.trim().toLowerCase()   === v.toLowerCase()
+            );
+            return match?.id || '';
+          };
+
+          const parseDate = (raw) =>
+            typeof raw === 'object' && raw instanceof Date
+              ? raw.toISOString().slice(0,10)
+              : String(raw||'').trim();
+
           // Import Demand Forecast
           const demand = readSheet('Demand Forecast');
           if(demand?.length){
             const rows = demand.map(r=>({
-              date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
-              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
-              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
-              qtyStn: +r['Qty (STn)']||0, source:'forecast'
+              date:       parseDate(r['Date']),
+              facilityId: findFacilityId(r['Facility']),
+              productId:  findProductId(r['Product']),
+              qtyStn:     +r['Qty (STn)']||0,
+              source:     'forecast'
             })).filter(r=>r.date && r.productId && r.qtyStn>0);
-            // Overwrite for affected facility+dates
-            const keys = new Set(rows.map(r=>`${r.date}|${r.facilityId}|${r.productId}`));
-            ds.demandForecast = ds.demandForecast.filter(r=>`${r.date}|${r.facilityId}|${r.productId}`!==([...keys].find(k=>k===`${r.date}|${r.facilityId}|${r.productId}`))||true);
-            rows.forEach(r=>{ ds.demandForecast = ds.demandForecast.filter(x=>`${x.date}|${x.facilityId}|${x.productId}`!==`${r.date}|${r.facilityId}|${r.productId}`); ds.demandForecast.push(r); });
-            imported.push(`${rows.length} demand rows`);
+            rows.forEach(r=>{ ds.demandForecast = ds.demandForecast.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.productId===r.productId)); ds.demandForecast.push(r); });
+            if(rows.length) imported.push(`${rows.length} demand rows`);
+            const dropped = demand.length - rows.length;
+            if(dropped > 0) skipped.push(`${dropped} demand rows (unmatched product or zero qty)`);
           }
 
           // Import Production Actuals
           const prod = readSheet('Production Actuals');
           if(prod?.length){
             const rows = prod.map(r=>({
-              date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
-              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
-              equipmentId: ds.equipment.find(e=>e.name===r['Equipment'] || e.id===r['Equipment'])?.id || '',
-              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
-              qtyStn: +r['Qty (STn)']||0
+              date:        parseDate(r['Date']),
+              facilityId:  findFacilityId(r['Facility']),
+              equipmentId: findEquipmentId(r['Equipment']),
+              productId:   findProductId(r['Product']),
+              qtyStn:      +r['Qty (STn)']||0
+            // ── FIX: equipmentId must be non-empty AND productId must match.
+            //         Previously, rows with unmatched equipment were silently dropped.
             })).filter(r=>r.date && r.equipmentId && r.productId);
-            rows.forEach(r=>{ ds.actuals.production = ds.actuals.production.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.equipmentId===r.equipmentId)); ds.actuals.production.push(r); });
-            imported.push(`${rows.length} production rows`);
+            rows.forEach(r=>{ ds.actuals.production = ds.actuals.production.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.equipmentId===r.equipmentId&&x.productId===r.productId)); ds.actuals.production.push(r); });
+            if(rows.length) imported.push(`${rows.length} production rows`);
+            const dropped = prod.length - rows.length;
+            if(dropped > 0) skipped.push(`${dropped} production rows (unmatched equipment/product — check names match exactly)`);
           }
 
-          // Import Shipments
+          // Import Shipment Actuals
           const ship = readSheet('Shipment Actuals');
           if(ship?.length){
             const rows = ship.map(r=>({
-              date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
-              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
-              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
-              qtyStn: +r['Qty (STn)']||0
-            })).filter(r=>r.date && r.productId);
+              date:       parseDate(r['Date']),
+              facilityId: findFacilityId(r['Facility']),
+              productId:  findProductId(r['Product']),
+              // ── FIX: keep zero-qty rows out — they corrupt inventory calculations.
+              qtyStn:     +r['Qty (STn)']||0
+            })).filter(r=>r.date && r.productId && r.qtyStn > 0);
             rows.forEach(r=>{ ds.actuals.shipments = ds.actuals.shipments.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.productId===r.productId)); ds.actuals.shipments.push(r); });
-            imported.push(`${rows.length} shipment rows`);
+            if(rows.length) imported.push(`${rows.length} shipment rows`);
+            const dropped = ship.length - rows.length;
+            if(dropped > 0) skipped.push(`${dropped} shipment rows (unmatched product or zero qty)`);
           }
 
           // Import Inventory EOD
           const inv = readSheet('Inventory EOD');
           if(inv?.length){
             const rows = inv.map(r=>({
-              date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
-              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
-              storageId: ds.storages.find(s=>s.name===r['Storage'] || s.id===r['Storage'])?.id || '',
-              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
-              qtyStn: +r['Qty (STn)']||0
+              date:       parseDate(r['Date']),
+              facilityId: findFacilityId(r['Facility']),
+              storageId:  findStorageId(r['Storage']),
+              productId:  findProductId(r['Product']),
+              qtyStn:     +r['Qty (STn)']||0
             })).filter(r=>r.date && r.storageId && r.productId);
             rows.forEach(r=>{ ds.actuals.inventoryEOD = ds.actuals.inventoryEOD.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.storageId===r.storageId)); ds.actuals.inventoryEOD.push(r); });
-            imported.push(`${rows.length} inventory rows`);
+            if(rows.length) imported.push(`${rows.length} inventory rows`);
+            const dropped = inv.length - rows.length;
+            if(dropped > 0) skipped.push(`${dropped} inventory rows (unmatched storage/product)`);
           }
 
           // Import Campaigns
           const camps = readSheet('Campaigns');
           if(camps?.length){
             const rows = camps.map(r=>({
-              date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
-              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
-              equipmentId: ds.equipment.find(e=>e.name===r['Equipment'] || e.id===r['Equipment'])?.id || '',
-              status: r['Status']||'produce',
-              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
-              rateStn: +r['Rate (STn/d)']||0
+              date:        parseDate(r['Date']),
+              facilityId:  findFacilityId(r['Facility']),
+              equipmentId: findEquipmentId(r['Equipment']),
+              status:      String(r['Status']||'produce').trim(),
+              productId:   findProductId(r['Product']),
+              rateStn:     +r['Rate (STn/d)']||0
             })).filter(r=>r.date && r.equipmentId);
             rows.forEach(r=>{ ds.campaigns = ds.campaigns.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.equipmentId===r.equipmentId)); ds.campaigns.push(r); });
-            imported.push(`${rows.length} campaign rows`);
+            if(rows.length) imported.push(`${rows.length} campaign rows`);
+            const dropped = camps.length - rows.length;
+            if(dropped > 0) skipped.push(`${dropped} campaign rows (unmatched equipment)`);
           }
 
           if(imported.length){
             persist(); render();
-            showToast(`Imported: ${imported.join(', ')} ✓`, 'ok');
+            const skipMsg = skipped.length ? ` · ⚠ Skipped: ${skipped.join(', ')}` : '';
+            showToast(`Imported: ${imported.join(', ')} ✓${skipMsg}`, skipped.length ? 'warn' : 'ok');
+          } else if(skipped.length){
+            showToast(`Nothing imported — all rows were skipped. Check that equipment/product names in your Excel exactly match what's configured in this app. Skipped: ${skipped.join(', ')}`, 'danger');
           } else {
             showToast('No matching sheets found in file', 'warn');
           }

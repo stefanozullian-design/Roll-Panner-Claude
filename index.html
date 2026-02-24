@@ -6,6 +6,7 @@
   <title>Cement Production Planner</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
     :root {
@@ -258,46 +259,6 @@
     .kpi-value { font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 600; line-height: 1; }
     .kpi-sub { font-size: 10px; color: var(--muted); margin-top: 4px; }
 
-    /* ── COLLAPSIBLE KPI PANEL ── */
-    .kpi-section { border-bottom: 1px solid var(--border); margin-bottom: 0; }
-    .kpi-toggle-strip {
-      display: flex; align-items: center; gap: 8px;
-      padding: 6px 20px 6px 16px; cursor: pointer; user-select: none;
-      transition: background 0.15s; border-bottom: 1px solid transparent;
-    }
-    .kpi-toggle-strip:hover { background: var(--surface2); }
-    .kpi-toggle-strip.kpi-collapsed { border-bottom-color: var(--border); }
-    .kpi-toggle-arrow {
-      width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
-      background: var(--surface2); border: 1px solid var(--border2); border-radius: 4px;
-      transition: transform 0.25s ease; flex-shrink: 0;
-    }
-    .kpi-toggle-arrow svg { width: 9px; height: 9px; transition: stroke 0.15s; }
-    .kpi-toggle-strip:hover .kpi-toggle-arrow svg { stroke: #e2e8f0; }
-    .kpi-toggle-arrow.kpi-arrow-closed { transform: rotate(-90deg); }
-    .kpi-toggle-label {
-      font-size: 11px; color: var(--muted); letter-spacing: 0.8px;
-      text-transform: uppercase; font-weight: 600;
-    }
-    .kpi-summary-pills {
-      display: flex; gap: 8px; margin-left: 8px;
-      opacity: 0; pointer-events: none; transition: opacity 0.2s;
-    }
-    .kpi-toggle-strip.kpi-collapsed .kpi-summary-pills { opacity: 1; pointer-events: auto; }
-    .kpi-pill {
-      display: flex; align-items: center; gap: 5px;
-      background: var(--surface2); border: 1px solid var(--border2);
-      border-radius: 99px; padding: 2px 9px; font-size: 11px; color: var(--muted); font-weight: 500;
-    }
-    .kpi-pill-dot { width: 6px; height: 6px; border-radius: 50%; }
-    .kpi-panel-body {
-      overflow: hidden;
-      transition: max-height 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease;
-      max-height: 400px; opacity: 1;
-    }
-    .kpi-panel-body.kpi-collapsed { max-height: 0; opacity: 0; }
-    .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; padding: 12px 0 0; margin-bottom: 12px; }
-
     /* ── RATE HELPER BOX ── */
     .rate-helper { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
     .rate-helper-title { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 8px; }
@@ -345,10 +306,11 @@
 
 <div id="app-header">
   <div class="header-top">
-    <div class="brand">
-      <div class="brand-icon"><svg viewBox="0 0 1543 964" width="36" height="24" xmlns="http://www.w3.org/2000/svg"><path fill="#ffffff" d="m1542.5 0.6h-192c-103.2 0-200.4 48-261.7 129.7l-626.4 833.2h192c103.2 0 200.4-48 261.6-130.9zm-463.2 0h-192.1c-102 0-199.2 48.1-261.6 129.7l-625.3 833.2h199.2c98.5 0 190.9-45.6 249.7-123.6z"/></svg></div>
-      <div>
-        <div class="brand-name">CEMENT PLANNER</div>
+    <div class="brand" style="align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <svg version="1.2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1541 276" height="20" style="display:block">
+          <path fill="#ffffff" d="m440.6 0.7h-54.8c-29.5 0-57.2 13.7-74.7 37.1l-178.8 237.8h54.8c29.4 0 57.2-13.7 74.7-37.4zm-132.3 0h-54.8c-29.1 0-56.9 13.7-74.7 37l-178.5 237.9h56.9c28.1 0 54.5-13.1 71.3-35.3zm288.4 76.4c15.4 14.7 23.7 34.2 24.3 58.9h-55.1q-3.1-15.1-14.4-23.6-11.3-8.6-29.1-8.6-22.6 0-39.8 16.8-16.7 16.8-21.9 44.9-1.4 9.2-1.4 15.7 0 21.3 11.3 33.6c7.6 8.3 17.5 12.4 30.5 12.4q17.5 0 31.9-8.9 14-8.3 22.6-23h55.2q-14.4 36.7-45.6 58.6c-20.6 14.4-44.2 21.6-71.6 21.6-18.5 0-34.3-3.4-47.6-10.6q-19.9-10.7-30.2-30.2-10.2-19.2-10.2-44.9 0-12.7 2-24.3 5.5-32.2 23-57.2c11.6-16.5 26-29.5 43.5-38.8q26.4-14 57.9-14 41.4 0 64.7 21.6zm116.1 22.2l-7.5 45.3h87l-7.2 39.4h-87.3l-8.2 48h108.9l-7.5 41.8h-161.1l31.9-180.6c3.4-20.6 21.2-35.7 42.1-35.7h123.7l-7.2 41.8zm482 0l-7.5 45.3h87l-7.2 39.4h-87l-8.6 48h109l-7.2 41.8h-161l31.5-180.6c3.7-20.6 21.2-35.7 42.1-35.7h124l-7.5 41.8zm-85.7-41.8l-38 216.3h-52.1l24-136.4-70.5 136.4h-44.9l-23-136.1-24 136.1h-52.7l31.8-179.9c3.8-20.9 21.6-36.4 42.9-36.4h27.4l31.8 151.2 69.6-125.5c8.5-15.7 25.3-25.7 43.5-25.7zm344.3 108.7l54.1 107.6h-62.4l-33.9-67.2-33.9 44.9c-10.6 14-27 22.3-44.5 22.3h-40.8l88.7-111.4-52.7-104.9h62l32.9 65.2 33.2-43.2c10.3-13.7 26.7-22 43.9-22h40.7z"/>
+        </svg>
         <div class="brand-sub">Production Intelligence System</div>
       </div>
     </div>

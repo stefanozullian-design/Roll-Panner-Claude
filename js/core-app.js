@@ -203,21 +203,32 @@ function initShell(){
           ? org.facilities.filter(f=>activeSubIds.includes(f.subRegionId)).map(f=>f.id)
           : org.facilities.map(f=>f.id);
 
+    // Track which dropdown is open so rebuilds can restore it
+    let _openDdId = null;
+
     const mkDropdown = (id, placeholder, items, selectedSet) => {
       if(!items.length) return `<div style="display:none"></div>`;
+      const allSelected = items.length > 0 && items.every(it => selectedSet.has(it.id));
+      const someSelected = items.some(it => selectedSet.has(it.id));
+      const selectAllRow = `<label style="display:flex;align-items:center;gap:6px;padding:5px 10px 5px 10px;cursor:pointer;white-space:nowrap;font-size:11px;font-weight:600;border-bottom:1px solid var(--border);margin-bottom:2px;color:var(--accent)" data-scope-selall="${id}">
+          <input type="checkbox" ${allSelected?'checked':someSelected?'':''} data-scope-selall-cb="${id}" style="accent-color:var(--accent);width:12px;height:12px">
+          Select all
+        </label>`;
       const opts = items.map(it =>
         `<label style="display:flex;align-items:center;gap:6px;padding:4px 10px;cursor:pointer;white-space:nowrap;font-size:11px;${selectedSet.has(it.id)?'color:var(--accent);background:rgba(99,179,237,0.08)':''}" data-scope-item="${it.id}">
           <input type="checkbox" ${selectedSet.has(it.id)?'checked':''} data-scope-cb="${it.id}" style="accent-color:var(--accent);width:12px;height:12px">
           ${esc(it.label)}
         </label>`
       ).join('');
-      const anySelected = items.some(it=>selectedSet.has(it.id));
+      const anySelected = someSelected;
+      const isOpen = _openDdId === id;
       return `<div style="position:relative;display:inline-block">
         <button class="scope-dd-btn" data-dd="${id}" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:11px;color:${anySelected?'var(--accent)':'var(--muted)'};cursor:pointer;white-space:nowrap;min-width:80px;display:flex;align-items:center;gap:4px">
           ${placeholder}${anySelected?` <span style="background:var(--accent);color:#000;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700">${items.filter(it=>selectedSet.has(it.id)).length}</span>`:''}
           <span style="font-size:8px;margin-left:2px">▼</span>
         </button>
-        <div class="scope-dd-menu" id="dd-${id}" style="display:none;position:absolute;top:100%;left:0;z-index:200;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 0;min-width:160px;box-shadow:0 8px 24px rgba(0,0,0,0.4);max-height:240px;overflow-y:auto;margin-top:2px">
+        <div class="scope-dd-menu" id="dd-${id}" style="display:${isOpen?'block':'none'};position:absolute;top:100%;left:0;z-index:200;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 0;min-width:160px;box-shadow:0 8px 24px rgba(0,0,0,0.4);max-height:240px;overflow-y:auto;margin-top:2px">
+          ${selectAllRow}
           ${opts}
         </div>
       </div>`;
@@ -227,6 +238,9 @@ function initShell(){
     const regItems  = org.regions.filter(r=>activeRegIds.includes(r.id)).map(r=>({id:r.id, label:`📍 ${r.code} — ${r.name}`}));
     const subItems  = org.subRegions.filter(s=>activeSubIds.includes(s.id)).map(s=>({id:s.id, label:`▸ ${s.code} — ${s.name}`}));
     const facItems  = org.facilities.filter(f=>activeFacIds.includes(f.id)).map(f=>({id:f.id, label:`🏭 ${f.code} — ${f.name}`}));
+
+    // Map dd id → its items list so Select All knows what to toggle
+    const ddItems = { cnt: cntItems, reg: regItems, sub: subItems, fac: facItems };
 
     scopeWrap.innerHTML = `
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
@@ -238,19 +252,24 @@ function initShell(){
         <span style="font-size:10px;color:var(--muted);padding:0 4px">${selIds.size ? `${selIds.size} selected` : 'Select scope'}</span>
       </div>`;
 
-    // Dropdown open/close
+    // Dropdown open/close — stop propagation on the menu itself so outside-click doesn't fire
+    scopeWrap.querySelectorAll('.scope-dd-menu').forEach(menu => {
+      menu.addEventListener('click', e => e.stopPropagation());
+    });
+
     scopeWrap.querySelectorAll('.scope-dd-btn').forEach(btn => {
       btn.onclick = e => {
         e.stopPropagation();
-        const ddId = 'dd-' + btn.dataset.dd;
-        const menu = document.getElementById(ddId);
-        // Close all others
-        scopeWrap.querySelectorAll('.scope-dd-menu').forEach(m => { if(m.id!==ddId) m.style.display='none'; });
-        menu.style.display = menu.style.display==='none' ? 'block' : 'none';
+        const ddId = btn.dataset.dd;
+        _openDdId = _openDdId === ddId ? null : ddId;
+        // Close all, open the clicked one
+        scopeWrap.querySelectorAll('.scope-dd-menu').forEach(m => {
+          m.style.display = m.id === 'dd-' + _openDdId ? 'block' : 'none';
+        });
       };
     });
 
-    // Checkbox change
+    // Individual checkbox change — update state but DON'T rebuild/close
     scopeWrap.querySelectorAll('[data-scope-cb]').forEach(cb => {
       cb.onchange = () => {
         const id = cb.dataset.scopeCb;
@@ -258,21 +277,49 @@ function initShell(){
         if(cb.checked) ids.add(id); else ids.delete(id);
         state.ui.selectedFacilityIds = [...ids];
         syncLegacyId();
-        persist(); buildScopeUI(); render();
+        persist();
+        // Rebuild UI but keep the current dropdown open
+        buildScopeUI();
+        render();
+      };
+    });
+
+    // Select All checkbox — toggle every item in that dropdown
+    scopeWrap.querySelectorAll('[data-scope-selall-cb]').forEach(cb => {
+      cb.onchange = () => {
+        const ddId = cb.dataset.scopeSelallCb || cb.closest('[data-scope-selall]')?.dataset.scopeSelall;
+        const items = ddItems[ddId] || [];
+        const ids = new Set(state.ui.selectedFacilityIds || []);
+        if(cb.checked) items.forEach(it => ids.add(it.id));
+        else           items.forEach(it => ids.delete(it.id));
+        state.ui.selectedFacilityIds = [...ids];
+        syncLegacyId();
+        persist();
+        buildScopeUI();
+        render();
       };
     });
 
     // Clear button
-    scopeWrap.querySelector('#scopeClearBtn')?.addEventListener('click', () => {
+    scopeWrap.querySelector('#scopeClearBtn')?.addEventListener('click', e => {
+      e.stopPropagation();
       state.ui.selectedFacilityIds = [];
+      _openDdId = null;
       syncLegacyId();
       persist(); buildScopeUI(); render();
     });
 
-    // Close dropdowns on outside click
-    document.addEventListener('click', () => {
-      scopeWrap.querySelectorAll('.scope-dd-menu').forEach(m => m.style.display='none');
-    }, { once: true });
+    // Close all dropdowns on outside click (persistent listener on document)
+    const _closeAllDds = (e) => {
+      if(!scopeWrap.contains(e.target)){
+        _openDdId = null;
+        scopeWrap.querySelectorAll('.scope-dd-menu').forEach(m => m.style.display='none');
+      }
+    };
+    // Remove any previous listener before adding a fresh one
+    document.removeEventListener('click', scopeWrap._ddCloseHandler);
+    scopeWrap._ddCloseHandler = _closeAllDds;
+    document.addEventListener('click', _closeAllDds);
   };
 
   if(scopeWrap) {

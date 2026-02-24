@@ -290,16 +290,27 @@ export function actions(state){
     // ── CATALOG (regional materials/products) ──
     upsertCatalogItem(m){
       const rId = m.regionId || regionId;
+      // Parse materialNumbers: accept array, comma string, or undefined
+      const parseMaterialNumbers = (raw) => {
+        if(Array.isArray(raw)) return raw.map(s=>String(s).trim()).filter(Boolean);
+        if(raw && typeof raw === 'string') return raw.split(',').map(s=>s.trim()).filter(Boolean);
+        return [];
+      };
       if(m.id){
         const i = state.catalog.findIndex(x=>x.id===m.id);
-        if(i>=0){ state.catalog[i]={...state.catalog[i],...m}; return state.catalog[i]; }
+        if(i>=0){
+          const updated = {...state.catalog[i], ...m, materialNumbers: parseMaterialNumbers(m.materialNumbers)};
+          state.catalog[i] = updated;
+          return state.catalog[i];
+        }
       }
       const code = slug(m.code || m.name);
       const id = `${rId}|${code}`;
       const row = { id, regionId: rId, code, name:m.name, category:m.category,
         unit:m.unit||'STn', landedCostUsdPerStn:+(m.landedCostUsdPerStn||0),
         calorificPowerMMBTUPerStn:+(m.calorificPowerMMBTUPerStn||0),
-        co2FactorKgPerMMBTU:+(m.co2FactorKgPerMMBTU||0) };
+        co2FactorKgPerMMBTU:+(m.co2FactorKgPerMMBTU||0),
+        materialNumbers: parseMaterialNumbers(m.materialNumbers) };
       state.catalog.push(row);
       return row;
     },

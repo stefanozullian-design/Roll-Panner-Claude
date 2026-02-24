@@ -652,12 +652,11 @@ function renderPlan(){
     if(r.storageId){
       const imeta = plan.inventoryCellMeta?.[`${d}|${r.storageId}`];
       if(imeta){
-        const tip = imeta.reason||(imeta.warn==='high75'?`>75% capacity (${fmt0(imeta.eod)}/${fmt0(imeta.maxCap)})`:'');
-        if(imeta.severity==='stockout')    baseSty += 'background:rgba(239,68,68,0.18);color:#fca5a5;font-weight:700;';
-        else if(imeta.severity==='full')   baseSty += 'background:rgba(245,158,11,0.18);color:#fcd34d;font-weight:700;';
-        else if(imeta.warn==='high75')     baseSty += 'color:var(--warn);';
-        const dot = imeta.severity==='stockout'?'🔴 ':imeta.severity==='full'?'🟡 ':imeta.warn?'△ ':'';
-        return `<td class="num" style="${baseSty}font-size:10px${isSubtotal?';font-weight:700':''}" title="${esc(tip)}">${dot}${fmt0(v)}</td>`;
+        const ic = invColor(imeta.eod, imeta.maxCap);
+        const pctTip = (imeta.maxCap>0) ? ` (${Math.round(100*(imeta.eod/imeta.maxCap))}% of ${fmt0(imeta.maxCap)})` : '';
+        const tip = imeta.reason || (pctTip ? `${fmt0(imeta.eod)} STn${pctTip}` : '');
+        const cellSty = ic ? `${baseSty}background:${ic.bg};font-size:10px;color:${ic.color};${isSubtotal?'font-weight:700;':''}` : `${baseSty}font-size:10px;${isSubtotal?'font-weight:700;':''}`;
+        return `<td class="num" style="${cellSty}" title="${esc(tip)}">${v?fmt0(v):''}</td>`;
       }
     }
     return `<td class="num" style="${baseSty}font-size:10px;${isSubtotal?'font-weight:700;':'color:var(--muted);'}">${v?fmt0(v):''}</td>`;

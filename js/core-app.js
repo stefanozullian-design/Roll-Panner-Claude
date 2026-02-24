@@ -478,10 +478,10 @@ function renderPlan(){
 
   // Build unified row list from all 4 sections
   const SECTIONS = [
-    { id:'bod',  title:'INVENTORY (BOD [STn]', rows: plan.inventoryBODRows  },
-    { id:'prod', title:'PRODUCTION [STn/day]',      rows: plan.productionRows     },
-    { id:'out',  title:'OUTFLOWS [STn]', rows: plan.outflowRows  },
-    { id:'eod',  title:'INVENTORY [STn]',        rows: plan.inventoryEODRows   },
+    { id:'bod',  title:'INV-BOD [STn]', rows: plan.inventoryBODRows  },
+    { id:'prod', title:'PROD [STn/day]',      rows: plan.productionRows     },
+    { id:'out',  title:'SHIPMENTS [STn]', rows: plan.outflowRows  },
+    { id:'eod',  title:'INV-EOD [STn]',        rows: plan.inventoryEODRows   },
   ];
   const unifiedRows = [];
   let subCounter = 0;

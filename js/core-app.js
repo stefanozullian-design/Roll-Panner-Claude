@@ -703,7 +703,7 @@ function renderPlan(){
     </div>
     <div class="card-body" style="padding:0">
       ${s.equipment.length===0?'<div style="padding:40px;text-align:center;color:var(--muted)">No equipment configured. Set up your Process Flow first.</div>':''}
-      <div class="table-scroll" id="planTableScroll">
+      <div class="table-scroll" id="planTableScroll" style="overflow-x:auto;overflow-y:visible;">
         <table class="data-table plan-table" id="planTable" style="min-width:max-content;width:100%">
           <thead><tr>
             <th class="row-header" style="min-width:160px;position:sticky;left:0;background:#0a0d14;z-index:5;">Row</th>
@@ -1454,7 +1454,7 @@ function renderDemand(mode='total'){
       </div>
     </div>
     <div class="card-body" style="padding:0">
-      <div class="table-scroll" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 180px)">
+      <div class="table-scroll" style="overflow-x:auto;overflow-y:visible;">
         <table class="data-table plan-table" id="${demandTableId}" style="min-width:max-content;width:100%">
           <thead><tr>
             <th class="row-header" style="min-width:200px;position:sticky;left:0;background:#0a0d14;z-index:5;">Facility / Product</th>

@@ -507,13 +507,13 @@ function renderPlan(){
   // Month-grouped date headers
   const dateHeaders = months.map(mon => {
     const isCol = collapsed.has(mon.ym);
-    const monthTh = `<th class="month-total-th" data-month-ym="${mon.ym}" style="min-width:64px;background:rgba(99,179,237,0.12);border-left:2px solid rgba(99,179,237,0.35);border-right:1px solid rgba(99,179,237,0.2);font-size:9px;font-weight:700;color:#93c5fd;text-align:center;cursor:pointer;user-select:none;white-space:nowrap;padding:3px 6px;" title="Click to toggle ${mon.label}"><span data-month-toggle="${mon.ym}" style="font-size:8px;margin-right:3px">${isCol?'▶':'▼'}</span>${mon.label}</th>`;
+    const monthTh = `<th class="month-total-th" data-month-ym="${mon.ym}" style="width:64px;min-width:64px;max-width:64px;background:rgba(99,179,237,0.12);border-left:2px solid rgba(99,179,237,0.35);border-right:1px solid rgba(99,179,237,0.2);font-size:9px;font-weight:700;color:#93c5fd;text-align:center;cursor:pointer;user-select:none;white-space:nowrap;padding:3px 6px;" title="Click to toggle ${mon.label}"><span data-month-toggle="${mon.ym}" style="font-size:8px;margin-right:3px">${isCol?'▶':'▼'}</span>${mon.label}</th>`;
     const dayThs = mon.dates.map(d => {
       const isWk = isWeekendDate(d); const isTd = d===todayStr;
       const dd2 = d.slice(8,10);
       let sty = isWk ? wkdColStyle : '';
       if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
-      return `<th data-date="${d}" class="day-col-${mon.ym}" style="min-width:44px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">` + dd2 + `</th>`;
+      return `<th data-date="${d}" class="day-col-${mon.ym}" style="width:44px;min-width:44px;max-width:44px;text-align:center;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">` + dd2 + `</th>`;
     }).join('');
     return monthTh + dayThs;
   }).join('');
@@ -522,17 +522,18 @@ function renderPlan(){
   const renderMonthTotalCell = (r, mon) => {
     if(r._type==='section-header' || r._type==='group-label') return '';
     const total = mon.dates.reduce((sum, d) => sum + (r.values?.[d]||0), 0);
+    const fixedSz = 'width:64px;min-width:64px;max-width:64px;text-align:center;';
     if(r.rowType==='equipment'){
-      return `<td class="num" style="background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd">${total?fmt0(total):''}</td>`;
+      return `<td class="num" style="${fixedSz}background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd">${total?fmt0(total):''}</td>`;
     }
     const sev = r.storageId ? (() => {
       const hasStockout = mon.dates.some(d => plan.inventoryCellMeta?.[`${d}|${r.storageId}`]?.severity==='stockout');
       const hasFull     = mon.dates.some(d => plan.inventoryCellMeta?.[`${d}|${r.storageId}`]?.severity==='full');
       return hasStockout ? 'stockout' : hasFull ? 'full' : null;
     })() : null;
-    let sty = 'background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd;';
-    if(sev==='stockout') sty = 'background:rgba(239,68,68,0.2);border-left:2px solid rgba(239,68,68,0.5);font-size:10px;font-weight:700;color:#fca5a5;';
-    else if(sev==='full') sty = 'background:rgba(245,158,11,0.2);border-left:2px solid rgba(245,158,11,0.5);font-size:10px;font-weight:700;color:#fcd34d;';
+    let sty = `${fixedSz}background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd;`;
+    if(sev==='stockout') sty = `${fixedSz}background:rgba(239,68,68,0.2);border-left:2px solid rgba(239,68,68,0.5);font-size:10px;font-weight:700;color:#fca5a5;`;
+    else if(sev==='full') sty = `${fixedSz}background:rgba(245,158,11,0.2);border-left:2px solid rgba(245,158,11,0.5);font-size:10px;font-weight:700;color:#fcd34d;`;
     return `<td class="num" style="${sty}">${total?fmt0(total):''}</td>`;
   };
 
@@ -541,7 +542,8 @@ function renderPlan(){
     const isWk = isWeekendDate(d); const isTd = d===todayStr;
     const isSubtotal = r._type==='subtotal-header';
     const v = r.values?.[d]||0;
-    let baseSty = isWk ? wkdColStyle : '';
+    const fixedDay = 'width:44px;min-width:44px;max-width:44px;text-align:center;';
+    let baseSty = fixedDay + (isWk ? wkdColStyle : '');
     if(isTd) baseSty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
     const cls = `day-col-${mon.ym}`;
     if(r.rowType==='equipment' && r.equipmentId){
@@ -1330,12 +1332,12 @@ function renderDemand(mode='total'){
   // Date headers
   const dateHeaders = months.map(mon => {
     const isCol = collapsed.has(mon.ym);
-    const monthTh = `<th class="month-total-th" data-month-ym="${mon.ym}" style="min-width:64px;background:rgba(99,179,237,0.12);border-left:2px solid rgba(99,179,237,0.35);border-right:1px solid rgba(99,179,237,0.2);font-size:9px;font-weight:700;color:#93c5fd;text-align:center;cursor:pointer;user-select:none;white-space:nowrap;padding:3px 6px;" title="Click to toggle ${mon.label}"><span data-month-toggle="${mon.ym}" style="font-size:8px;margin-right:3px">${isCol?'▶':'▼'}</span>${mon.label}</th>`;
+    const monthTh = `<th class="month-total-th" data-month-ym="${mon.ym}" style="width:64px;min-width:64px;max-width:64px;background:rgba(99,179,237,0.12);border-left:2px solid rgba(99,179,237,0.35);border-right:1px solid rgba(99,179,237,0.2);font-size:9px;font-weight:700;color:#93c5fd;text-align:center;cursor:pointer;user-select:none;white-space:nowrap;padding:3px 6px;" title="Click to toggle ${mon.label}"><span data-month-toggle="${mon.ym}" style="font-size:8px;margin-right:3px">${isCol?'▶':'▼'}</span>${mon.label}</th>`;
     const dayThs = mon.dates.map(d => {
       const isWk = isWeekendDate(d); const isTd = d===todayStr;
       let sty = isWk ? wkdColStyle : '';
       if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
-      return `<th class="day-col-${mon.ym}" style="min-width:44px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">${d.slice(8,10)}</th>`;
+      return `<th class="day-col-${mon.ym}" style="width:44px;min-width:44px;max-width:44px;text-align:center;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">${d.slice(8,10)}</th>`;
     }).join('');
     return monthTh + dayThs;
   }).join('');
@@ -1345,13 +1347,13 @@ function renderDemand(mode='total'){
     let monthTotal = 0;
     const dayCells = mon.dates.map(d => {
       const isWk = isWeekendDate(d); const isTd = d===todayStr;
-      let sty = isWk ? wkdColStyle : '';
+      let sty = 'width:44px;min-width:44px;max-width:44px;text-align:center;' + (isWk ? wkdColStyle : '');
       if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
       const { v, html } = getCellData(d, mon.ym, sty);
       monthTotal += v;
       return html;
     }).join('');
-    const monthCell = `<td class="num" style="background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd">${monthTotal ? fmt0(monthTotal) : ''}</td>`;
+    const monthCell = `<td class="num" style="width:64px;min-width:64px;max-width:64px;text-align:center;background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd">${monthTotal ? fmt0(monthTotal) : ''}</td>`;
     return monthCell + dayCells;
   }).join('');
 

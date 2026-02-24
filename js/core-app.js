@@ -831,7 +831,7 @@ function renderProducts(){
           </div>
           <div class="table-scroll" style="max-height:260px;overflow-y:auto !important">
           <table class="data-table" id="prodDirectoryTable">
-            <thead><tr>${isSingleFac?'<th style="width:36px">Active</th>':''}<th>Name</th><th>Category</th><th>Code</th><th>Actions</th></tr></thead>
+            <thead><tr>${isSingleFac?'<th style="width:36px">Active</th>':''}<th>Name</th><th>Category</th><th>Code</th><th>Material #</th><th>Actions</th></tr></thead>
             <tbody>
               ${s.regionCatalog.map(m=>{
                 const isActive = !isSingleFac || activatedIds.size===0 || activatedIds.has(m.id);
@@ -839,14 +839,16 @@ function renderProducts(){
                   const fps = s.dataset?.facilityProducts||[];
                   return fps.some(fp=>fp.facilityId===f.id && fp.productId===m.id);
                 }).map(f=>f.id).join(',');
+                const matNums = (m.materialNumbers||[]).join(', ');
                 return '<tr data-category="' + esc(m.category||'') + '" data-facids="' + facIds + '" style="' + (!isActive?'opacity:0.45':'') + '">'
                   + (isSingleFac ? '<td style="text-align:center"><input type="checkbox" class="fac-product-toggle" data-product="' + m.id + '" ' + (isActive?'checked':'') + ' style="cursor:pointer;width:14px;height:14px;accent-color:var(--accent)"></td>' : '')
                   + '<td>' + esc(m.name) + '</td>'
                   + '<td>' + catPill(m.category) + '</td>'
                   + '<td><span class="text-mono" style="font-size:11px">' + esc(m.code||'') + '</span></td>'
+                  + '<td><span class="text-mono" style="font-size:10px;color:var(--muted)">' + esc(matNums||'—') + '</span></td>'
                   + '<td><div class="row-actions"><button class="action-btn" data-edit-material="' + m.id + '">Edit</button><button class="action-btn del" data-del-material="' + m.id + '">Delete</button></div></td>'
                   + '</tr>';
-              }).join('')||'<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">No materials in region catalog yet</td></tr>'}
+              }).join('')||'<tr><td colspan="6" class="text-muted" style="text-align:center;padding:20px">No materials in region catalog yet</td></tr>'}
             </tbody>
           </table>
           </div>
@@ -1106,7 +1108,7 @@ function renderProducts(){
     f.querySelector('[name=id]').value=m.id;
     f.querySelector('[name=name]').value=m.name||'';
     f.querySelector('[name=code]').value=m.code||'';
-    f.querySelector('[name=materialNumber]').value=m.materialNumber||'';
+    f.querySelector('[name=materialNumber]').value=(m.materialNumbers||[]).join(', ');
     f.querySelector('[name=category]').value=m.category||Categories.FIN;
     f.querySelector('[name=landedCostUsdPerStn]').value=m.landedCostUsdPerStn||'';
     f.querySelector('[name=calorificPowerMMBTUPerStn]').value=m.calorificPowerMMBTUPerStn||'';
@@ -2394,41 +2396,41 @@ function openDataIODialog(){
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(demandRows), 'Demand Forecast');
 
     // Sheet 2: Campaigns
-    const campRows = [['Facility','Equipment','Status','Product','Date','Rate (STn/d)']];
+    const campRows = [['Facility','Equipment','Status','Product','Material Numbers','Date','Rate (STn/d)']];
     ds.campaigns.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
       const fac = state.org.facilities.find(f=>f.id===r.facilityId);
       const eq  = ds.equipment.find(e=>e.id===r.equipmentId);
       const prod = state.catalog.find(m=>m.id===r.productId);
-      campRows.push([fac?.name||r.facilityId, eq?.name||r.equipmentId, r.status||'produce', prod?.name||r.productId||'', r.date, +r.rateStn||0]);
+      campRows.push([fac?.name||r.facilityId, eq?.name||r.equipmentId, r.status||'produce', prod?.name||r.productId||'', (prod?.materialNumbers||[]).join(', '), r.date, +r.rateStn||0]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(campRows), 'Campaigns');
 
     // Sheet 3: Production Actuals
-    const prodRows = [['Facility','Equipment','Product','Date','Qty (STn)']];
+    const prodRows = [['Facility','Equipment','Product','Material Numbers','Date','Qty (STn)']];
     ds.actuals.production.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
       const fac  = state.org.facilities.find(f=>f.id===r.facilityId);
       const eq   = ds.equipment.find(e=>e.id===r.equipmentId);
       const prod = state.catalog.find(m=>m.id===r.productId);
-      prodRows.push([fac?.name||r.facilityId, eq?.name||r.equipmentId, prod?.name||r.productId, r.date, +r.qtyStn||0]);
+      prodRows.push([fac?.name||r.facilityId, eq?.name||r.equipmentId, prod?.name||r.productId, (prod?.materialNumbers||[]).join(', '), r.date, +r.qtyStn||0]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(prodRows), 'Production Actuals');
 
     // Sheet 4: Shipment Actuals
-    const shipRows = [['Facility','Product','Date','Qty (STn)']];
+    const shipRows = [['Facility','Product','Material Numbers','Date','Qty (STn)']];
     ds.actuals.shipments.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
       const fac  = state.org.facilities.find(f=>f.id===r.facilityId);
       const prod = state.catalog.find(m=>m.id===r.productId);
-      shipRows.push([fac?.name||r.facilityId, prod?.name||r.productId, r.date, +r.qtyStn||0]);
+      shipRows.push([fac?.name||r.facilityId, prod?.name||r.productId, (prod?.materialNumbers||[]).join(', '), r.date, +r.qtyStn||0]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(shipRows), 'Shipment Actuals');
 
     // Sheet 5: Inventory EOD
-    const invRows = [['Facility','Storage','Product','Date','Qty (STn)']];
+    const invRows = [['Facility','Storage','Product','Material Numbers','Date','Qty (STn)']];
     ds.actuals.inventoryEOD.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
       const fac  = state.org.facilities.find(f=>f.id===r.facilityId);
       const stor = ds.storages.find(s=>s.id===r.storageId);
       const prod = state.catalog.find(m=>m.id===r.productId);
-      invRows.push([fac?.name||r.facilityId, stor?.name||r.storageId, prod?.name||r.productId, r.date, +r.qtyStn||0]);
+      invRows.push([fac?.name||r.facilityId, stor?.name||r.storageId, prod?.name||r.productId, (prod?.materialNumbers||[]).join(', '), r.date, +r.qtyStn||0]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(invRows), 'Inventory EOD');
 
@@ -2441,10 +2443,10 @@ function openDataIODialog(){
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(eqRows), 'Equipment');
 
     // Sheet 7: Setup — Products (catalog)
-    const prodSetupRows = [['Region','Product ID','Code','Name','Category','Unit','Landed Cost USD/STn']];
+    const prodSetupRows = [['Region','Product ID','Code','Name','Category','Unit','Landed Cost USD/STn','Material Numbers']];
     state.catalog.forEach(m=>{
       const reg = state.org.regions.find(r=>r.id===m.regionId);
-      prodSetupRows.push([reg?.name||m.regionId||'', m.id, m.code||'', m.name, m.category, m.unit||'STn', m.landedCostUsdPerStn||0]);
+      prodSetupRows.push([reg?.name||m.regionId||'', m.id, m.code||'', m.name, m.category, m.unit||'STn', m.landedCostUsdPerStn||0, (m.materialNumbers||[]).join(', ')]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(prodSetupRows), 'Products Catalog');
 
@@ -2509,14 +2511,16 @@ function openDataIODialog(){
             return match?.id || '';
           };
 
-          // ── FIX: robust product lookup — case-insensitive trim on name, id, and code.
+          // ── robust product lookup — name, id, code, OR any material number.
           const findProductId = (cellValue) => {
             const v = String(cellValue||'').trim();
             if(!v) return '';
+            const vl = v.toLowerCase();
             const match = state.catalog.find(m =>
-              m.name.trim().toLowerCase()         === v.toLowerCase() ||
-              m.id.trim().toLowerCase()           === v.toLowerCase() ||
-              (m.code||'').trim().toLowerCase()   === v.toLowerCase()
+              m.name.trim().toLowerCase()       === vl ||
+              m.id.trim().toLowerCase()         === vl ||
+              (m.code||'').trim().toLowerCase() === vl ||
+              (m.materialNumbers||[]).some(mn => String(mn).trim().toLowerCase() === vl)
             );
             return match?.id || '';
           };

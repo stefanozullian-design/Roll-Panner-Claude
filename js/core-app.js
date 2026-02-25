@@ -534,7 +534,27 @@ function renderPlan(){
   const SECTIONS = [
     { id:'bod',  title:'INVENTORY — BEGINNING OF DAY (STn)', rows: plan.inventoryBODRows  },
     { id:'prod', title:'EQUIPMENT PRODUCTION (STn/day)',      rows: filterProductionRows(plan.productionRows) },
-    { id:'out',  title:'OUTFLOWS — SHIPMENTS & CONSUMPTION (STn)', rows: plan.outflowRows  },
+    { id:'out',  title:'OUTFLOWS — CUSTOMER SHIPMENTS (STn)', rows: (() => {
+      // Only show finished-product customer shipments — one flat list, no TRANSFERS/CLK CONSUMED
+      // Multiple CUSTOMER SHIPMENTS groups (one per facility) are collapsed into one header
+      const rows = [];
+      let inCustomerShipments = false;
+      let addedGroupHeader = false;
+      for(const r of (plan.outflowRows||[])){
+        if(r.kind==='group'){
+          inCustomerShipments = /CUSTOMER SHIP/i.test(r.label||'');
+          if(inCustomerShipments && !addedGroupHeader){
+            rows.push(r); // only add ONE group header
+            addedGroupHeader = true;
+          }
+        } else if(r.kind==='subtotal'){
+          inCustomerShipments = false;
+        } else if(r.kind==='row' && inCustomerShipments){
+          rows.push(r);
+        }
+      }
+      return rows;
+    })() },
     { id:'eod',  title:'INVENTORY — END OF DAY (STn)',        rows: plan.inventoryEODRows   },
   ];
   const unifiedRows = [];

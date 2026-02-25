@@ -507,9 +507,33 @@ function renderPlan(){
   const wkdColStyle = 'background:rgba(239,68,68,0.06);border-left:1px solid rgba(239,68,68,0.3);';
 
   // Build unified row list from all 4 sections
+  // Filter production rows: skip subtotal+children if no equipment rows exist for that group
+  const filterProductionRows = (rows) => {
+    const out = [];
+    let i = 0;
+    while(i < rows.length){
+      const r = rows[i];
+      if(r.kind === 'subtotal'){
+        const children = [];
+        let j = i + 1;
+        while(j < rows.length && rows[j].kind === 'row') { children.push(rows[j]); j++; }
+        const hasEquipment = children.some(c => c.rowType === 'equipment');
+        if(hasEquipment){
+          out.push(r);
+          children.forEach(c => out.push(c));
+        }
+        i = j;
+      } else {
+        out.push(r);
+        i++;
+      }
+    }
+    return out;
+  };
+
   const SECTIONS = [
     { id:'bod',  title:'INVENTORY — BEGINNING OF DAY (STn)', rows: plan.inventoryBODRows  },
-    { id:'prod', title:'EQUIPMENT PRODUCTION (STn/day)',      rows: plan.productionRows     },
+    { id:'prod', title:'EQUIPMENT PRODUCTION (STn/day)',      rows: filterProductionRows(plan.productionRows) },
     { id:'out',  title:'OUTFLOWS — SHIPMENTS & CONSUMPTION (STn)', rows: plan.outflowRows  },
     { id:'eod',  title:'INVENTORY — END OF DAY (STn)',        rows: plan.inventoryEODRows   },
   ];
@@ -684,12 +708,12 @@ function renderPlan(){
     }
     if(r._type==='subtotal-header'){
       return `<tr class="plan-sub-collapse sec-child sec-${r._secId}" data-sub="${r._subId}" style="cursor:pointer;user-select:none;display:none;">
-        <td class="row-header" style="background:rgba(255,255,255,0.04);font-weight:700;padding-left:14px;" title="${esc(r.productLabel||r.label)}">
+        <td class="row-header" style="background:rgba(255,255,255,0.04);font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text);padding-left:14px;" title="${esc(r.productLabel||r.label)}">
           <span class="collapse-icon sub-icon" data-sub="${r._subId}" style="margin-right:5px;display:inline-block;transition:transform .15s;font-size:9px;">▶</span>${esc(r.label)}
         </td>${renderAllCells(r)}</tr>`;
     }
     return `<tr class="sec-child sec-${r._secId}${r._subId?' sub-child sub-'+r._subId:''}" style="display:none;">
-      <td class="row-header" style="padding-left:${r._subId?'26px':'14px'};" title="${esc(r.productLabel||r.label)}">${esc(r.label)}</td>
+      <td class="row-header" style="font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--text);padding-left:${r._subId?'26px':'14px'};" title="${esc(r.productLabel||r.label)}">${esc(r.label)}</td>
       ${renderAllCells(r)}</tr>`;
   }).join('');
 

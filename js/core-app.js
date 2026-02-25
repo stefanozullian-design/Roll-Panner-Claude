@@ -435,7 +435,7 @@ function renderPlan(){
     <div class="kpi-card ${stockouts.length?'kpi-danger':'kpi-ok'}">
       <div class="kpi-label">🚨 Stockout Alerts</div>
       <div class="kpi-value" style="color:${stockouts.length?'var(--danger)':'var(--ok)'}">${stockouts.length}</div>
-      <div class="kpi-sub">${stockouts.length?'in 2024-2026 horizon':'None detected ✓'}</div>
+      <div class="kpi-sub">${stockouts.length?'in 2025-2027 horizon':'None detected ✓'}</div>
     </div>
     ${daysUntilStockout!==null?`<div class="kpi-card kpi-danger">
       <div class="kpi-label">⏱ First Stockout</div>
@@ -576,7 +576,7 @@ function renderPlan(){
       if(!rows.length) allShipRows.forEach(r => rows.push(r));
       return rows;
     })() },
-    { id:'eod',  title:'INV.-EOD (STn)',        rows: plan.inventoryEODRows   },
+    { id:'eod',  title:'INV.-EOD (STn)',               rows: plan.inventoryEODRows   },
   ];
   const unifiedRows = [];
   let subCounter = 0;
@@ -764,7 +764,7 @@ function renderPlan(){
   <div class="card" style="margin-bottom:16px">
     <div class="card-header">
       <div>
-        <div class="card-title">📊 Production Plan — 2024–2026</div>
+        <div class="card-title">📊 Production Plan — 2025–2027</div>
         <div class="card-sub text-muted" style="font-size:11px">3-year view · All months collapsed by default · click month header to expand · ▶ click rows to expand · ✓ = actual · ⚠ = constrained · pink cols = weekends</div>
       </div>
       <div class="flex gap-2">

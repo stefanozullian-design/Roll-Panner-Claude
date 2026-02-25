@@ -2424,7 +2424,7 @@ function openDataIODialog(){
 
     // Sheet 5: Inventory EOD
     const invRows = [['Facility','Storage','Product','Date','Qty (STn)']];
-    ds.actuals.inventoryEOD.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
+    (ds.actuals.inventoryEOD||[]).filter(r=>fids.includes(r.facilityId)).forEach(r=>{
       const fac  = state.org.facilities.find(f=>f.id===r.facilityId);
       const stor = ds.storages.find(s=>s.id===r.storageId);
       const prod = state.catalog.find(m=>m.id===r.productId);

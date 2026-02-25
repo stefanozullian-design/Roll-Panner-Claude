@@ -492,10 +492,25 @@ function renderPlan(){
     ...warningGroups.map(g  => makeChip(g,'chip-high','△','>75%'))
   ].join('');
 
-  const alertStripHTML = (stockouts.length+overflows.length+warnings.length)>0
-    ? `<div id="alertStrip" style="margin-bottom:16px;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(245,158,11,0.05));border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px 16px;">
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--danger);margin-bottom:8px;">⚡ Action Required <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0">· click any alert to jump to that date</span></div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;">${alertChips}</div></div>`
+  const _alertKey = 'planAlertStripCollapsed';
+  const _alertCollapsed = localStorage.getItem(_alertKey) === '1';
+  const totalAlertCount = stockouts.length+overflows.length+warnings.length;
+  const alertStripHTML = totalAlertCount>0
+    ? `<div id="alertStrip" style="margin-bottom:16px;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(245,158,11,0.05));border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:10px 16px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none" id="alertStripToggle">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--danger);">
+            ⚡ Action Required
+            <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;margin-left:8px">
+              ${stockouts.length} stockout${stockouts.length!==1?'s':''} · ${overflows.length} overflow${overflows.length!==1?'s':''} · ${warnings.length} warning${warnings.length!==1?'s':''}
+            </span>
+          </div>
+          <span id="alertStripCaret" style="font-size:11px;color:var(--muted);transition:transform .2s;display:inline-block;transform:${_alertCollapsed?'rotate(-90deg)':'rotate(0deg)'}">▼</span>
+        </div>
+        <div id="alertStripBody" style="display:${_alertCollapsed?'none':'block'};margin-top:8px">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px">· click any alert to jump to that date</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">${alertChips}</div>
+        </div>
+      </div>`
     : `<div style="margin-bottom:16px;padding:10px 14px;background:var(--ok-bg);border:1px solid rgba(34,197,94,0.3);border-radius:8px;font-size:12px;color:#86efac;">✅ <strong>All clear</strong> — No stockouts or capacity issues in the planning horizon.</div>`;
 
   const productColor = pid => {
@@ -858,6 +873,19 @@ function renderPlan(){
     if(!th) return;
     toggleMonth(th.dataset.monthYm, 'planTable');
   });
+
+  // Alert strip collapse toggle
+  const alertToggle = root.querySelector('#alertStripToggle');
+  if(alertToggle){
+    alertToggle.onclick = () => {
+      const body  = root.querySelector('#alertStripBody');
+      const caret = root.querySelector('#alertStripCaret');
+      const isNowHidden = body.style.display !== 'none';
+      body.style.display = isNowHidden ? 'none' : 'block';
+      caret.style.transform = isNowHidden ? 'rotate(-90deg)' : 'rotate(0deg)';
+      localStorage.setItem('planAlertStripCollapsed', isNowHidden ? '1' : '0');
+    };
+  }
 
   // Alert chip click → scroll plan table to that date and flash the column
   root.querySelectorAll('[data-jump-date]').forEach(chip => {

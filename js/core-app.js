@@ -1425,11 +1425,37 @@ function renderFlow(){
   root.querySelector('#cancelStEdit').onclick=clearSt;
   root.querySelector('#cancelCapEdit').onclick=clearCap;
   root.querySelectorAll('[data-edit-eq]').forEach(btn=>btn.onclick=()=>{ const row=s.equipment.find(x=>x.id===btn.dataset.editEq); if(!row) return; const f=root.querySelector('#eqForm'); f.querySelector('[name=id]').value=row.id; f.querySelector('[name=name]').value=row.name; f.querySelector('[name=type]').value=row.type; root.querySelector('#saveEqBtn').textContent='Update'; root.querySelector('#cancelEqEdit').classList.remove('hidden'); });
-  root.querySelectorAll('[data-del-eq]').forEach(btn=>btn.onclick=()=>{ if(!confirm('Delete equipment and all capabilities/actuals?')) return; a.deleteEquipment(btn.dataset.delEq); rer(); });
+  root.querySelectorAll('[data-del-eq]').forEach(btn=>btn.onclick=()=>{
+    if(!confirm('Delete equipment and all capabilities/actuals?')) return;
+    const eqId = btn.dataset.delEq;
+    const eq = s.dataset.equipment.find(e=>e.id===eqId);
+    if(!eq){ showToast('Equipment not found', 'err'); return; }
+    // Scope actions to the equipment's own facilityId so fac matches
+    const facActions = actions({...state, ui:{...state.ui, selectedFacilityId: eq.facilityId, selectedFacilityIds:[eq.facilityId]}});
+    facActions.deleteEquipment(eqId);
+    rer();
+  });
   root.querySelectorAll('[data-edit-st]').forEach(btn=>btn.onclick=()=>{ const row=s.storages.find(x=>x.id===btn.dataset.editSt); if(!row) return; const f=root.querySelector('#stForm'); f.querySelector('[name=id]').value=row.id; f.querySelector('[name=name]').value=row.name; f.querySelector('[name=categoryHint]').value=row.categoryHint||''; f.querySelector('[name=allowedProductId]').value=(row.allowedProductIds||[])[0]||''; f.querySelector('[name=maxCapacityStn]').value=row.maxCapacityStn||''; root.querySelector('#saveStBtn').textContent='Update'; root.querySelector('#cancelStEdit').classList.remove('hidden'); });
-  root.querySelectorAll('[data-del-st]').forEach(btn=>btn.onclick=()=>{ if(!confirm('Delete storage and related inventory actuals?')) return; a.deleteStorage(btn.dataset.delSt); rer(); });
+  root.querySelectorAll('[data-del-st]').forEach(btn=>btn.onclick=()=>{
+    if(!confirm('Delete storage and related inventory actuals?')) return;
+    const stId = btn.dataset.delSt;
+    const st = s.dataset.storages.find(x=>x.id===stId);
+    if(!st){ showToast('Storage not found', 'err'); return; }
+    const facActions = actions({...state, ui:{...state.ui, selectedFacilityId: st.facilityId, selectedFacilityIds:[st.facilityId]}});
+    facActions.deleteStorage(stId);
+    rer();
+  });
   root.querySelectorAll('[data-edit-cap]').forEach(btn=>btn.onclick=()=>{ const c=s.capabilities.find(x=>x.id===btn.dataset.editCap); if(!c) return; const f=root.querySelector('#capForm'); f.querySelector('[name=editingCapId]').value=c.id; f.querySelector('[name=equipmentId]').value=c.equipmentId; f.querySelector('[name=productId]').value=c.productId; f.querySelector('[name=maxRateStpd]').value=c.maxRateStpd||''; f.querySelector('[name=electricKwhPerStn]').value=c.electricKwhPerStn||''; root.querySelector('#saveCapBtn').textContent='Update Capability'; root.querySelector('#cancelCapEdit').classList.remove('hidden'); });
-  root.querySelectorAll('[data-del-cap]').forEach(btn=>btn.onclick=()=>{ if(!confirm('Delete capability?')) return; a.deleteCapability(btn.dataset.delCap); rer(); });
+  root.querySelectorAll('[data-del-cap]').forEach(btn=>btn.onclick=()=>{
+    if(!confirm('Delete capability?')) return;
+    const capId = btn.dataset.delCap;
+    const cap = s.dataset.capabilities.find(c=>c.id===capId);
+    const eq  = cap ? s.dataset.equipment.find(e=>e.id===cap.equipmentId) : null;
+    const facId = eq?.facilityId || state.ui.selectedFacilityId;
+    const facActions = actions({...state, ui:{...state.ui, selectedFacilityId: facId, selectedFacilityIds:[facId]}});
+    facActions.deleteCapability(capId);
+    rer();
+  });
   root.querySelector('#eqForm').onsubmit=e=>{ e.preventDefault(); a.upsertEquipment(Object.fromEntries(new FormData(e.target).entries())); clearEq(); rer(); showToast('Equipment saved ✓'); };
   root.querySelector('#stForm').onsubmit=e=>{ e.preventDefault(); const fd=new FormData(e.target); a.upsertStorage({id:fd.get('id')||'',name:fd.get('name'),categoryHint:fd.get('categoryHint'),allowedProductIds:fd.get('allowedProductId')?[fd.get('allowedProductId')]:[], maxCapacityStn:fd.get('maxCapacityStn')}); clearSt(); rer(); showToast('Storage saved ✓'); };
   root.querySelector('#capForm').onsubmit=e=>{ e.preventDefault(); const fd=new FormData(e.target); a.upsertCapability({equipmentId:fd.get('equipmentId'),productId:fd.get('productId'),maxRateStpd:fd.get('maxRateStpd'),electricKwhPerStn:fd.get('electricKwhPerStn'),thermalMMBTUPerStn:'0'}); clearCap(); rer(); showToast('Capability saved ✓'); };

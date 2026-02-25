@@ -205,6 +205,11 @@ function initShell(){
 
     const mkDropdown = (id, placeholder, items, selectedSet) => {
       if(!items.length) return `<div style="display:none"></div>`;
+      const allChecked = items.every(it=>selectedSet.has(it.id));
+      const selectAllRow = `<label style="display:flex;align-items:center;gap:6px;padding:5px 10px;cursor:pointer;white-space:nowrap;font-size:11px;font-weight:700;border-bottom:1px solid var(--border);color:var(--text)" data-scope-all="${id}">
+        <input type="checkbox" ${allChecked?'checked':''} data-scope-all-cb="${id}" style="accent-color:var(--accent);width:12px;height:12px">
+        Select All
+      </label>`;
       const opts = items.map(it =>
         `<label style="display:flex;align-items:center;gap:6px;padding:4px 10px;cursor:pointer;white-space:nowrap;font-size:11px;${selectedSet.has(it.id)?'color:var(--accent);background:rgba(99,179,237,0.08)':''}" data-scope-item="${it.id}">
           <input type="checkbox" ${selectedSet.has(it.id)?'checked':''} data-scope-cb="${it.id}" style="accent-color:var(--accent);width:12px;height:12px">
@@ -212,13 +217,14 @@ function initShell(){
         </label>`
       ).join('');
       const anySelected = items.some(it=>selectedSet.has(it.id));
+      const selCount = items.filter(it=>selectedSet.has(it.id)).length;
       return `<div style="position:relative;display:inline-block">
         <button class="scope-dd-btn" data-dd="${id}" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:11px;color:${anySelected?'var(--accent)':'var(--muted)'};cursor:pointer;white-space:nowrap;min-width:80px;display:flex;align-items:center;gap:4px">
-          ${placeholder}${anySelected?` <span style="background:var(--accent);color:#000;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700">${items.filter(it=>selectedSet.has(it.id)).length}</span>`:''}
+          ${placeholder}${anySelected?` <span style="background:var(--accent);color:#000;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700">${selCount}</span>`:''}
           <span style="font-size:8px;margin-left:2px">▼</span>
         </button>
-        <div class="scope-dd-menu" id="dd-${id}" style="display:none;position:absolute;top:100%;left:0;z-index:200;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 0;min-width:160px;box-shadow:0 8px 24px rgba(0,0,0,0.4);max-height:240px;overflow-y:auto;margin-top:2px">
-          ${opts}
+        <div class="scope-dd-menu" id="dd-${id}" style="display:none;position:absolute;top:100%;left:0;z-index:200;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 0;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,0.4);max-height:280px;overflow-y:auto;margin-top:2px">
+          ${selectAllRow}${opts}
         </div>
       </div>`;
     };
@@ -238,41 +244,112 @@ function initShell(){
         <span style="font-size:10px;color:var(--muted);padding:0 4px">${selIds.size ? `${selIds.size} selected` : 'Select scope'}</span>
       </div>`;
 
-    // Dropdown open/close
+    // Track if selection changed while dropdown was open
+    let _scopeChanged = false;
+
+    const closeAllMenus = () => {
+      scopeWrap.querySelectorAll('.scope-dd-menu').forEach(m => {
+        if(m.style.display !== 'none'){
+          m.style.display = 'none';
+          if(_scopeChanged){
+            _scopeChanged = false;
+            syncLegacyId();
+            persist();
+            buildScopeUI();
+            render();
+          }
+        }
+      });
+    };
+
+    // Dropdown open/close — keep open while user clicks inside
     scopeWrap.querySelectorAll('.scope-dd-btn').forEach(btn => {
       btn.onclick = e => {
         e.stopPropagation();
         const ddId = 'dd-' + btn.dataset.dd;
         const menu = document.getElementById(ddId);
-        // Close all others
-        scopeWrap.querySelectorAll('.scope-dd-menu').forEach(m => { if(m.id!==ddId) m.style.display='none'; });
-        menu.style.display = menu.style.display==='none' ? 'block' : 'none';
+        const isOpen = menu.style.display !== 'none';
+        // Close other menus (and trigger render if they had changes)
+        scopeWrap.querySelectorAll('.scope-dd-menu').forEach(m => {
+          if(m.id !== ddId && m.style.display !== 'none'){
+            m.style.display = 'none';
+            if(_scopeChanged){
+              _scopeChanged = false;
+              syncLegacyId(); persist(); buildScopeUI(); render();
+            }
+          }
+        });
+        menu.style.display = isOpen ? 'none' : 'block';
+        if(isOpen && _scopeChanged){
+          _scopeChanged = false;
+          syncLegacyId(); persist(); buildScopeUI(); render();
+        }
       };
     });
 
-    // Checkbox change
+    // Prevent clicks inside dropdown from closing it
+    scopeWrap.querySelectorAll('.scope-dd-menu').forEach(menu => {
+      menu.addEventListener('click', e => e.stopPropagation());
+    });
+
+    // Checkbox change — just update state, don't render yet
     scopeWrap.querySelectorAll('[data-scope-cb]').forEach(cb => {
       cb.onchange = () => {
         const id = cb.dataset.scopeCb;
         const ids = new Set(state.ui.selectedFacilityIds || []);
         if(cb.checked) ids.add(id); else ids.delete(id);
         state.ui.selectedFacilityIds = [...ids];
-        syncLegacyId();
-        persist(); buildScopeUI(); render();
+        _scopeChanged = true;
+        // Update visual state of this checkbox's label without full rebuild
+        const label = cb.closest('label');
+        if(label){
+          label.style.color = cb.checked ? 'var(--accent)' : '';
+          label.style.background = cb.checked ? 'rgba(99,179,237,0.08)' : '';
+        }
+        // Update Select All checkbox for this group
+        const menu = cb.closest('.scope-dd-menu');
+        if(menu){
+          const allCbs = [...menu.querySelectorAll('[data-scope-cb]')];
+          const allCheckedNow = allCbs.every(c=>c.checked);
+          const allCb = menu.querySelector('[data-scope-all-cb]');
+          if(allCb) allCb.checked = allCheckedNow;
+        }
+      };
+    });
+
+    // Select All checkbox
+    scopeWrap.querySelectorAll('[data-scope-all-cb]').forEach(allCb => {
+      allCb.onchange = () => {
+        const menu = allCb.closest('.scope-dd-menu');
+        if(!menu) return;
+        const cbs = [...menu.querySelectorAll('[data-scope-cb]')];
+        const ids = new Set(state.ui.selectedFacilityIds || []);
+        cbs.forEach(cb => {
+          cb.checked = allCb.checked;
+          const label = cb.closest('label');
+          if(label){
+            label.style.color = allCb.checked ? 'var(--accent)' : '';
+            label.style.background = allCb.checked ? 'rgba(99,179,237,0.08)' : '';
+          }
+          if(allCb.checked) ids.add(cb.dataset.scopeCb);
+          else ids.delete(cb.dataset.scopeCb);
+        });
+        state.ui.selectedFacilityIds = [...ids];
+        _scopeChanged = true;
       };
     });
 
     // Clear button
-    scopeWrap.querySelector('#scopeClearBtn')?.addEventListener('click', () => {
+    scopeWrap.querySelector('#scopeClearBtn')?.addEventListener('click', e => {
+      e.stopPropagation();
       state.ui.selectedFacilityIds = [];
+      _scopeChanged = false;
       syncLegacyId();
       persist(); buildScopeUI(); render();
     });
 
-    // Close dropdowns on outside click
-    document.addEventListener('click', () => {
-      scopeWrap.querySelectorAll('.scope-dd-menu').forEach(m => m.style.display='none');
-    }, { once: true });
+    // Close dropdowns on outside click — triggers render if changed
+    document.addEventListener('click', closeAllMenus, { once: true });
   };
 
   if(scopeWrap) {

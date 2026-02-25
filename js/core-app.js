@@ -532,9 +532,9 @@ function renderPlan(){
   };
 
   const SECTIONS = [
-    { id:'bod',  title:'INVENTORY — BEGINNING OF DAY (STn)', rows: plan.inventoryBODRows  },
-    { id:'prod', title:'EQUIPMENT PRODUCTION (STn/day)',      rows: filterProductionRows(plan.productionRows) },
-    { id:'out',  title:'OUTFLOWS — CUSTOMER SHIPMENTS (STn)', rows: (() => {
+    { id:'bod',  title:'INV (BOD) [STn]', rows: plan.inventoryBODRows  },
+    { id:'prod', title:'PROD. [STn/day]',      rows: filterProductionRows(plan.productionRows) },
+    { id:'out',  title:'SHIPMENTS [STn]', rows: (() => {
       // Rebuild outflow rows grouped by facility, only customer shipments
       // Collect all shipment rows from simEngine output
       const allShipRows = [];

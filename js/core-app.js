@@ -2148,6 +2148,36 @@ function openDailyActualsDialog(preselectedFacId){
         ${facs.map(f=>`<button data-fac-tab="${f.id}" style="padding:5px 14px;border-radius:6px;border:1px solid ${f.id===activeFacId?'var(--accent)':'var(--border)'};background:${f.id===activeFacId?'rgba(99,179,237,0.15)':'transparent'};color:${f.id===activeFacId?'var(--accent)':'var(--muted)'};font-size:11px;font-weight:${f.id===activeFacId?'700':'400'};cursor:pointer">${esc(f.code||f.id)}</button>`).join('')}
       </div>` : '';
 
+    // Pre-compute filtered HTML blocks to avoid nested template literal issues
+    const facEqAll = [...rf,...kf,...ff];
+    const facMats  = s.materials.filter(m => facEqAll.some(eq => canEqProd(eq.id, m.id)));
+    const prodTableHTML = facEqAll.length
+      ? '<table class="data-table" style="min-width:max-content"><thead><tr>' +
+        '<th style="min-width:160px;position:sticky;left:0;background:#0a0d14;z-index:3">Equipment</th>' +
+        facMats.map(m=>'<th style="min-width:90px">'+esc(m.code||m.name.slice(0,10))+'</th>').join('') +
+        '</tr></thead><tbody>' +
+        facEqAll.map(eq =>
+          '<tr><td style="font-weight:600;position:sticky;left:0;background:var(--surface2);z-index:2">' +
+          esc(eq.name)+' <span class="pill pill-gray" style="font-size:9px">'+eq.type+'</span></td>' +
+          facMats.map(m => canEqProd(eq.id,m.id)
+            ? '<td><input class="cell-input prod-input" data-equipment="'+eq.id+'" data-product="'+m.id+'" value="'+(prodMap.get(eq.id+'|'+m.id)??'')+'"></td>'
+            : '<td class="cell-gray">—</td>'
+          ).join('') + '</tr>'
+        ).join('') +
+        '</tbody></table>'
+      : '<div class="text-muted" style="font-size:12px;padding:12px;text-align:center">No equipment for this facility</div>';
+
+    const facProdIds = new Set((s.dataset.facilityProducts||[]).filter(fp=>fp.facilityId===activeFacId).map(fp=>fp.productId));
+    const facFPs = s.finishedProducts.filter(fp => facProdIds.has(fp.id));
+    const shipHTML = facFPs.length
+      ? facFPs.map(fp =>
+          '<div style="display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:6px;padding:8px 12px">' +
+          '<span style="font-size:12px;font-weight:500">'+esc(fp.name)+'</span>' +
+          '<input class="cell-input ship-input" style="max-width:100px" data-product="'+fp.id+'" value="'+(shipMap.get(fp.id)??'')+'">' +
+          '</div>'
+        ).join('')
+      : '<div class="text-muted" style="font-size:12px">No finished products for this facility.</div>';
+
     host.querySelector('#actualsFormBody').innerHTML = `
       ${tabsHTML}
       <div style="margin-bottom:12px;font-size:12px;font-weight:600;color:var(--accent)">📍 ${esc(facLabel)}</div>
@@ -2164,24 +2194,13 @@ function openDailyActualsDialog(preselectedFacId){
       </div>
 
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">2. Production Actuals (STn)</div>
-      <div class="table-scroll" style="margin-bottom:20px;max-height:260px;border-radius:8px;overflow-y:auto !important;border:1px solid var(--border)">
-        ${[...rf,...kf,...ff].length
-          ? `<table class="data-table">
-              <thead><tr><th style="min-width:140px">Equipment</th>${s.materials.map(m=>`<th style="min-width:80px">${esc(m.code||m.name.slice(0,8))}</th>`).join('')}</tr></thead>
-              <tbody>${[...rf,...kf,...ff].map(eq=>`<tr>
-                <td style="font-weight:600">${esc(eq.name)} <span class="pill pill-gray" style="font-size:9px">${eq.type}</span></td>
-                ${s.materials.map(m=>canEqProd(eq.id,m.id)?`<td><input class="cell-input prod-input" data-equipment="${eq.id}" data-product="${m.id}" value="${prodMap.get(`${eq.id}|${m.id}`)??''}"></td>`:`<td class="cell-gray">—</td>`).join('')}
-              </tr>`).join('')}</tbody>
-             </table>`
-          : '<div class="text-muted" style="font-size:12px;padding:12px;text-align:center">No equipment for this facility</div>'}
+      <div class="table-scroll" style="margin-bottom:20px;max-height:260px;border-radius:8px;overflow-x:auto;overflow-y:auto;border:1px solid var(--border)">
+        ${prodTableHTML}
       </div>
 
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">3. Customer Shipments (STn)</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px">
-        ${s.finishedProducts.map(fp=>`<div style="display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:6px;padding:8px 12px">
-          <span style="font-size:12px;font-weight:500">${esc(fp.name)}</span>
-          <input class="cell-input ship-input" style="max-width:100px" data-product="${fp.id}" value="${shipMap.get(fp.id)??''}">
-        </div>`).join('')||'<div class="text-muted" style="font-size:12px">No finished products for this facility.</div>'}
+        ${shipHTML}
       </div>`;
 
     // Facility tab switching

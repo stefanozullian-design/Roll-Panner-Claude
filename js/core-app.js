@@ -1316,7 +1316,20 @@ function renderProducts(){
 
   root.querySelector('#materialForm').onsubmit=e=>{
     e.preventDefault();
-    a.upsertMaterial(Object.fromEntries(new FormData(e.target).entries()));
+    const fd = Object.fromEntries(new FormData(e.target).entries());
+    const saved = a.upsertMaterial(fd);
+    // upsertCatalogItem drops extra fields — patch them back in immediately
+    if(saved){
+      const idx = state.catalog.findIndex(m=>m.id===saved.id);
+      if(idx>=0){
+        state.catalog[idx].materialNumber        = fd.materialNumber||'';
+        state.catalog[idx].materialNumbers       = state.catalog[idx].materialNumbers||[];
+        state.catalog[idx].familyId              = fd.familyId||null;
+        state.catalog[idx].typeId                = fd.typeId||null;
+        state.catalog[idx].subTypeId             = fd.subTypeId||null;
+        state.catalog[idx].producerId            = fd.producerId||null;
+      }
+    }
     persist(); clearMaterialForm(); renderProducts(); renderDemand(); renderFlow(); renderPlan(); showToast('Material saved ✓');
   };
 }

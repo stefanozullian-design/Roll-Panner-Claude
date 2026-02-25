@@ -2686,11 +2686,11 @@ function openDataIODialog(){
     const wb = XLSX.utils.book_new();
 
     // Sheet 1: Demand Forecast
-    const demandRows = [['Facility','Product','Date','Qty (STn)','Source']];
+    const demandRows = [['Facility','Material Number','Product','Date','Qty (STn)','Source']];
     ds.demandForecast.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
       const fac = state.org.facilities.find(f=>f.id===r.facilityId);
       const prod = state.catalog.find(m=>m.id===r.productId);
-      demandRows.push([fac?.name||r.facilityId, prod?.name||r.productId, r.date, +r.qtyStn||0, r.source||'forecast']);
+      demandRows.push([fac?.code||fac?.name||r.facilityId, prod?.materialNumber||'', prod?.name||r.productId, r.date, +r.qtyStn||0, r.source||'forecast']);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(demandRows), 'Demand Forecast');
 
@@ -2705,31 +2705,31 @@ function openDataIODialog(){
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(campRows), 'Campaigns');
 
     // Sheet 3: Production Actuals
-    const prodRows = [['Facility','Equipment','Product','Date','Qty (STn)']];
+    const prodRows = [['Facility','Equipment','Material Number','Product','Date','Qty (STn)']];
     ds.actuals.production.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
       const fac  = state.org.facilities.find(f=>f.id===r.facilityId);
       const eq   = ds.equipment.find(e=>e.id===r.equipmentId);
       const prod = state.catalog.find(m=>m.id===r.productId);
-      prodRows.push([fac?.name||r.facilityId, eq?.name||r.equipmentId, prod?.name||r.productId, r.date, +r.qtyStn||0]);
+      prodRows.push([fac?.code||fac?.name||r.facilityId, eq?.name||r.equipmentId, prod?.materialNumber||'', prod?.name||r.productId, r.date, +r.qtyStn||0]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(prodRows), 'Production Actuals');
 
     // Sheet 4: Shipment Actuals
-    const shipRows = [['Facility','Product','Date','Qty (STn)']];
+    const shipRows = [['Facility','Material Number','Product','Date','Qty (STn)']];
     ds.actuals.shipments.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
       const fac  = state.org.facilities.find(f=>f.id===r.facilityId);
       const prod = state.catalog.find(m=>m.id===r.productId);
-      shipRows.push([fac?.name||r.facilityId, prod?.name||r.productId, r.date, +r.qtyStn||0]);
+      shipRows.push([fac?.code||fac?.name||r.facilityId, prod?.materialNumber||'', prod?.name||r.productId, r.date, +r.qtyStn||0]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(shipRows), 'Shipment Actuals');
 
     // Sheet 5: Inventory EOD
-    const invRows = [['Facility','Storage','Product','Date','Qty (STn)']];
+    const invRows = [['Facility','Storage','Material Number','Product','Date','Qty (STn)']];
     (ds.actuals.inventoryEOD||[]).filter(r=>fids.includes(r.facilityId)).forEach(r=>{
       const fac  = state.org.facilities.find(f=>f.id===r.facilityId);
       const stor = ds.storages.find(s=>s.id===r.storageId);
       const prod = state.catalog.find(m=>m.id===r.productId);
-      invRows.push([fac?.name||r.facilityId, stor?.name||r.storageId, prod?.name||r.productId, r.date, +r.qtyStn||0]);
+      invRows.push([fac?.code||fac?.name||r.facilityId, stor?.name||r.storageId, prod?.materialNumber||'', prod?.name||r.productId, r.date, +r.qtyStn||0]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(invRows), 'Inventory EOD');
 
@@ -2742,10 +2742,10 @@ function openDataIODialog(){
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(eqRows), 'Equipment');
 
     // Sheet 7: Setup — Products (catalog)
-    const prodSetupRows = [['Region','Product ID','Code','Name','Category','Unit','Landed Cost USD/STn']];
+    const prodSetupRows = [['Region','Material Number','Product ID','Code','Name','Category','Unit','Landed Cost USD/STn']];
     state.catalog.forEach(m=>{
       const reg = state.org.regions.find(r=>r.id===m.regionId);
-      prodSetupRows.push([reg?.name||m.regionId||'', m.id, m.code||'', m.name, m.category, m.unit||'STn', m.landedCostUsdPerStn||0]);
+      prodSetupRows.push([reg?.name||m.regionId||'', m.materialNumber||'', m.id, m.code||'', m.name, m.category, m.unit||'STn', m.landedCostUsdPerStn||0]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(prodSetupRows), 'Products Catalog');
 
@@ -2780,8 +2780,8 @@ function openDataIODialog(){
           if(demand?.length){
             const rows = demand.map(r=>({
               date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
-              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
-              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
+              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'] || f.code===r['Facility'])?.id || fac,
+              productId: state.catalog.find(m=>(m.materialNumber && m.materialNumber===String(r['Material Number']||r['Mat. Number']||r['MatNum']||'')) || (m.materialNumbers||[]).includes(String(r['Material Number']||r['Mat. Number']||r['MatNum']||'')) || m.code===r['Product'] || m.name===r['Product'] || m.id===r['Product'])?.id || '',
               qtyStn: +r['Qty (STn)']||0, source:'forecast'
             })).filter(r=>r.date && r.productId && r.qtyStn>0);
             // Overwrite for affected facility+dates
@@ -2796,9 +2796,9 @@ function openDataIODialog(){
           if(prod?.length){
             const rows = prod.map(r=>({
               date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
-              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
+              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'] || f.code===r['Facility'])?.id || fac,
               equipmentId: ds.equipment.find(e=>e.name===r['Equipment'] || e.id===r['Equipment'])?.id || '',
-              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
+              productId: state.catalog.find(m=>(m.materialNumber && m.materialNumber===String(r['Material Number']||r['Mat. Number']||r['MatNum']||'')) || (m.materialNumbers||[]).includes(String(r['Material Number']||r['Mat. Number']||r['MatNum']||'')) || m.code===r['Product'] || m.name===r['Product'] || m.id===r['Product'])?.id || '',
               qtyStn: +r['Qty (STn)']||0
             })).filter(r=>r.date && r.equipmentId && r.productId);
             rows.forEach(r=>{ ds.actuals.production = ds.actuals.production.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.equipmentId===r.equipmentId)); ds.actuals.production.push(r); });
@@ -2810,8 +2810,8 @@ function openDataIODialog(){
           if(ship?.length){
             const rows = ship.map(r=>({
               date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
-              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
-              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
+              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'] || f.code===r['Facility'])?.id || fac,
+              productId: state.catalog.find(m=>(m.materialNumber && m.materialNumber===String(r['Material Number']||r['Mat. Number']||r['MatNum']||'')) || (m.materialNumbers||[]).includes(String(r['Material Number']||r['Mat. Number']||r['MatNum']||'')) || m.code===r['Product'] || m.name===r['Product'] || m.id===r['Product'])?.id || '',
               qtyStn: +r['Qty (STn)']||0
             })).filter(r=>r.date && r.productId);
             rows.forEach(r=>{ ds.actuals.shipments = ds.actuals.shipments.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.productId===r.productId)); ds.actuals.shipments.push(r); });
@@ -2823,9 +2823,9 @@ function openDataIODialog(){
           if(inv?.length){
             const rows = inv.map(r=>({
               date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
-              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
+              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'] || f.code===r['Facility'])?.id || fac,
               storageId: ds.storages.find(s=>s.name===r['Storage'] || s.id===r['Storage'])?.id || '',
-              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
+              productId: state.catalog.find(m=>(m.materialNumber && m.materialNumber===String(r['Material Number']||r['Mat. Number']||r['MatNum']||'')) || (m.materialNumbers||[]).includes(String(r['Material Number']||r['Mat. Number']||r['MatNum']||'')) || m.code===r['Product'] || m.name===r['Product'] || m.id===r['Product'])?.id || '',
               qtyStn: +r['Qty (STn)']||0
             })).filter(r=>r.date && r.storageId && r.productId);
             rows.forEach(r=>{ ds.actuals.inventoryEOD = ds.actuals.inventoryEOD.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.storageId===r.storageId)); ds.actuals.inventoryEOD.push(r); });

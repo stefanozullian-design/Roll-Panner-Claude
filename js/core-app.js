@@ -31,9 +31,9 @@ NAV.forEach(s=>s.subs.forEach(t=>TAB_PARENT[t.key]=s.key));
 const el = id => document.getElementById(id);
 
 /* ─────────────────── MONTH-COLLAPSE SPINE ─────────────────── */
-// Build full date spine: Jan 2024 → Dec 2026
-const SPINE_START = '2024-01-01';
-const SPINE_END   = '2026-12-31';
+// Build full date spine: Jan 2025 → Dec 2027
+const SPINE_START = '2025-01-01';
+const SPINE_END   = '2027-12-31';
 
 function buildFullSpine(){
   const dates = [];
@@ -532,9 +532,9 @@ function renderPlan(){
   };
 
   const SECTIONS = [
-    { id:'bod',  title:'INVENTORY — BEGINNING OF DAY (STn)', rows: plan.inventoryBODRows  },
-    { id:'prod', title:'EQUIPMENT PRODUCTION (STn/day)',      rows: filterProductionRows(plan.productionRows) },
-    { id:'out',  title:'OUTFLOWS — CUSTOMER SHIPMENTS (STn)', rows: (() => {
+    { id:'bod',  title:'INV.-BOD (STn)', rows: plan.inventoryBODRows  },
+    { id:'prod', title:'PROD. (STn/day)',      rows: filterProductionRows(plan.productionRows) },
+    { id:'out',  title:'SHIP. (STn)', rows: (() => {
       // Rebuild outflow rows grouped by facility, only customer shipments
       // Collect all shipment rows from simEngine output
       const allShipRows = [];
@@ -576,7 +576,7 @@ function renderPlan(){
       if(!rows.length) allShipRows.forEach(r => rows.push(r));
       return rows;
     })() },
-    { id:'eod',  title:'INVENTORY — END OF DAY (STn)',        rows: plan.inventoryEODRows   },
+    { id:'eod',  title:'inv===INV.-EOD (STn)',        rows: plan.inventoryEODRows   },
   ];
   const unifiedRows = [];
   let subCounter = 0;

@@ -547,7 +547,7 @@ function renderPlan(){
 
       // Group by facility: for each selected facility that has finished products,
       // emit a facility group header then its product rows
-      const facIds = s.facilityIds.length ? s.facilityIds : state.org.facilities.map(f=>f.id);
+      const facIds = (state.ui.selectedFacilityIds||[]).length ? state.ui.selectedFacilityIds : state.org.facilities.map(f=>f.id);
       const rows = [];
       facIds.forEach(facId => {
         const fac = state.org.facilities.find(f=>f.id===facId);
@@ -2054,9 +2054,11 @@ function openDailyActualsDialog(preselectedFacId){
   const allS = selectors(state);
   const host = el('dailyActualsDialog');
 
-  // Available facilities: those currently in scope
-  const facIds = allS.facilityIds.length ? allS.facilityIds : state.org.facilities.map(f=>f.id);
-  const facs   = facIds.map(id=>state.org.facilities.find(f=>f.id===id)).filter(Boolean);
+  // Available facilities: read directly from multi-select state
+  const facIds = (state.ui.selectedFacilityIds||[]).length
+    ? state.ui.selectedFacilityIds
+    : state.org.facilities.map(f=>f.id);
+  const facs = facIds.map(id=>state.org.facilities.find(f=>f.id===id)).filter(Boolean);
 
   let activeFacId = preselectedFacId || facIds[0] || '';
   let activeDate  = yesterdayLocal();

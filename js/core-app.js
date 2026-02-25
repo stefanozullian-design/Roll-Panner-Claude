@@ -2070,13 +2070,14 @@ function openDailyActualsDialog(preselectedFacId){
     const rf         = facEq.filter(e=>e.type==='raw_mill');
     const facStorages= ds.storages.filter(st=>st.facilityId===activeFacId);
     const facProdIds = new Set((ds.facilityProducts||[]).filter(fp=>fp.facilityId===activeFacId).map(fp=>fp.productId));
-    const facFinProds= (allS.catalog||ds.materials).filter(m=>m.category==='FINISHED_PRODUCT'&&facProdIds.has(m.id));
+    const facFinProds= (state.catalog||ds.materials||[]).filter(m=>m.category==='FINISHED_PRODUCT'&&facProdIds.has(m.id));
     const canEqProd  = (eqId,pid) => ds.capabilities.some(c=>c.equipmentId===eqId&&c.productId===pid);
 
-    const existing = allS.actualsForDate(activeDate);
-    const invMap   = new Map((existing.inv||[]).filter(r=>r.facilityId===activeFacId).map(r=>[`${r.storageId}|${r.productId}`,r.qtyStn]));
-    const prodMap  = new Map((existing.prod||[]).filter(r=>r.facilityId===activeFacId).map(r=>[`${r.equipmentId}|${r.productId}`,r.qtyStn]));
-    const shipMap  = new Map((existing.ship||[]).filter(r=>r.facilityId===activeFacId).map(r=>[r.productId,r.qtyStn]));
+    const facSelectors = selectors({...state, ui:{...state.ui, selectedFacilityId:activeFacId, selectedFacilityIds:[activeFacId]}});
+    const existing = facSelectors.actualsForDate(activeDate);
+    const invMap   = new Map((existing.inv||[]).map(r=>[`${r.storageId}|${r.productId}`,r.qtyStn]));
+    const prodMap  = new Map((existing.prod||[]).map(r=>[`${r.equipmentId}|${r.productId}`,r.qtyStn]));
+    const shipMap  = new Map((existing.ship||[]).map(r=>[r.productId,r.qtyStn]));
 
     const fac = state.org.facilities.find(f=>f.id===activeFacId);
     const facLabel = fac ? `${fac.code||fac.id} — ${fac.name}` : activeFacId;

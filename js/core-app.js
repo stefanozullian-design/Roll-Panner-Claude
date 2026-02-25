@@ -576,7 +576,7 @@ function renderPlan(){
       if(!rows.length) allShipRows.forEach(r => rows.push(r));
       return rows;
     })() },
-    { id:'eod',  title:'INVENTORY — END OF DAY (STn)',        rows: plan.inventoryEODRows   },
+    { id:'eod',  title:'INV (EOD) [STn]',        rows: plan.inventoryEODRows   },
   ];
   const unifiedRows = [];
   let subCounter = 0;

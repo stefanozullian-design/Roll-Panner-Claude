@@ -532,9 +532,9 @@ function renderPlan(){
   };
 
   const SECTIONS = [
-    { id:'bod',  title:'INV (BOD) [STn]', rows: plan.inventoryBODRows  },
-    { id:'prod', title:'PROD. [STn/day]',      rows: filterProductionRows(plan.productionRows) },
-    { id:'out',  title:'SHIPMENTS [STn]', rows: (() => {
+    { id:'bod',  title:'INVENTORY — BEGINNING OF DAY (STn)', rows: plan.inventoryBODRows  },
+    { id:'prod', title:'EQUIPMENT PRODUCTION (STn/day)',      rows: filterProductionRows(plan.productionRows) },
+    { id:'out',  title:'OUTFLOWS — CUSTOMER SHIPMENTS (STn)', rows: (() => {
       // Rebuild outflow rows grouped by facility, only customer shipments
       // Collect all shipment rows from simEngine output
       const allShipRows = [];
@@ -576,7 +576,7 @@ function renderPlan(){
       if(!rows.length) allShipRows.forEach(r => rows.push(r));
       return rows;
     })() },
-    { id:'eod',  title:'INV (EOD) [STn]',        rows: plan.inventoryEODRows   },
+    { id:'eod',  title:'INVENTORY — END OF DAY (STn)',        rows: plan.inventoryEODRows   },
   ];
   const unifiedRows = [];
   let subCounter = 0;
@@ -749,12 +749,12 @@ function renderPlan(){
     }
     if(r._type==='subtotal-header'){
       return `<tr class="plan-sub-collapse sec-child sec-${r._secId}" data-sub="${r._subId}" style="cursor:pointer;user-select:none;display:none;">
-        <td class="row-header" style="background:rgba(255,255,255,0.04);font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text);padding-left:14px;" title="${esc(r.productLabel||r.label)}">
+        <td class="row-header" style="position:sticky;left:0;z-index:3;background:rgba(15,20,30,0.97);font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text);padding-left:14px;" title="${esc(r.productLabel||r.label)}">
           <span class="collapse-icon sub-icon" data-sub="${r._subId}" style="margin-right:5px;display:inline-block;transition:transform .15s;font-size:9px;">▶</span>${esc(r.label)}
         </td>${renderAllCells(r)}</tr>`;
     }
     return `<tr class="sec-child sec-${r._secId}${r._subId?' sub-child sub-'+r._subId:''}" style="display:none;">
-      <td class="row-header" style="font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--text);padding-left:${r._subId?'26px':'14px'};" title="${esc(r.productLabel||r.label)}">${esc(r.label)}</td>
+      <td class="row-header" style="position:sticky;left:0;z-index:3;background:rgba(10,13,20,0.97);font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--text);padding-left:${r._subId?'26px':'14px'};" title="${esc(r.productLabel||r.label)}">${esc(r.label)}</td>
       ${renderAllCells(r)}</tr>`;
   }).join('');
 
@@ -768,13 +768,14 @@ function renderPlan(){
         <div class="card-sub text-muted" style="font-size:11px">3-year view · All months collapsed by default · click month header to expand · ▶ click rows to expand · ✓ = actual · ⚠ = constrained · pink cols = weekends</div>
       </div>
       <div class="flex gap-2">
+        <button class="btn" id="jumpTodayPlan">📅 Today</button>
         <button class="btn" id="openCampaigns">🎯 Campaigns</button>
         <button class="btn btn-primary" id="openActuals">📝 Daily Actuals</button>
       </div>
     </div>
     <div class="card-body" style="padding:0">
       ${s.equipment.length===0?'<div style="padding:40px;text-align:center;color:var(--muted)">No equipment configured. Set up your Process Flow first.</div>':''}
-      <div class="table-scroll" id="planTableScroll">
+      <div class="table-scroll" id="planTableScroll" style="overflow-x:auto;overflow-y:auto">
         <table class="data-table plan-table" id="planTable" style="min-width:max-content;width:100%">
           <thead><tr>
             <th class="row-header" style="min-width:160px;position:sticky;left:0;background:#0a0d14;z-index:5;">Row</th>
@@ -830,6 +831,26 @@ function renderPlan(){
 
   root.querySelector('#openCampaigns').onclick = () => openCampaignDialog();
   root.querySelector('#openActuals').onclick = () => openDailyActualsDialog();
+  root.querySelector('#jumpTodayPlan').onclick = () => {
+    const scroll = document.getElementById('planTableScroll');
+    const table  = document.getElementById('planTable');
+    if(!scroll || !table) return;
+    const todayStr = today();
+    // Expand today's month if collapsed
+    const ym = todayStr.slice(0,7);
+    const cur = loadCollapsedMonths();
+    if(cur.has(ym)){ cur.delete(ym); saveCollapsedMonths(cur); applyCollapseStyle('planTable', cur); }
+    // Expand all sections so today column is visible
+    table.querySelectorAll('.plan-section-collapse').forEach(tr => {
+      const sec = tr.dataset.sec;
+      tr.querySelectorAll('.collapse-icon').forEach(i=>{ i.style.transform='rotate(90deg)'; });
+      table.querySelectorAll(`.sec-child.sec-${sec}`).forEach(r=>r.style.display='');
+    });
+    // Find and scroll to today's th
+    let th = null;
+    table.querySelectorAll('thead th').forEach(t=>{ if(t.dataset.date===todayStr) th=t; });
+    if(th) scroll.scrollTo({ left: Math.max(0, th.offsetLeft - 200), behavior:'smooth' });
+  };
 
   // Month column collapse/expand
   root.querySelector('#planTable thead').addEventListener('click', e => {
@@ -1505,12 +1526,13 @@ function renderDemand(mode='total'){
         <div class="card-sub text-muted" style="font-size:11px">All facilities · Click facility row to expand · 🟢 Green = confirmed actual · White = forecast · Pink = weekends</div>
       </div>
       <div style="display:flex;gap:8px">
+        <button id="jumpTodayDemand" class="btn">📅 Today</button>
         <button id="openForecastTool" class="btn">⚙ Forecast Tool</button>
         <button id="saveDemandBtn" class="btn btn-primary">💾 Save Forecast</button>
       </div>
     </div>
     <div class="card-body" style="padding:0">
-      <div class="table-scroll" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 180px)">
+      <div class="table-scroll" id="demandTableScroll" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 180px)">
         <table class="data-table plan-table" id="${demandTableId}" style="min-width:max-content;width:100%">
           <thead><tr>
             <th class="row-header" style="min-width:200px;position:sticky;left:0;background:#0a0d14;z-index:5;">Facility / Product</th>
@@ -1560,6 +1582,18 @@ function renderDemand(mode='total'){
   });
 
   root.querySelector('#openForecastTool').onclick = () => openForecastToolDialog();
+  root.querySelector('#jumpTodayDemand').onclick = () => {
+    const scroll = document.getElementById('demandTableScroll');
+    const table  = document.getElementById('demand-table-total');
+    if(!scroll || !table) return;
+    const todayStr = today();
+    const ym = todayStr.slice(0,7);
+    const cur = loadCollapsedMonths();
+    if(cur.has(ym)){ cur.delete(ym); saveCollapsedMonths(cur); applyCollapseStyle('demand-table-total', cur); }
+    let th = null;
+    table.querySelectorAll('thead th').forEach(t=>{ if(t.dataset.date===todayStr) th=t; });
+    if(th) scroll.scrollTo({ left: Math.max(0, th.offsetLeft - 220), behavior:'smooth' });
+  };
 }
 
 /* ─────────────────── FORECAST TOOL DIALOG ─────────────────── */

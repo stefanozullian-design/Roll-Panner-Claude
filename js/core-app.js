@@ -535,24 +535,45 @@ function renderPlan(){
     { id:'bod',  title:'INVENTORY — BEGINNING OF DAY (STn)', rows: plan.inventoryBODRows  },
     { id:'prod', title:'EQUIPMENT PRODUCTION (STn/day)',      rows: filterProductionRows(plan.productionRows) },
     { id:'out',  title:'OUTFLOWS — CUSTOMER SHIPMENTS (STn)', rows: (() => {
-      // Only show finished-product customer shipments — one flat list, no TRANSFERS/CLK CONSUMED
-      // Multiple CUSTOMER SHIPMENTS groups (one per facility) are collapsed into one header
-      const rows = [];
-      let inCustomerShipments = false;
-      let addedGroupHeader = false;
+      // Rebuild outflow rows grouped by facility, only customer shipments
+      // Collect all shipment rows from simEngine output
+      const allShipRows = [];
+      let inCustShip = false;
       for(const r of (plan.outflowRows||[])){
-        if(r.kind==='group'){
-          inCustomerShipments = /CUSTOMER SHIP/i.test(r.label||'');
-          if(inCustomerShipments && !addedGroupHeader){
-            rows.push(r); // only add ONE group header
-            addedGroupHeader = true;
-          }
-        } else if(r.kind==='subtotal'){
-          inCustomerShipments = false;
-        } else if(r.kind==='row' && inCustomerShipments){
-          rows.push(r);
-        }
+        if(r.kind==='group')      inCustShip = /CUSTOMER SHIP/i.test(r.label||'');
+        else if(r.kind==='subtotal') inCustShip = false;
+        else if(r.kind==='row' && inCustShip) allShipRows.push(r);
       }
+
+      // Group by facility: for each selected facility that has finished products,
+      // emit a facility group header then its product rows
+      const facIds = s.facilityIds.length ? s.facilityIds : state.org.facilities.map(f=>f.id);
+      const rows = [];
+      facIds.forEach(facId => {
+        const fac = state.org.facilities.find(f=>f.id===facId);
+        if(!fac) return;
+        const facProdIds = new Set(
+          (s.dataset.facilityProducts||[])
+            .filter(fp=>fp.facilityId===facId)
+            .map(fp=>fp.productId)
+        );
+        // match shipRows to this facility's products
+        // Match shipRows by productId (if present) or by material name lookup
+        const facRows = allShipRows.filter(r => {
+          if(r.productId) return facProdIds.has(r.productId);
+          // simEngine doesn't attach productId — match by material name
+          return [...facProdIds].some(pid => {
+            const mat = s.getMaterial(pid);
+            return mat && (r.label === mat.name || r.productLabel === mat.name);
+          });
+        });
+        if(!facRows.length) return; // skip facilities with no finished products
+        rows.push({ kind:'group', label: fac.code ? `${fac.code} — ${fac.name}` : fac.name });
+        facRows.forEach(r => rows.push(r));
+      });
+
+      // Fallback: if grouping found nothing, show flat list
+      if(!rows.length) allShipRows.forEach(r => rows.push(r));
       return rows;
     })() },
     { id:'eod',  title:'INVENTORY — END OF DAY (STn)',        rows: plan.inventoryEODRows   },
@@ -2029,57 +2050,116 @@ function openCampaignDialog(){
 }
 
 /* ─────────────────── DAILY ACTUALS DIALOG ─────────────────── */
-function openDailyActualsDialog(){
-  const s = selectors(state); const a = actions(state);
+function openDailyActualsDialog(preselectedFacId){
+  const allS = selectors(state);
   const host = el('dailyActualsDialog');
-  const y = yesterdayLocal();
-  const kf = s.equipment.filter(e=>e.type==='kiln');
-  const ff = s.equipment.filter(e=>e.type==='finish_mill');
-  const rf = s.equipment.filter(e=>e.type==='raw_mill');
-  const canEqProd = (eqId,pid) => s.capabilities.some(c=>c.equipmentId===eqId&&c.productId===pid);
-  const existing = s.actualsForDate(y);
-  const invMap = new Map(existing.inv.map(r=>[`${r.storageId}|${r.productId}`,r.qtyStn]));
-  const prodMap = new Map(existing.prod.map(r=>[`${r.equipmentId}|${r.productId}`,r.qtyStn]));
-  const shipMap = new Map(existing.ship.map(r=>[r.productId,r.qtyStn]));
 
-  host.classList.add('open');
-  host.innerHTML = `<div class="modal" style="max-width:960px">
-    <div class="modal-header">
-      <div><div class="modal-title">📝 Daily Actuals Entry</div><div style="font-size:11px;color:var(--muted)">${state.ui.mode.toUpperCase()} · Facility: ${esc(s.facility?.id||'')}</div></div>
-      <button class="btn" id="actClose">Close</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:16px">
-        <div><label class="form-label">Date (default: yesterday)</label><input class="form-input" type="date" id="actualsDate" value="${y}"></div>
+  // Available facilities: those currently in scope
+  const facIds = allS.facilityIds.length ? allS.facilityIds : state.org.facilities.map(f=>f.id);
+  const facs   = facIds.map(id=>state.org.facilities.find(f=>f.id===id)).filter(Boolean);
+
+  let activeFacId = preselectedFacId || facIds[0] || '';
+  let activeDate  = yesterdayLocal();
+
+  const renderForm = () => {
+    const ds = allS.dataset;
+
+    const facEq      = ds.equipment.filter(e=>e.facilityId===activeFacId);
+    const kf         = facEq.filter(e=>e.type==='kiln');
+    const ff         = facEq.filter(e=>e.type==='finish_mill');
+    const rf         = facEq.filter(e=>e.type==='raw_mill');
+    const facStorages= ds.storages.filter(st=>st.facilityId===activeFacId);
+    const facProdIds = new Set((ds.facilityProducts||[]).filter(fp=>fp.facilityId===activeFacId).map(fp=>fp.productId));
+    const facFinProds= (allS.catalog||ds.materials).filter(m=>m.category==='FINISHED_PRODUCT'&&facProdIds.has(m.id));
+    const canEqProd  = (eqId,pid) => ds.capabilities.some(c=>c.equipmentId===eqId&&c.productId===pid);
+
+    const existing = allS.actualsForDate(activeDate);
+    const invMap   = new Map((existing.inv||[]).filter(r=>r.facilityId===activeFacId).map(r=>[`${r.storageId}|${r.productId}`,r.qtyStn]));
+    const prodMap  = new Map((existing.prod||[]).filter(r=>r.facilityId===activeFacId).map(r=>[`${r.equipmentId}|${r.productId}`,r.qtyStn]));
+    const shipMap  = new Map((existing.ship||[]).filter(r=>r.facilityId===activeFacId).map(r=>[r.productId,r.qtyStn]));
+
+    const fac = state.org.facilities.find(f=>f.id===activeFacId);
+    const facLabel = fac ? `${fac.code||fac.id} — ${fac.name}` : activeFacId;
+    const allMats  = ds.materials;
+
+    // Facility tab pills
+    const facTabs = facs.map(f=>`
+      <button data-fac-tab="${f.id}" style="padding:5px 14px;border-radius:6px;border:1px solid ${f.id===activeFacId?'var(--accent)':'var(--border)'};background:${f.id===activeFacId?'rgba(99,179,237,0.15)':'transparent'};color:${f.id===activeFacId?'var(--accent)':'var(--muted)'};font-size:11px;font-weight:${f.id===activeFacId?'700':'400'};cursor:pointer;white-space:nowrap">
+        ${esc(f.code||f.id)}
+      </button>`).join('');
+
+    host.querySelector('#actualsFormBody').innerHTML = `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)">
+        ${facTabs}
+      </div>
+      <div style="margin-bottom:16px;padding:8px 12px;background:rgba(99,179,237,0.06);border:1px solid rgba(99,179,237,0.15);border-radius:8px;font-size:12px;font-weight:600;color:var(--accent)">
+        📍 ${esc(facLabel)}
+      </div>
+      <div class="form-grid" style="grid-template-columns:auto 1fr 1fr;margin-bottom:16px">
+        <div><label class="form-label">Date (default: yesterday)</label><input class="form-input" type="date" id="actualsDate" value="${activeDate}"></div>
       </div>
 
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">1. Ending Inventory (STn)</div>
-      <div class="table-scroll" style="margin-bottom:20px;max-height:200px;border-radius:8px;overflow:hidden;border:1px solid var(--border)">
+      <div class="table-scroll" style="margin-bottom:20px;max-height:200px;border-radius:8px;overflow-y:auto !important;border:1px solid var(--border)">
         <table class="data-table"><thead><tr><th>Storage</th><th>Product</th><th>EOD Quantity (STn)</th></tr></thead>
-        <tbody>${s.storages.map(st=>{const pid=(st.allowedProductIds||[])[0]||'';return`<tr><td style="font-weight:600">${esc(st.name)}</td><td>${esc(s.getMaterial(pid)?.name||'')}</td><td><input class="cell-input inv-input" data-storage="${st.id}" data-product="${pid}" value="${invMap.get(`${st.id}|${pid}`)??''}"></td></tr>`;}).join('')}</tbody>
+        <tbody>${facStorages.length
+          ? facStorages.map(st=>{const pid=(st.allowedProductIds||[])[0]||'';return`<tr><td style="font-weight:600">${esc(st.name)}</td><td>${esc(allS.getMaterial(pid)?.name||'—')}</td><td><input class="cell-input inv-input" data-storage="${st.id}" data-product="${pid}" value="${invMap.get(`${st.id}|${pid}`)??''}"></td></tr>`;}).join('')
+          : '<tr><td colspan="3" class="text-muted" style="text-align:center;padding:16px">No storages configured for this facility</td></tr>'
+        }</tbody>
         </table>
       </div>
 
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">2. Production Actuals (STn)</div>
-      <div class="table-scroll" style="margin-bottom:20px;max-height:260px;border-radius:8px;overflow:hidden;border:1px solid var(--border)">
-        <table class="data-table">
-          <thead><tr><th style="min-width:140px">Equipment</th>${s.materials.map(m=>`<th style="min-width:80px">${esc(m.code||m.name.slice(0,8))}</th>`).join('')}</tr></thead>
+      <div class="table-scroll" style="margin-bottom:20px;max-height:260px;border-radius:8px;overflow-y:auto !important;border:1px solid var(--border)">
+        ${[...rf,...kf,...ff].length ? `<table class="data-table">
+          <thead><tr><th style="min-width:140px">Equipment</th>${allMats.map(m=>`<th style="min-width:80px">${esc(m.code||m.name.slice(0,8))}</th>`).join('')}</tr></thead>
           <tbody>${[...rf,...kf,...ff].map(eq=>`<tr>
             <td style="font-weight:600">${esc(eq.name)} <span class="pill pill-gray" style="font-size:9px">${eq.type}</span></td>
-            ${s.materials.map(m=>canEqProd(eq.id,m.id)?`<td><input class="cell-input prod-input" data-equipment="${eq.id}" data-product="${m.id}" value="${prodMap.get(`${eq.id}|${m.id}`)??''}"></td>`:`<td class="cell-gray">—</td>`).join('')}
+            ${allMats.map(m=>canEqProd(eq.id,m.id)?`<td><input class="cell-input prod-input" data-equipment="${eq.id}" data-product="${m.id}" value="${prodMap.get(`${eq.id}|${m.id}`)??''}"></td>`:`<td class="cell-gray">—</td>`).join('')}
           </tr>`).join('')}
           </tbody>
-        </table>
+        </table>`
+        : '<div class="text-muted" style="font-size:12px;padding:16px;text-align:center">No equipment configured for this facility</div>'}
       </div>
 
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">3. Customer Shipments (STn)</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px">
-        ${s.finishedProducts.map(fp=>`<div style="display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:6px;padding:8px 12px">
-          <span style="font-size:12px;font-weight:500">${esc(fp.name)}</span>
-          <input class="cell-input ship-input" style="max-width:100px" data-product="${fp.id}" value="${shipMap.get(fp.id)??''}">
-        </div>`).join('')||'<div class="text-muted" style="font-size:12px">No finished products defined.</div>'}
-      </div>
+        ${facFinProds.length
+          ? facFinProds.map(fp=>`<div style="display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:6px;padding:8px 12px">
+              <span style="font-size:12px;font-weight:500">${esc(fp.name)}</span>
+              <input class="cell-input ship-input" style="max-width:100px" data-product="${fp.id}" value="${shipMap.get(fp.id)??''}">
+            </div>`).join('')
+          : '<div class="text-muted" style="font-size:12px">No finished products for this facility.</div>'}
+      </div>`;
+
+    // Wire facility tabs
+    host.querySelectorAll('[data-fac-tab]').forEach(btn => {
+      btn.onclick = () => { activeFacId = btn.dataset.facTab; renderForm(); };
+    });
+
+    // Wire date change
+    host.querySelector('#actualsDate').onchange = e => { activeDate = e.target.value; renderForm(); };
+
+    // Wire save
+    host.querySelector('#saveActualsBtn').onclick = ev => {
+      ev.preventDefault();
+      const date = host.querySelector('#actualsDate').value;
+      const inventoryRows  = [...host.querySelectorAll('.inv-input')].map(i=>({storageId:i.dataset.storage,productId:i.dataset.product,qtyStn:+i.value||0})).filter(r=>r.productId);
+      const productionRows = [...host.querySelectorAll('.prod-input')].map(i=>({equipmentId:i.dataset.equipment,productId:i.dataset.product,qtyStn:+i.value||0}));
+      const shipmentRows   = [...host.querySelectorAll('.ship-input')].map(i=>({productId:i.dataset.product,qtyStn:+i.value||0}));
+      const facActions = actions({ ...state, ui: { ...state.ui, selectedFacilityId: activeFacId } });
+      facActions.saveDailyActuals({date,inventoryRows,productionRows,shipmentRows});
+      persist(); renderDemand(); renderPlan(); showToast(`Actuals saved for ${activeFacId} ✓`);
+    };
+  };
+
+  host.classList.add('open');
+  host.innerHTML = `<div class="modal" style="max-width:960px">
+    <div class="modal-header">
+      <div><div class="modal-title">📝 Daily Actuals Entry</div><div style="font-size:11px;color:var(--muted)">${state.ui.mode.toUpperCase()} · select facility tab below</div></div>
+      <button class="btn" id="actClose">Close</button>
     </div>
+    <div class="modal-body" id="actualsFormBody"></div>
     <div class="modal-footer">
       <button class="btn" id="actClose2">Cancel</button>
       <button class="btn btn-primary" id="saveActualsBtn">Save to ${state.ui.mode==='sandbox'?'Sandbox':'Official'}</button>
@@ -2087,18 +2167,11 @@ function openDailyActualsDialog(){
   </div>`;
 
   const close = () => host.classList.remove('open');
-  host.querySelector('#actClose').onclick = close;
+  host.querySelector('#actClose').onclick  = close;
   host.querySelector('#actClose2').onclick = close;
   host.onclick = e => { if(e.target===host) close(); };
-  host.querySelector('#saveActualsBtn').onclick = e => {
-    e.preventDefault();
-    const date = host.querySelector('#actualsDate').value;
-    const inventoryRows=[...host.querySelectorAll('.inv-input')].map(i=>({storageId:i.dataset.storage,productId:i.dataset.product,qtyStn:+i.value||0})).filter(r=>r.productId);
-    const productionRows=[...host.querySelectorAll('.prod-input')].map(i=>({equipmentId:i.dataset.equipment,productId:i.dataset.product,qtyStn:+i.value||0}));
-    const shipmentRows=[...host.querySelectorAll('.ship-input')].map(i=>({productId:i.dataset.product,qtyStn:+i.value||0}));
-    a.saveDailyActuals({date,inventoryRows,productionRows,shipmentRows});
-    persist(); close(); renderDemand(); renderPlan(); showToast('Daily actuals saved ✓');
-  };
+
+  renderForm();
 }
 
 /* ─────────────────── DATA TAB ─────────────────── */

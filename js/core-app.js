@@ -2115,13 +2115,35 @@ function openCampaignDialog(){
 function openDailyActualsDialog(preselectedFacId){
   const host = el('dailyActualsDialog');
 
-  // Facilities in scope — read directly from multi-select state
-  const allFacIds = (state.ui.selectedFacilityIds||[]).length
-    ? state.ui.selectedFacilityIds
-    : state.org.facilities.map(f=>f.id);
-  const facs = allFacIds.map(id=>state.org.facilities.find(f=>f.id===id)).filter(Boolean);
+  // Resolve selected IDs down to actual facility IDs only
+  // (selectedFacilityIds can contain subregion/region/country IDs too)
+  const org = state.org;
+  const resolveToFacilities = (ids) => {
+    const facIds = [];
+    (ids||[]).forEach(id => {
+      if(org.facilities.find(f=>f.id===id)){
+        facIds.push(id);
+      } else if(org.subRegions.find(s=>s.id===id)){
+        org.facilities.filter(f=>f.subRegionId===id).forEach(f=>facIds.push(f.id));
+      } else if(org.regions.find(r=>r.id===id)){
+        const srIds = org.subRegions.filter(s=>s.regionId===id).map(s=>s.id);
+        org.facilities.filter(f=>srIds.includes(f.subRegionId)).forEach(f=>facIds.push(f.id));
+      } else if(org.countries.find(c=>c.id===id)){
+        const rIds  = org.regions.filter(r=>r.countryId===id).map(r=>r.id);
+        const srIds = org.subRegions.filter(s=>rIds.includes(s.regionId)).map(s=>s.id);
+        org.facilities.filter(f=>srIds.includes(f.subRegionId)).forEach(f=>facIds.push(f.id));
+      }
+    });
+    return [...new Set(facIds)];
+  };
 
-  let activeFacId = preselectedFacId || allFacIds[0] || '';
+  const rawIds  = (state.ui.selectedFacilityIds||[]).length
+    ? state.ui.selectedFacilityIds
+    : org.facilities.map(f=>f.id);
+  const facIds  = resolveToFacilities(rawIds);
+  const facs    = facIds.map(id=>org.facilities.find(f=>f.id===id)).filter(Boolean);
+
+  let activeFacId = preselectedFacId || facIds[0] || '';
 
   const buildForm = () => {
     // Scope selectors to this one facility using the legacy selectedFacilityId path

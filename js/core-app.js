@@ -32,8 +32,8 @@ const el = id => document.getElementById(id);
 
 /* ─────────────────── MONTH-COLLAPSE SPINE ─────────────────── */
 // Build full date spine: Jan 2024 → Dec 2026
-const SPINE_START = '2025-01-01';
-const SPINE_END   = '2027-12-31';
+const SPINE_START = '2024-01-01';
+const SPINE_END   = '2026-12-31';
 
 function buildFullSpine(){
   const dates = [];
@@ -203,32 +203,21 @@ function initShell(){
           ? org.facilities.filter(f=>activeSubIds.includes(f.subRegionId)).map(f=>f.id)
           : org.facilities.map(f=>f.id);
 
-    // Track which dropdown is open so rebuilds can restore it
-    let _openDdId = null;
-
     const mkDropdown = (id, placeholder, items, selectedSet) => {
       if(!items.length) return `<div style="display:none"></div>`;
-      const allSelected = items.length > 0 && items.every(it => selectedSet.has(it.id));
-      const someSelected = items.some(it => selectedSet.has(it.id));
-      const selectAllRow = `<label style="display:flex;align-items:center;gap:6px;padding:5px 10px 5px 10px;cursor:pointer;white-space:nowrap;font-size:11px;font-weight:600;border-bottom:1px solid var(--border);margin-bottom:2px;color:var(--accent)" data-scope-selall="${id}">
-          <input type="checkbox" ${allSelected?'checked':someSelected?'':''} data-scope-selall-cb="${id}" style="accent-color:var(--accent);width:12px;height:12px">
-          Select all
-        </label>`;
       const opts = items.map(it =>
         `<label style="display:flex;align-items:center;gap:6px;padding:4px 10px;cursor:pointer;white-space:nowrap;font-size:11px;${selectedSet.has(it.id)?'color:var(--accent);background:rgba(99,179,237,0.08)':''}" data-scope-item="${it.id}">
           <input type="checkbox" ${selectedSet.has(it.id)?'checked':''} data-scope-cb="${it.id}" style="accent-color:var(--accent);width:12px;height:12px">
           ${esc(it.label)}
         </label>`
       ).join('');
-      const anySelected = someSelected;
-      const isOpen = _openDdId === id;
+      const anySelected = items.some(it=>selectedSet.has(it.id));
       return `<div style="position:relative;display:inline-block">
         <button class="scope-dd-btn" data-dd="${id}" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:11px;color:${anySelected?'var(--accent)':'var(--muted)'};cursor:pointer;white-space:nowrap;min-width:80px;display:flex;align-items:center;gap:4px">
           ${placeholder}${anySelected?` <span style="background:var(--accent);color:#000;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700">${items.filter(it=>selectedSet.has(it.id)).length}</span>`:''}
           <span style="font-size:8px;margin-left:2px">▼</span>
         </button>
-        <div class="scope-dd-menu" id="dd-${id}" style="display:${isOpen?'block':'none'};position:absolute;top:100%;left:0;z-index:200;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 0;min-width:160px;box-shadow:0 8px 24px rgba(0,0,0,0.4);max-height:240px;overflow-y:auto;margin-top:2px">
-          ${selectAllRow}
+        <div class="scope-dd-menu" id="dd-${id}" style="display:none;position:absolute;top:100%;left:0;z-index:200;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 0;min-width:160px;box-shadow:0 8px 24px rgba(0,0,0,0.4);max-height:240px;overflow-y:auto;margin-top:2px">
           ${opts}
         </div>
       </div>`;
@@ -238,9 +227,6 @@ function initShell(){
     const regItems  = org.regions.filter(r=>activeRegIds.includes(r.id)).map(r=>({id:r.id, label:`📍 ${r.code} — ${r.name}`}));
     const subItems  = org.subRegions.filter(s=>activeSubIds.includes(s.id)).map(s=>({id:s.id, label:`▸ ${s.code} — ${s.name}`}));
     const facItems  = org.facilities.filter(f=>activeFacIds.includes(f.id)).map(f=>({id:f.id, label:`🏭 ${f.code} — ${f.name}`}));
-
-    // Map dd id → its items list so Select All knows what to toggle
-    const ddItems = { cnt: cntItems, reg: regItems, sub: subItems, fac: facItems };
 
     scopeWrap.innerHTML = `
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
@@ -252,24 +238,19 @@ function initShell(){
         <span style="font-size:10px;color:var(--muted);padding:0 4px">${selIds.size ? `${selIds.size} selected` : 'Select scope'}</span>
       </div>`;
 
-    // Dropdown open/close — stop propagation on the menu itself so outside-click doesn't fire
-    scopeWrap.querySelectorAll('.scope-dd-menu').forEach(menu => {
-      menu.addEventListener('click', e => e.stopPropagation());
-    });
-
+    // Dropdown open/close
     scopeWrap.querySelectorAll('.scope-dd-btn').forEach(btn => {
       btn.onclick = e => {
         e.stopPropagation();
-        const ddId = btn.dataset.dd;
-        _openDdId = _openDdId === ddId ? null : ddId;
-        // Close all, open the clicked one
-        scopeWrap.querySelectorAll('.scope-dd-menu').forEach(m => {
-          m.style.display = m.id === 'dd-' + _openDdId ? 'block' : 'none';
-        });
+        const ddId = 'dd-' + btn.dataset.dd;
+        const menu = document.getElementById(ddId);
+        // Close all others
+        scopeWrap.querySelectorAll('.scope-dd-menu').forEach(m => { if(m.id!==ddId) m.style.display='none'; });
+        menu.style.display = menu.style.display==='none' ? 'block' : 'none';
       };
     });
 
-    // Individual checkbox change — update state but DON'T rebuild/close
+    // Checkbox change
     scopeWrap.querySelectorAll('[data-scope-cb]').forEach(cb => {
       cb.onchange = () => {
         const id = cb.dataset.scopeCb;
@@ -277,49 +258,21 @@ function initShell(){
         if(cb.checked) ids.add(id); else ids.delete(id);
         state.ui.selectedFacilityIds = [...ids];
         syncLegacyId();
-        persist();
-        // Rebuild UI but keep the current dropdown open
-        buildScopeUI();
-        render();
-      };
-    });
-
-    // Select All checkbox — toggle every item in that dropdown
-    scopeWrap.querySelectorAll('[data-scope-selall-cb]').forEach(cb => {
-      cb.onchange = () => {
-        const ddId = cb.dataset.scopeSelallCb || cb.closest('[data-scope-selall]')?.dataset.scopeSelall;
-        const items = ddItems[ddId] || [];
-        const ids = new Set(state.ui.selectedFacilityIds || []);
-        if(cb.checked) items.forEach(it => ids.add(it.id));
-        else           items.forEach(it => ids.delete(it.id));
-        state.ui.selectedFacilityIds = [...ids];
-        syncLegacyId();
-        persist();
-        buildScopeUI();
-        render();
+        persist(); buildScopeUI(); render();
       };
     });
 
     // Clear button
-    scopeWrap.querySelector('#scopeClearBtn')?.addEventListener('click', e => {
-      e.stopPropagation();
+    scopeWrap.querySelector('#scopeClearBtn')?.addEventListener('click', () => {
       state.ui.selectedFacilityIds = [];
-      _openDdId = null;
       syncLegacyId();
       persist(); buildScopeUI(); render();
     });
 
-    // Close all dropdowns on outside click (persistent listener on document)
-    const _closeAllDds = (e) => {
-      if(!scopeWrap.contains(e.target)){
-        _openDdId = null;
-        scopeWrap.querySelectorAll('.scope-dd-menu').forEach(m => m.style.display='none');
-      }
-    };
-    // Remove any previous listener before adding a fresh one
-    document.removeEventListener('click', scopeWrap._ddCloseHandler);
-    scopeWrap._ddCloseHandler = _closeAllDds;
-    document.addEventListener('click', _closeAllDds);
+    // Close dropdowns on outside click
+    document.addEventListener('click', () => {
+      scopeWrap.querySelectorAll('.scope-dd-menu').forEach(m => m.style.display='none');
+    }, { once: true });
   };
 
   if(scopeWrap) {
@@ -401,53 +354,33 @@ function renderPlan(){
   let firstStockout = stockouts.length ? stockouts.reduce((min,a)=>a.date<min?a.date:min, stockouts[0].date) : null;
   const daysUntilStockout = firstStockout ? Math.max(0, Math.round((new Date(firstStockout)-new Date(todayStr))/86400000)) : null;
 
-  // Persist KPI panel open/closed state
-  const KPI_KEY = 'kpiPanelOpen';
-  const kpiIsOpen = localStorage.getItem(KPI_KEY) !== 'false';
-
-  // Summary pills for collapsed state
-  const pillStockout = `<div class="kpi-pill"><span class="kpi-pill-dot" style="background:${stockouts.length?'#ef4444':'#22c55e'}"></span>${stockouts.length} Stockout${stockouts.length!==1?'s':''}</div>`;
-  const pillBreaches = `<div class="kpi-pill"><span class="kpi-pill-dot" style="background:${overflows.length?'#eab308':'#64748b'}"></span>${overflows.length} Breach${overflows.length!==1?'es':''}</div>`;
-  const pillInfo     = `<div class="kpi-pill"><span class="kpi-pill-dot" style="background:#60a5fa"></span>${s.finishedProducts.length} Products · ${s.equipment.length} Equipment</div>`;
-
-  const kpiHTML = `<div class="kpi-section">
-    <div class="kpi-toggle-strip${kpiIsOpen?'':' kpi-collapsed'}" id="kpiToggleStrip">
-      <div class="kpi-toggle-arrow${kpiIsOpen?'':' kpi-arrow-closed'}" id="kpiToggleArrow">
-        <svg viewBox="0 0 10 6" xmlns="http://www.w3.org/2000/svg">
-          <path d="M1 1l4 4 4-4" stroke="#64748b" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <span class="kpi-toggle-label">Summary</span>
-      <div class="kpi-summary-pills">${pillStockout}${pillBreaches}${pillInfo}</div>
+  const kpiHTML = `<div class="kpi-row">
+    <div class="kpi-card ${stockouts.length?'kpi-danger':'kpi-ok'}">
+      <div class="kpi-label">🚨 Stockout Alerts</div>
+      <div class="kpi-value" style="color:${stockouts.length?'var(--danger)':'var(--ok)'}">${stockouts.length}</div>
+      <div class="kpi-sub">${stockouts.length?'in 2024-2026 horizon':'None detected ✓'}</div>
     </div>
-    <div class="kpi-panel-body${kpiIsOpen?'':' kpi-collapsed'}" id="kpiPanelBody">
-      <div class="kpi-row">
-        <div class="kpi-card ${stockouts.length?'kpi-danger':'kpi-ok'}">
-          <div class="kpi-label">🚨 Stockout Alerts</div>
-          <div class="kpi-value" style="color:${stockouts.length?'var(--danger)':'var(--ok)'}">${stockouts.length}</div>
-          <div class="kpi-sub">${stockouts.length?'in 2024-2026 horizon':'None detected ✓'}</div>
-        </div>
-        ${daysUntilStockout!==null?`<div class="kpi-card kpi-danger">
-          <div class="kpi-label">⏱ First Stockout</div>
-          <div class="kpi-value" style="color:var(--warn)">${daysUntilStockout}d</div>
-          <div class="kpi-sub">${firstStockout?.slice(5)} · ${stockouts[0]?.storageName||''}</div>
-        </div>`:''}
-        <div class="kpi-card ${overflows.length?'kpi-warn':'kpi-neutral'}">
-          <div class="kpi-label">⚠ Capacity Breaches</div>
-          <div class="kpi-value" style="color:${overflows.length?'var(--warn)':'var(--muted)'}">${overflows.length}</div>
-          <div class="kpi-sub">Storage overflow events</div>
-        </div>
-        <div class="kpi-card kpi-neutral">
-          <div class="kpi-label">📦 Finished Products</div>
-          <div class="kpi-value">${s.finishedProducts.length}</div>
-          <div class="kpi-sub">${s.finishedProducts.map(p=>p.code||p.name.slice(0,8)).join(', ')||'—'}</div>
-        </div>
-        <div class="kpi-card kpi-neutral">
-          <div class="kpi-label">🏭 Equipment</div>
-          <div class="kpi-value">${s.equipment.length}</div>
-          <div class="kpi-sub">${s.equipment.filter(e=>e.type==='kiln').length} kilns · ${s.equipment.filter(e=>e.type==='finish_mill').length} mills</div>
-        </div>
-      </div>`;
+    ${daysUntilStockout!==null?`<div class="kpi-card kpi-danger">
+      <div class="kpi-label">⏱ First Stockout</div>
+      <div class="kpi-value" style="color:var(--warn)">${daysUntilStockout}d</div>
+      <div class="kpi-sub">${firstStockout?.slice(5)} · ${stockouts[0]?.storageName||''}</div>
+    </div>`:''}
+    <div class="kpi-card ${overflows.length?'kpi-warn':'kpi-neutral'}">
+      <div class="kpi-label">⚠ Capacity Breaches</div>
+      <div class="kpi-value" style="color:${overflows.length?'var(--warn)':'var(--muted)'}">${overflows.length}</div>
+      <div class="kpi-sub">Storage overflow events</div>
+    </div>
+    <div class="kpi-card kpi-neutral">
+      <div class="kpi-label">📦 Finished Products</div>
+      <div class="kpi-value">${s.finishedProducts.length}</div>
+      <div class="kpi-sub">${s.finishedProducts.map(p=>p.code||p.name.slice(0,8)).join(', ')||'—'}</div>
+    </div>
+    <div class="kpi-card kpi-neutral">
+      <div class="kpi-label">🏭 Equipment</div>
+      <div class="kpi-value">${s.equipment.length}</div>
+      <div class="kpi-sub">${s.equipment.filter(e=>e.type==='kiln').length} kilns · ${s.equipment.filter(e=>e.type==='finish_mill').length} mills</div>
+    </div>
+  </div>`;
 
   // Group consecutive alerts by storage+severity into date ranges
   const groupAlerts = (alerts) => {
@@ -483,12 +416,10 @@ function renderPlan(){
   ].join('');
 
   const alertStripHTML = (stockouts.length+overflows.length+warnings.length)>0
-    ? `<div id="alertStrip" style="margin:0 0 12px;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(245,158,11,0.05));border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px 16px;">
+    ? `<div id="alertStrip" style="margin-bottom:16px;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(245,158,11,0.05));border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px 16px;">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--danger);margin-bottom:8px;">⚡ Action Required <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0">· click any alert to jump to that date</span></div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;">${alertChips}</div></div>
-      </div></div>`
-    : `<div style="margin:0 0 12px;padding:10px 14px;background:var(--ok-bg);border:1px solid rgba(34,197,94,0.3);border-radius:8px;font-size:12px;color:#86efac;">✅ <strong>All clear</strong> — No stockouts or capacity issues in the planning horizon.</div>
-      </div></div>`;
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">${alertChips}</div></div>`
+    : `<div style="margin-bottom:16px;padding:10px 14px;background:var(--ok-bg);border:1px solid rgba(34,197,94,0.3);border-radius:8px;font-size:12px;color:#86efac;">✅ <strong>All clear</strong> — No stockouts or capacity issues in the planning horizon.</div>`;
 
   const productColor = pid => {
     const base = ['#3b82f6','#a78bfa','#22c55e','#f59e0b','#ec4899','#06b6d4','#f97316','#84cc16'];
@@ -500,10 +431,10 @@ function renderPlan(){
 
   // Build unified row list from all 4 sections
   const SECTIONS = [
-    { id:'bod',  title:'INV-BOD [STn]', rows: plan.inventoryBODRows  },
-    { id:'prod', title:'PROD [STn/day]',      rows: plan.productionRows     },
-    { id:'out',  title:'SHIPMENTS [STn]', rows: plan.outflowRows  },
-    { id:'eod',  title:'INV-EOD [STn]',        rows: plan.inventoryEODRows   },
+    { id:'bod',  title:'INVENTORY — BEGINNING OF DAY (STn)', rows: plan.inventoryBODRows  },
+    { id:'prod', title:'EQUIPMENT PRODUCTION (STn/day)',      rows: plan.productionRows     },
+    { id:'out',  title:'OUTFLOWS — SHIPMENTS & CONSUMPTION (STn)', rows: plan.outflowRows  },
+    { id:'eod',  title:'INVENTORY — END OF DAY (STn)',        rows: plan.inventoryEODRows   },
   ];
   const unifiedRows = [];
   let subCounter = 0;
@@ -529,13 +460,13 @@ function renderPlan(){
   // Month-grouped date headers
   const dateHeaders = months.map(mon => {
     const isCol = collapsed.has(mon.ym);
-    const monthTh = `<th class="month-total-th" data-month-ym="${mon.ym}" style="width:64px;min-width:64px;max-width:64px;background:rgba(99,179,237,0.12);border-left:2px solid rgba(99,179,237,0.35);border-right:1px solid rgba(99,179,237,0.2);font-size:9px;font-weight:700;color:#93c5fd;text-align:center;cursor:pointer;user-select:none;white-space:nowrap;padding:3px 6px;" title="Click to toggle ${mon.label}"><span data-month-toggle="${mon.ym}" style="font-size:8px;margin-right:3px">${isCol?'▶':'▼'}</span>${mon.label}</th>`;
+    const monthTh = `<th class="month-total-th" data-month-ym="${mon.ym}" style="min-width:64px;background:rgba(99,179,237,0.12);border-left:2px solid rgba(99,179,237,0.35);border-right:1px solid rgba(99,179,237,0.2);font-size:9px;font-weight:700;color:#93c5fd;text-align:center;cursor:pointer;user-select:none;white-space:nowrap;padding:3px 6px;" title="Click to toggle ${mon.label}"><span data-month-toggle="${mon.ym}" style="font-size:8px;margin-right:3px">${isCol?'▶':'▼'}</span>${mon.label}</th>`;
     const dayThs = mon.dates.map(d => {
       const isWk = isWeekendDate(d); const isTd = d===todayStr;
       const dd2 = d.slice(8,10);
       let sty = isWk ? wkdColStyle : '';
       if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
-      return `<th data-date="${d}" class="day-col-${mon.ym}" style="width:44px;min-width:44px;max-width:44px;text-align:center;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">` + dd2 + `</th>`;
+      return `<th data-date="${d}" class="day-col-${mon.ym}" style="min-width:44px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">` + dd2 + `</th>`;
     }).join('');
     return monthTh + dayThs;
   }).join('');
@@ -544,18 +475,17 @@ function renderPlan(){
   const renderMonthTotalCell = (r, mon) => {
     if(r._type==='section-header' || r._type==='group-label') return '';
     const total = mon.dates.reduce((sum, d) => sum + (r.values?.[d]||0), 0);
-    const fixedSz = 'width:64px;min-width:64px;max-width:64px;text-align:center;';
     if(r.rowType==='equipment'){
-      return `<td class="num" style="${fixedSz}background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd">${total?fmt0(total):''}</td>`;
+      return `<td class="num" style="background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd">${total?fmt0(total):''}</td>`;
     }
     const sev = r.storageId ? (() => {
       const hasStockout = mon.dates.some(d => plan.inventoryCellMeta?.[`${d}|${r.storageId}`]?.severity==='stockout');
       const hasFull     = mon.dates.some(d => plan.inventoryCellMeta?.[`${d}|${r.storageId}`]?.severity==='full');
       return hasStockout ? 'stockout' : hasFull ? 'full' : null;
     })() : null;
-    let sty = `${fixedSz}background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd;`;
-    if(sev==='stockout') sty = `${fixedSz}background:rgba(239,68,68,0.2);border-left:2px solid rgba(239,68,68,0.5);font-size:10px;font-weight:700;color:#fca5a5;`;
-    else if(sev==='full') sty = `${fixedSz}background:rgba(245,158,11,0.2);border-left:2px solid rgba(245,158,11,0.5);font-size:10px;font-weight:700;color:#fcd34d;`;
+    let sty = 'background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd;';
+    if(sev==='stockout') sty = 'background:rgba(239,68,68,0.2);border-left:2px solid rgba(239,68,68,0.5);font-size:10px;font-weight:700;color:#fca5a5;';
+    else if(sev==='full') sty = 'background:rgba(245,158,11,0.2);border-left:2px solid rgba(245,158,11,0.5);font-size:10px;font-weight:700;color:#fcd34d;';
     return `<td class="num" style="${sty}">${total?fmt0(total):''}</td>`;
   };
 
@@ -564,8 +494,7 @@ function renderPlan(){
     const isWk = isWeekendDate(d); const isTd = d===todayStr;
     const isSubtotal = r._type==='subtotal-header';
     const v = r.values?.[d]||0;
-    const fixedDay = 'width:44px;min-width:44px;max-width:44px;text-align:center;';
-    let baseSty = fixedDay + (isWk ? wkdColStyle : '');
+    let baseSty = isWk ? wkdColStyle : '';
     if(isTd) baseSty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
     const cls = `day-col-${mon.ym}`;
     if(r.rowType==='equipment' && r.equipmentId){
@@ -652,11 +581,12 @@ function renderPlan(){
     if(r.storageId){
       const imeta = plan.inventoryCellMeta?.[`${d}|${r.storageId}`];
       if(imeta){
-        const ic = invColor(imeta.eod, imeta.maxCap);
-        const pctTip = (imeta.maxCap>0) ? ` (${Math.round(100*(imeta.eod/imeta.maxCap))}% of ${fmt0(imeta.maxCap)})` : '';
-        const tip = imeta.reason || (pctTip ? `${fmt0(imeta.eod)} STn${pctTip}` : '');
-        const cellSty = ic ? `${baseSty}background:${ic.bg};font-size:10px;color:${ic.color};${isSubtotal?'font-weight:700;':''}` : `${baseSty}font-size:10px;${isSubtotal?'font-weight:700;':''}`;
-        return `<td class="num" style="${cellSty}" title="${esc(tip)}">${v?fmt0(v):''}</td>`;
+        const tip = imeta.reason||(imeta.warn==='high75'?`>75% capacity (${fmt0(imeta.eod)}/${fmt0(imeta.maxCap)})`:'');
+        if(imeta.severity==='stockout')    baseSty += 'background:rgba(239,68,68,0.18);color:#fca5a5;font-weight:700;';
+        else if(imeta.severity==='full')   baseSty += 'background:rgba(245,158,11,0.18);color:#fcd34d;font-weight:700;';
+        else if(imeta.warn==='high75')     baseSty += 'color:var(--warn);';
+        const dot = imeta.severity==='stockout'?'🔴 ':imeta.severity==='full'?'🟡 ':imeta.warn?'△ ':'';
+        return `<td class="num" style="${baseSty}font-size:10px${isSubtotal?';font-weight:700':''}" title="${esc(tip)}">${dot}${fmt0(v)}</td>`;
       }
     }
     return `<td class="num" style="${baseSty}font-size:10px;${isSubtotal?'font-weight:700;':'color:var(--muted);'}">${v?fmt0(v):''}</td>`;
@@ -702,7 +632,7 @@ function renderPlan(){
     </div>
     <div class="card-body" style="padding:0">
       ${s.equipment.length===0?'<div style="padding:40px;text-align:center;color:var(--muted)">No equipment configured. Set up your Process Flow first.</div>':''}
-      <div class="table-scroll" id="planTableScroll" style="overflow-x:auto;overflow-y:visible;">
+      <div class="table-scroll" id="planTableScroll">
         <table class="data-table plan-table" id="planTable" style="min-width:max-content;width:100%">
           <thead><tr>
             <th class="row-header" style="min-width:160px;position:sticky;left:0;background:#0a0d14;z-index:5;">Row</th>
@@ -716,19 +646,6 @@ function renderPlan(){
   <div style="font-size:11px;color:var(--muted);padding:4px 0 16px">
     🔴 Stockout · 🟡 Overflow · △ &gt;75% cap · Colored = producing · <span style="color:#fca5a5">■ IDL</span> = idle/stockout · <span style="color:#fcd34d">■ MNT</span> = maintenance · <span style="color:#c4b5fd">■ OOO</span> = out of order · Pink = weekend
   </div>`;
-
-  // ── KPI PANEL TOGGLE ──
-  const kpiStrip = root.querySelector('#kpiToggleStrip');
-  const kpiBody  = root.querySelector('#kpiPanelBody');
-  const kpiArrow = root.querySelector('#kpiToggleArrow');
-  if(kpiStrip && kpiBody && kpiArrow){
-    kpiStrip.addEventListener('click', () => {
-      const isNowOpen = kpiBody.classList.toggle('kpi-collapsed') === false;
-      kpiStrip.classList.toggle('kpi-collapsed', !isNowOpen);
-      kpiArrow.classList.toggle('kpi-arrow-closed', !isNowOpen);
-      localStorage.setItem(KPI_KEY, String(isNowOpen));
-    });
-  }
 
   // Delegated collapse handler on tbody
   const secOpenState = {};
@@ -914,7 +831,7 @@ function renderProducts(){
           </div>
           <div class="table-scroll" style="max-height:260px;overflow-y:auto !important">
           <table class="data-table" id="prodDirectoryTable">
-            <thead><tr>${isSingleFac?'<th style="width:36px">Active</th>':''}<th>Name</th><th>Category</th><th>Code</th><th>Material #</th><th>Actions</th></tr></thead>
+            <thead><tr>${isSingleFac?'<th style="width:36px">Active</th>':''}<th>Name</th><th>Category</th><th>Code</th><th>Actions</th></tr></thead>
             <tbody>
               ${s.regionCatalog.map(m=>{
                 const isActive = !isSingleFac || activatedIds.size===0 || activatedIds.has(m.id);
@@ -922,16 +839,14 @@ function renderProducts(){
                   const fps = s.dataset?.facilityProducts||[];
                   return fps.some(fp=>fp.facilityId===f.id && fp.productId===m.id);
                 }).map(f=>f.id).join(',');
-                const matNums = (m.materialNumbers||[]).join(', ');
                 return '<tr data-category="' + esc(m.category||'') + '" data-facids="' + facIds + '" style="' + (!isActive?'opacity:0.45':'') + '">'
                   + (isSingleFac ? '<td style="text-align:center"><input type="checkbox" class="fac-product-toggle" data-product="' + m.id + '" ' + (isActive?'checked':'') + ' style="cursor:pointer;width:14px;height:14px;accent-color:var(--accent)"></td>' : '')
                   + '<td>' + esc(m.name) + '</td>'
                   + '<td>' + catPill(m.category) + '</td>'
                   + '<td><span class="text-mono" style="font-size:11px">' + esc(m.code||'') + '</span></td>'
-                  + '<td><span class="text-mono" style="font-size:10px;color:var(--muted)">' + esc(matNums||'—') + '</span></td>'
                   + '<td><div class="row-actions"><button class="action-btn" data-edit-material="' + m.id + '">Edit</button><button class="action-btn del" data-del-material="' + m.id + '">Delete</button></div></td>'
                   + '</tr>';
-              }).join('')||'<tr><td colspan="6" class="text-muted" style="text-align:center;padding:20px">No materials in region catalog yet</td></tr>'}
+              }).join('')||'<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">No materials in region catalog yet</td></tr>'}
             </tbody>
           </table>
           </div>
@@ -1191,7 +1106,7 @@ function renderProducts(){
     f.querySelector('[name=id]').value=m.id;
     f.querySelector('[name=name]').value=m.name||'';
     f.querySelector('[name=code]').value=m.code||'';
-    f.querySelector('[name=materialNumber]').value=(m.materialNumbers||[]).join(', ');
+    f.querySelector('[name=materialNumber]').value=m.materialNumber||'';
     f.querySelector('[name=category]').value=m.category||Categories.FIN;
     f.querySelector('[name=landedCostUsdPerStn]').value=m.landedCostUsdPerStn||'';
     f.querySelector('[name=calorificPowerMMBTUPerStn]').value=m.calorificPowerMMBTUPerStn||'';
@@ -1253,7 +1168,7 @@ function renderFlow(){
               <button type="button" id="cancelEqEdit" class="btn hidden">Cancel</button>
             </div>
           </form>
-          <div class="table-scroll" style="max-height:240px;border-radius:8px;overflow:hidden;border:1px solid var(--border)">
+          <div class="table-scroll" style="max-height:240px;border-radius:8px;overflow-y:auto !important;border:1px solid var(--border)">
             <table class="data-table"><thead><tr><th>Name</th><th>Type</th><th>Capabilities</th><th>Actions</th></tr></thead>
             <tbody>${equipmentRows||'<tr><td colspan="4" class="text-muted" style="text-align:center;padding:20px">No equipment</td></tr>'}</tbody></table>
           </div>
@@ -1274,7 +1189,7 @@ function renderFlow(){
               <button type="button" id="cancelCapEdit" class="btn hidden">Cancel</button>
             </div>
           </form>
-          <div class="table-scroll" style="max-height:220px;border-radius:8px;overflow:hidden;border:1px solid var(--border)">
+          <div class="table-scroll" style="max-height:220px;border-radius:8px;overflow-y:auto !important;border:1px solid var(--border)">
             <table class="data-table"><thead><tr><th>Equipment</th><th>Product</th><th>Max Rate</th><th>kWh/STn</th><th>Actions</th></tr></thead>
             <tbody>${s.capabilities.map(c=>`<tr><td>${esc(s.getEquipment(c.equipmentId)?.name||c.equipmentId)}</td><td>${esc(s.getMaterial(c.productId)?.name||c.productId)}</td><td class="num">${fmt(c.maxRateStpd)}</td><td class="num">${fmt(c.electricKwhPerStn)}</td><td><div class="row-actions"><button class="action-btn" data-edit-cap="${c.id}">Edit</button><button class="action-btn del" data-del-cap="${c.id}">Delete</button></div></td></tr>`).join('')||'<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">No capabilities</td></tr>'}</tbody></table>
           </div>
@@ -1296,7 +1211,7 @@ function renderFlow(){
             <button type="button" id="cancelStEdit" class="btn hidden">Cancel</button>
           </div>
         </form>
-        <div class="table-scroll" style="max-height:480px;border-radius:8px;overflow:hidden;border:1px solid var(--border)">
+        <div class="table-scroll" style="max-height:480px;border-radius:8px;overflow-y:auto !important;border:1px solid var(--border)">
           <table class="data-table"><thead><tr><th>Name</th><th>Hint</th><th>Product</th><th>Max Cap</th><th>Actions</th></tr></thead>
           <tbody>${s.storages.map(st=>`<tr>
             <td>${esc(st.name)}</td>
@@ -1366,12 +1281,12 @@ function renderDemand(mode='total'){
   // Date headers
   const dateHeaders = months.map(mon => {
     const isCol = collapsed.has(mon.ym);
-    const monthTh = `<th class="month-total-th" data-month-ym="${mon.ym}" style="width:64px;min-width:64px;max-width:64px;background:rgba(99,179,237,0.12);border-left:2px solid rgba(99,179,237,0.35);border-right:1px solid rgba(99,179,237,0.2);font-size:9px;font-weight:700;color:#93c5fd;text-align:center;cursor:pointer;user-select:none;white-space:nowrap;padding:3px 6px;" title="Click to toggle ${mon.label}"><span data-month-toggle="${mon.ym}" style="font-size:8px;margin-right:3px">${isCol?'▶':'▼'}</span>${mon.label}</th>`;
+    const monthTh = `<th class="month-total-th" data-month-ym="${mon.ym}" style="min-width:64px;background:rgba(99,179,237,0.12);border-left:2px solid rgba(99,179,237,0.35);border-right:1px solid rgba(99,179,237,0.2);font-size:9px;font-weight:700;color:#93c5fd;text-align:center;cursor:pointer;user-select:none;white-space:nowrap;padding:3px 6px;" title="Click to toggle ${mon.label}"><span data-month-toggle="${mon.ym}" style="font-size:8px;margin-right:3px">${isCol?'▶':'▼'}</span>${mon.label}</th>`;
     const dayThs = mon.dates.map(d => {
       const isWk = isWeekendDate(d); const isTd = d===todayStr;
       let sty = isWk ? wkdColStyle : '';
       if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
-      return `<th class="day-col-${mon.ym}" style="width:44px;min-width:44px;max-width:44px;text-align:center;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">${d.slice(8,10)}</th>`;
+      return `<th class="day-col-${mon.ym}" style="min-width:44px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">${d.slice(8,10)}</th>`;
     }).join('');
     return monthTh + dayThs;
   }).join('');
@@ -1381,13 +1296,13 @@ function renderDemand(mode='total'){
     let monthTotal = 0;
     const dayCells = mon.dates.map(d => {
       const isWk = isWeekendDate(d); const isTd = d===todayStr;
-      let sty = 'width:44px;min-width:44px;max-width:44px;text-align:center;' + (isWk ? wkdColStyle : '');
+      let sty = isWk ? wkdColStyle : '';
       if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
       const { v, html } = getCellData(d, mon.ym, sty);
       monthTotal += v;
       return html;
     }).join('');
-    const monthCell = `<td class="num" style="width:64px;min-width:64px;max-width:64px;text-align:center;background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd">${monthTotal ? fmt0(monthTotal) : ''}</td>`;
+    const monthCell = `<td class="num" style="background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd">${monthTotal ? fmt0(monthTotal) : ''}</td>`;
     return monthCell + dayCells;
   }).join('');
 
@@ -1453,7 +1368,7 @@ function renderDemand(mode='total'){
       </div>
     </div>
     <div class="card-body" style="padding:0">
-      <div class="table-scroll" style="overflow-x:auto;overflow-y:visible;">
+      <div class="table-scroll" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 180px)">
         <table class="data-table plan-table" id="${demandTableId}" style="min-width:max-content;width:100%">
           <thead><tr>
             <th class="row-header" style="min-width:200px;position:sticky;left:0;background:#0a0d14;z-index:5;">Facility / Product</th>
@@ -2479,41 +2394,41 @@ function openDataIODialog(){
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(demandRows), 'Demand Forecast');
 
     // Sheet 2: Campaigns
-    const campRows = [['Facility','Equipment','Status','Product','Material Numbers','Date','Rate (STn/d)']];
+    const campRows = [['Facility','Equipment','Status','Product','Date','Rate (STn/d)']];
     ds.campaigns.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
       const fac = state.org.facilities.find(f=>f.id===r.facilityId);
       const eq  = ds.equipment.find(e=>e.id===r.equipmentId);
       const prod = state.catalog.find(m=>m.id===r.productId);
-      campRows.push([fac?.name||r.facilityId, eq?.name||r.equipmentId, r.status||'produce', prod?.name||r.productId||'', (prod?.materialNumbers||[]).join(', '), r.date, +r.rateStn||0]);
+      campRows.push([fac?.name||r.facilityId, eq?.name||r.equipmentId, r.status||'produce', prod?.name||r.productId||'', r.date, +r.rateStn||0]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(campRows), 'Campaigns');
 
     // Sheet 3: Production Actuals
-    const prodRows = [['Facility','Equipment','Product','Material Numbers','Date','Qty (STn)']];
+    const prodRows = [['Facility','Equipment','Product','Date','Qty (STn)']];
     ds.actuals.production.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
       const fac  = state.org.facilities.find(f=>f.id===r.facilityId);
       const eq   = ds.equipment.find(e=>e.id===r.equipmentId);
       const prod = state.catalog.find(m=>m.id===r.productId);
-      prodRows.push([fac?.name||r.facilityId, eq?.name||r.equipmentId, prod?.name||r.productId, (prod?.materialNumbers||[]).join(', '), r.date, +r.qtyStn||0]);
+      prodRows.push([fac?.name||r.facilityId, eq?.name||r.equipmentId, prod?.name||r.productId, r.date, +r.qtyStn||0]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(prodRows), 'Production Actuals');
 
     // Sheet 4: Shipment Actuals
-    const shipRows = [['Facility','Product','Material Numbers','Date','Qty (STn)']];
+    const shipRows = [['Facility','Product','Date','Qty (STn)']];
     ds.actuals.shipments.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
       const fac  = state.org.facilities.find(f=>f.id===r.facilityId);
       const prod = state.catalog.find(m=>m.id===r.productId);
-      shipRows.push([fac?.name||r.facilityId, prod?.name||r.productId, (prod?.materialNumbers||[]).join(', '), r.date, +r.qtyStn||0]);
+      shipRows.push([fac?.name||r.facilityId, prod?.name||r.productId, r.date, +r.qtyStn||0]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(shipRows), 'Shipment Actuals');
 
     // Sheet 5: Inventory EOD
-    const invRows = [['Facility','Storage','Product','Material Numbers','Date','Qty (STn)']];
+    const invRows = [['Facility','Storage','Product','Date','Qty (STn)']];
     ds.actuals.inventoryEOD.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
       const fac  = state.org.facilities.find(f=>f.id===r.facilityId);
       const stor = ds.storages.find(s=>s.id===r.storageId);
       const prod = state.catalog.find(m=>m.id===r.productId);
-      invRows.push([fac?.name||r.facilityId, stor?.name||r.storageId, prod?.name||r.productId, (prod?.materialNumbers||[]).join(', '), r.date, +r.qtyStn||0]);
+      invRows.push([fac?.name||r.facilityId, stor?.name||r.storageId, prod?.name||r.productId, r.date, +r.qtyStn||0]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(invRows), 'Inventory EOD');
 
@@ -2526,10 +2441,10 @@ function openDataIODialog(){
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(eqRows), 'Equipment');
 
     // Sheet 7: Setup — Products (catalog)
-    const prodSetupRows = [['Region','Product ID','Code','Name','Category','Unit','Landed Cost USD/STn','Material Numbers']];
+    const prodSetupRows = [['Region','Product ID','Code','Name','Category','Unit','Landed Cost USD/STn']];
     state.catalog.forEach(m=>{
       const reg = state.org.regions.find(r=>r.id===m.regionId);
-      prodSetupRows.push([reg?.name||m.regionId||'', m.id, m.code||'', m.name, m.category, m.unit||'STn', m.landedCostUsdPerStn||0, (m.materialNumbers||[]).join(', ')]);
+      prodSetupRows.push([reg?.name||m.regionId||'', m.id, m.code||'', m.name, m.category, m.unit||'STn', m.landedCostUsdPerStn||0]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(prodSetupRows), 'Products Catalog');
 
@@ -2550,18 +2465,8 @@ function openDataIODialog(){
         try {
           const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
           const ds = selectors(state).dataset;
-
-          // ── FIX: resolve the primary facility from the multi-select array, not the
-          //         legacy single-id field which may be null/stale in multi-facility mode.
-          const resolvedFacilityIds = state.ui.selectedFacilityIds?.length
-            ? state.ui.selectedFacilityIds.filter(id => state.org.facilities.find(f=>f.id===id))
-            : state.ui.selectedFacilityId
-              ? [state.ui.selectedFacilityId]
-              : [];
-          const fac = resolvedFacilityIds[0] || state.org.facilities[0]?.id || '';
-
+          const fac = state.ui.selectedFacilityId;
           let imported = [];
-          const skipped = [];
 
           const readSheet = name => {
             const ws = wb.Sheets[name];
@@ -2569,150 +2474,81 @@ function openDataIODialog(){
             return XLSX.utils.sheet_to_json(ws, {defval:''});
           };
 
-          // ── FIX: robust facility lookup — case-insensitive trim, falls back to
-          //         resolved fac (which is now always a valid facility id).
-          const findFacilityId = (cellValue) => {
-            const v = String(cellValue||'').trim();
-            if(!v) return fac;
-            const match = state.org.facilities.find(f =>
-              f.name.trim().toLowerCase() === v.toLowerCase() ||
-              f.id.trim().toLowerCase()   === v.toLowerCase() ||
-              (f.code||'').trim().toLowerCase() === v.toLowerCase()
-            );
-            return match?.id || fac;
-          };
-
-          // ── FIX: robust equipment lookup — case-insensitive trim so "Kiln 1 "
-          //         (with trailing space from Excel) still matches stored "Kiln 1".
-          const findEquipmentId = (cellValue) => {
-            const v = String(cellValue||'').trim();
-            if(!v) return '';
-            const match = ds.equipment.find(e =>
-              e.name.trim().toLowerCase() === v.toLowerCase() ||
-              e.id.trim().toLowerCase()   === v.toLowerCase()
-            );
-            return match?.id || '';
-          };
-
-          // ── robust product lookup — name, id, code, OR any material number.
-          const findProductId = (cellValue) => {
-            const v = String(cellValue||'').trim();
-            if(!v) return '';
-            const vl = v.toLowerCase();
-            const match = state.catalog.find(m =>
-              m.name.trim().toLowerCase()       === vl ||
-              m.id.trim().toLowerCase()         === vl ||
-              (m.code||'').trim().toLowerCase() === vl ||
-              (m.materialNumbers||[]).some(mn => String(mn).trim().toLowerCase() === vl)
-            );
-            return match?.id || '';
-          };
-
-          // ── FIX: robust storage lookup — case-insensitive trim.
-          const findStorageId = (cellValue) => {
-            const v = String(cellValue||'').trim();
-            if(!v) return '';
-            const match = ds.storages.find(s =>
-              s.name.trim().toLowerCase() === v.toLowerCase() ||
-              s.id.trim().toLowerCase()   === v.toLowerCase()
-            );
-            return match?.id || '';
-          };
-
-          const parseDate = (raw) =>
-            typeof raw === 'object' && raw instanceof Date
-              ? raw.toISOString().slice(0,10)
-              : String(raw||'').trim();
-
           // Import Demand Forecast
           const demand = readSheet('Demand Forecast');
           if(demand?.length){
             const rows = demand.map(r=>({
-              date:       parseDate(r['Date']),
-              facilityId: findFacilityId(r['Facility']),
-              productId:  findProductId(r['Product']),
-              qtyStn:     +r['Qty (STn)']||0,
-              source:     'forecast'
+              date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
+              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
+              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
+              qtyStn: +r['Qty (STn)']||0, source:'forecast'
             })).filter(r=>r.date && r.productId && r.qtyStn>0);
-            rows.forEach(r=>{ ds.demandForecast = ds.demandForecast.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.productId===r.productId)); ds.demandForecast.push(r); });
-            if(rows.length) imported.push(`${rows.length} demand rows`);
-            const dropped = demand.length - rows.length;
-            if(dropped > 0) skipped.push(`${dropped} demand rows (unmatched product or zero qty)`);
+            // Overwrite for affected facility+dates
+            const keys = new Set(rows.map(r=>`${r.date}|${r.facilityId}|${r.productId}`));
+            ds.demandForecast = ds.demandForecast.filter(r=>`${r.date}|${r.facilityId}|${r.productId}`!==([...keys].find(k=>k===`${r.date}|${r.facilityId}|${r.productId}`))||true);
+            rows.forEach(r=>{ ds.demandForecast = ds.demandForecast.filter(x=>`${x.date}|${x.facilityId}|${x.productId}`!==`${r.date}|${r.facilityId}|${r.productId}`); ds.demandForecast.push(r); });
+            imported.push(`${rows.length} demand rows`);
           }
 
           // Import Production Actuals
           const prod = readSheet('Production Actuals');
           if(prod?.length){
             const rows = prod.map(r=>({
-              date:        parseDate(r['Date']),
-              facilityId:  findFacilityId(r['Facility']),
-              equipmentId: findEquipmentId(r['Equipment']),
-              productId:   findProductId(r['Product']),
-              qtyStn:      +r['Qty (STn)']||0
-            // ── FIX: equipmentId must be non-empty AND productId must match.
-            //         Previously, rows with unmatched equipment were silently dropped.
+              date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
+              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
+              equipmentId: ds.equipment.find(e=>e.name===r['Equipment'] || e.id===r['Equipment'])?.id || '',
+              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
+              qtyStn: +r['Qty (STn)']||0
             })).filter(r=>r.date && r.equipmentId && r.productId);
-            rows.forEach(r=>{ ds.actuals.production = ds.actuals.production.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.equipmentId===r.equipmentId&&x.productId===r.productId)); ds.actuals.production.push(r); });
-            if(rows.length) imported.push(`${rows.length} production rows`);
-            const dropped = prod.length - rows.length;
-            if(dropped > 0) skipped.push(`${dropped} production rows (unmatched equipment/product — check names match exactly)`);
+            rows.forEach(r=>{ ds.actuals.production = ds.actuals.production.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.equipmentId===r.equipmentId)); ds.actuals.production.push(r); });
+            imported.push(`${rows.length} production rows`);
           }
 
-          // Import Shipment Actuals
+          // Import Shipments
           const ship = readSheet('Shipment Actuals');
           if(ship?.length){
             const rows = ship.map(r=>({
-              date:       parseDate(r['Date']),
-              facilityId: findFacilityId(r['Facility']),
-              productId:  findProductId(r['Product']),
-              // ── FIX: keep zero-qty rows out — they corrupt inventory calculations.
-              qtyStn:     +r['Qty (STn)']||0
-            })).filter(r=>r.date && r.productId && r.qtyStn > 0);
+              date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
+              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
+              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
+              qtyStn: +r['Qty (STn)']||0
+            })).filter(r=>r.date && r.productId);
             rows.forEach(r=>{ ds.actuals.shipments = ds.actuals.shipments.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.productId===r.productId)); ds.actuals.shipments.push(r); });
-            if(rows.length) imported.push(`${rows.length} shipment rows`);
-            const dropped = ship.length - rows.length;
-            if(dropped > 0) skipped.push(`${dropped} shipment rows (unmatched product or zero qty)`);
+            imported.push(`${rows.length} shipment rows`);
           }
 
           // Import Inventory EOD
           const inv = readSheet('Inventory EOD');
           if(inv?.length){
             const rows = inv.map(r=>({
-              date:       parseDate(r['Date']),
-              facilityId: findFacilityId(r['Facility']),
-              storageId:  findStorageId(r['Storage']),
-              productId:  findProductId(r['Product']),
-              qtyStn:     +r['Qty (STn)']||0
+              date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
+              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
+              storageId: ds.storages.find(s=>s.name===r['Storage'] || s.id===r['Storage'])?.id || '',
+              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
+              qtyStn: +r['Qty (STn)']||0
             })).filter(r=>r.date && r.storageId && r.productId);
             rows.forEach(r=>{ ds.actuals.inventoryEOD = ds.actuals.inventoryEOD.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.storageId===r.storageId)); ds.actuals.inventoryEOD.push(r); });
-            if(rows.length) imported.push(`${rows.length} inventory rows`);
-            const dropped = inv.length - rows.length;
-            if(dropped > 0) skipped.push(`${dropped} inventory rows (unmatched storage/product)`);
+            imported.push(`${rows.length} inventory rows`);
           }
 
           // Import Campaigns
           const camps = readSheet('Campaigns');
           if(camps?.length){
             const rows = camps.map(r=>({
-              date:        parseDate(r['Date']),
-              facilityId:  findFacilityId(r['Facility']),
-              equipmentId: findEquipmentId(r['Equipment']),
-              status:      String(r['Status']||'produce').trim(),
-              productId:   findProductId(r['Product']),
-              rateStn:     +r['Rate (STn/d)']||0
+              date: typeof r['Date']==='object' ? r['Date'].toISOString().slice(0,10) : String(r['Date']),
+              facilityId: state.org.facilities.find(f=>f.name===r['Facility'] || f.id===r['Facility'])?.id || fac,
+              equipmentId: ds.equipment.find(e=>e.name===r['Equipment'] || e.id===r['Equipment'])?.id || '',
+              status: r['Status']||'produce',
+              productId: state.catalog.find(m=>m.name===r['Product'] || m.id===r['Product'] || m.code===r['Product'])?.id || '',
+              rateStn: +r['Rate (STn/d)']||0
             })).filter(r=>r.date && r.equipmentId);
             rows.forEach(r=>{ ds.campaigns = ds.campaigns.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.equipmentId===r.equipmentId)); ds.campaigns.push(r); });
-            if(rows.length) imported.push(`${rows.length} campaign rows`);
-            const dropped = camps.length - rows.length;
-            if(dropped > 0) skipped.push(`${dropped} campaign rows (unmatched equipment)`);
+            imported.push(`${rows.length} campaign rows`);
           }
 
           if(imported.length){
             persist(); render();
-            const skipMsg = skipped.length ? ` · ⚠ Skipped: ${skipped.join(', ')}` : '';
-            showToast(`Imported: ${imported.join(', ')} ✓${skipMsg}`, skipped.length ? 'warn' : 'ok');
-          } else if(skipped.length){
-            showToast(`Nothing imported — all rows were skipped. Check that equipment/product names in your Excel exactly match what's configured in this app. Skipped: ${skipped.join(', ')}`, 'danger');
+            showToast(`Imported: ${imported.join(', ')} ✓`, 'ok');
           } else {
             showToast('No matching sheets found in file', 'warn');
           }

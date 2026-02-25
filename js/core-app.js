@@ -2051,107 +2051,93 @@ function openCampaignDialog(){
 
 /* ─────────────────── DAILY ACTUALS DIALOG ─────────────────── */
 function openDailyActualsDialog(preselectedFacId){
-  const allS = selectors(state);
   const host = el('dailyActualsDialog');
 
-  // Available facilities: read directly from multi-select state
-  const facIds = (state.ui.selectedFacilityIds||[]).length
+  // Facilities in scope — read directly from multi-select state
+  const allFacIds = (state.ui.selectedFacilityIds||[]).length
     ? state.ui.selectedFacilityIds
     : state.org.facilities.map(f=>f.id);
-  const facs = facIds.map(id=>state.org.facilities.find(f=>f.id===id)).filter(Boolean);
+  const facs = allFacIds.map(id=>state.org.facilities.find(f=>f.id===id)).filter(Boolean);
 
-  let activeFacId = preselectedFacId || facIds[0] || '';
-  let activeDate  = yesterdayLocal();
+  let activeFacId = preselectedFacId || allFacIds[0] || '';
 
-  const renderForm = () => {
-    const ds = allS.dataset;
+  const buildForm = () => {
+    // Scope selectors to this one facility using the legacy selectedFacilityId path
+    const facState = {...state, ui:{...state.ui, selectedFacilityId: activeFacId, selectedFacilityIds:[activeFacId]}};
+    const s = selectors(facState);
+    const a = actions(facState);
 
-    const facEq      = ds.equipment.filter(e=>e.facilityId===activeFacId);
-    const kf         = facEq.filter(e=>e.type==='kiln');
-    const ff         = facEq.filter(e=>e.type==='finish_mill');
-    const rf         = facEq.filter(e=>e.type==='raw_mill');
-    const facStorages= ds.storages.filter(st=>st.facilityId===activeFacId);
-    const facProdIds = new Set((ds.facilityProducts||[]).filter(fp=>fp.facilityId===activeFacId).map(fp=>fp.productId));
-    const facFinProds= (state.catalog||ds.materials||[]).filter(m=>m.category==='FINISHED_PRODUCT'&&facProdIds.has(m.id));
-    const canEqProd  = (eqId,pid) => ds.capabilities.some(c=>c.equipmentId===eqId&&c.productId===pid);
-
-    const facSelectors = selectors({...state, ui:{...state.ui, selectedFacilityId:activeFacId, selectedFacilityIds:[activeFacId]}});
-    const existing = facSelectors.actualsForDate(activeDate);
-    const invMap   = new Map((existing.inv||[]).map(r=>[`${r.storageId}|${r.productId}`,r.qtyStn]));
-    const prodMap  = new Map((existing.prod||[]).map(r=>[`${r.equipmentId}|${r.productId}`,r.qtyStn]));
-    const shipMap  = new Map((existing.ship||[]).map(r=>[r.productId,r.qtyStn]));
+    const y = host.querySelector('#actualsDate')?.value || yesterdayLocal();
+    const kf = s.equipment.filter(e=>e.type==='kiln');
+    const ff = s.equipment.filter(e=>e.type==='finish_mill');
+    const rf = s.equipment.filter(e=>e.type==='raw_mill');
+    const canEqProd = (eqId,pid) => s.capabilities.some(c=>c.equipmentId===eqId&&c.productId===pid);
+    const existing = s.actualsForDate(y);
+    const invMap  = new Map((existing.inv ||[]).map(r=>[`${r.storageId}|${r.productId}`,r.qtyStn]));
+    const prodMap = new Map((existing.prod||[]).map(r=>[`${r.equipmentId}|${r.productId}`,r.qtyStn]));
+    const shipMap = new Map((existing.ship||[]).map(r=>[r.productId,r.qtyStn]));
 
     const fac = state.org.facilities.find(f=>f.id===activeFacId);
-    const facLabel = fac ? `${fac.code||fac.id} — ${fac.name}` : activeFacId;
-    const allMats  = ds.materials;
+    const facLabel = fac ? `${fac.code} — ${fac.name}` : activeFacId;
 
-    // Facility tab pills
-    const facTabs = facs.map(f=>`
-      <button data-fac-tab="${f.id}" style="padding:5px 14px;border-radius:6px;border:1px solid ${f.id===activeFacId?'var(--accent)':'var(--border)'};background:${f.id===activeFacId?'rgba(99,179,237,0.15)':'transparent'};color:${f.id===activeFacId?'var(--accent)':'var(--muted)'};font-size:11px;font-weight:${f.id===activeFacId?'700':'400'};cursor:pointer;white-space:nowrap">
-        ${esc(f.code||f.id)}
-      </button>`).join('');
+    // Facility tabs
+    const tabsHTML = facs.length > 1 ? `
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)">
+        ${facs.map(f=>`<button data-fac-tab="${f.id}" style="padding:5px 14px;border-radius:6px;border:1px solid ${f.id===activeFacId?'var(--accent)':'var(--border)'};background:${f.id===activeFacId?'rgba(99,179,237,0.15)':'transparent'};color:${f.id===activeFacId?'var(--accent)':'var(--muted)'};font-size:11px;font-weight:${f.id===activeFacId?'700':'400'};cursor:pointer">${esc(f.code||f.id)}</button>`).join('')}
+      </div>` : '';
 
     host.querySelector('#actualsFormBody').innerHTML = `
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)">
-        ${facTabs}
-      </div>
-      <div style="margin-bottom:16px;padding:8px 12px;background:rgba(99,179,237,0.06);border:1px solid rgba(99,179,237,0.15);border-radius:8px;font-size:12px;font-weight:600;color:var(--accent)">
-        📍 ${esc(facLabel)}
-      </div>
-      <div class="form-grid" style="grid-template-columns:auto 1fr 1fr;margin-bottom:16px">
-        <div><label class="form-label">Date (default: yesterday)</label><input class="form-input" type="date" id="actualsDate" value="${activeDate}"></div>
+      ${tabsHTML}
+      <div style="margin-bottom:12px;font-size:12px;font-weight:600;color:var(--accent)">📍 ${esc(facLabel)}</div>
+
+      <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:16px">
+        <div><label class="form-label">Date (default: yesterday)</label><input class="form-input" type="date" id="actualsDate" value="${y}"></div>
       </div>
 
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">1. Ending Inventory (STn)</div>
       <div class="table-scroll" style="margin-bottom:20px;max-height:200px;border-radius:8px;overflow-y:auto !important;border:1px solid var(--border)">
         <table class="data-table"><thead><tr><th>Storage</th><th>Product</th><th>EOD Quantity (STn)</th></tr></thead>
-        <tbody>${facStorages.length
-          ? facStorages.map(st=>{const pid=(st.allowedProductIds||[])[0]||'';return`<tr><td style="font-weight:600">${esc(st.name)}</td><td>${esc(allS.getMaterial(pid)?.name||'—')}</td><td><input class="cell-input inv-input" data-storage="${st.id}" data-product="${pid}" value="${invMap.get(`${st.id}|${pid}`)??''}"></td></tr>`;}).join('')
-          : '<tr><td colspan="3" class="text-muted" style="text-align:center;padding:16px">No storages configured for this facility</td></tr>'
-        }</tbody>
+        <tbody>${s.storages.map(st=>{const pid=(st.allowedProductIds||[])[0]||'';return`<tr><td style="font-weight:600">${esc(st.name)}</td><td>${esc(s.getMaterial(pid)?.name||'')}</td><td><input class="cell-input inv-input" data-storage="${st.id}" data-product="${pid}" value="${invMap.get(`${st.id}|${pid}`)??''}"></td></tr>`;}).join('')||'<tr><td colspan="3" class="text-muted" style="text-align:center;padding:12px">No storages for this facility</td></tr>'}</tbody>
         </table>
       </div>
 
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">2. Production Actuals (STn)</div>
       <div class="table-scroll" style="margin-bottom:20px;max-height:260px;border-radius:8px;overflow-y:auto !important;border:1px solid var(--border)">
-        ${[...rf,...kf,...ff].length ? `<table class="data-table">
-          <thead><tr><th style="min-width:140px">Equipment</th>${allMats.map(m=>`<th style="min-width:80px">${esc(m.code||m.name.slice(0,8))}</th>`).join('')}</tr></thead>
-          <tbody>${[...rf,...kf,...ff].map(eq=>`<tr>
-            <td style="font-weight:600">${esc(eq.name)} <span class="pill pill-gray" style="font-size:9px">${eq.type}</span></td>
-            ${allMats.map(m=>canEqProd(eq.id,m.id)?`<td><input class="cell-input prod-input" data-equipment="${eq.id}" data-product="${m.id}" value="${prodMap.get(`${eq.id}|${m.id}`)??''}"></td>`:`<td class="cell-gray">—</td>`).join('')}
-          </tr>`).join('')}
-          </tbody>
-        </table>`
-        : '<div class="text-muted" style="font-size:12px;padding:16px;text-align:center">No equipment configured for this facility</div>'}
+        ${[...rf,...kf,...ff].length
+          ? `<table class="data-table">
+              <thead><tr><th style="min-width:140px">Equipment</th>${s.materials.map(m=>`<th style="min-width:80px">${esc(m.code||m.name.slice(0,8))}</th>`).join('')}</tr></thead>
+              <tbody>${[...rf,...kf,...ff].map(eq=>`<tr>
+                <td style="font-weight:600">${esc(eq.name)} <span class="pill pill-gray" style="font-size:9px">${eq.type}</span></td>
+                ${s.materials.map(m=>canEqProd(eq.id,m.id)?`<td><input class="cell-input prod-input" data-equipment="${eq.id}" data-product="${m.id}" value="${prodMap.get(`${eq.id}|${m.id}`)??''}"></td>`:`<td class="cell-gray">—</td>`).join('')}
+              </tr>`).join('')}</tbody>
+             </table>`
+          : '<div class="text-muted" style="font-size:12px;padding:12px;text-align:center">No equipment for this facility</div>'}
       </div>
 
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">3. Customer Shipments (STn)</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px">
-        ${facFinProds.length
-          ? facFinProds.map(fp=>`<div style="display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:6px;padding:8px 12px">
-              <span style="font-size:12px;font-weight:500">${esc(fp.name)}</span>
-              <input class="cell-input ship-input" style="max-width:100px" data-product="${fp.id}" value="${shipMap.get(fp.id)??''}">
-            </div>`).join('')
-          : '<div class="text-muted" style="font-size:12px">No finished products for this facility.</div>'}
+        ${s.finishedProducts.map(fp=>`<div style="display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:6px;padding:8px 12px">
+          <span style="font-size:12px;font-weight:500">${esc(fp.name)}</span>
+          <input class="cell-input ship-input" style="max-width:100px" data-product="${fp.id}" value="${shipMap.get(fp.id)??''}">
+        </div>`).join('')||'<div class="text-muted" style="font-size:12px">No finished products for this facility.</div>'}
       </div>`;
 
-    // Wire facility tabs
+    // Facility tab switching
     host.querySelectorAll('[data-fac-tab]').forEach(btn => {
-      btn.onclick = () => { activeFacId = btn.dataset.facTab; renderForm(); };
+      btn.onclick = () => { activeFacId = btn.dataset.facTab; buildForm(); };
     });
 
-    // Wire date change
-    host.querySelector('#actualsDate').onchange = e => { activeDate = e.target.value; renderForm(); };
+    // Date change reloads existing actuals
+    host.querySelector('#actualsDate').onchange = () => buildForm();
 
-    // Wire save
+    // Save button
     host.querySelector('#saveActualsBtn').onclick = ev => {
       ev.preventDefault();
       const date = host.querySelector('#actualsDate').value;
       const inventoryRows  = [...host.querySelectorAll('.inv-input')].map(i=>({storageId:i.dataset.storage,productId:i.dataset.product,qtyStn:+i.value||0})).filter(r=>r.productId);
       const productionRows = [...host.querySelectorAll('.prod-input')].map(i=>({equipmentId:i.dataset.equipment,productId:i.dataset.product,qtyStn:+i.value||0}));
       const shipmentRows   = [...host.querySelectorAll('.ship-input')].map(i=>({productId:i.dataset.product,qtyStn:+i.value||0}));
-      const facActions = actions({ ...state, ui: { ...state.ui, selectedFacilityId: activeFacId } });
-      facActions.saveDailyActuals({date,inventoryRows,productionRows,shipmentRows});
+      a.saveDailyActuals({date, inventoryRows, productionRows, shipmentRows});
       persist(); renderDemand(); renderPlan(); showToast(`Actuals saved for ${activeFacId} ✓`);
     };
   };
@@ -2159,10 +2145,10 @@ function openDailyActualsDialog(preselectedFacId){
   host.classList.add('open');
   host.innerHTML = `<div class="modal" style="max-width:960px">
     <div class="modal-header">
-      <div><div class="modal-title">📝 Daily Actuals Entry</div><div style="font-size:11px;color:var(--muted)">${state.ui.mode.toUpperCase()} · select facility tab below</div></div>
+      <div><div class="modal-title">📝 Daily Actuals Entry</div><div style="font-size:11px;color:var(--muted)">${state.ui.mode.toUpperCase()}</div></div>
       <button class="btn" id="actClose">Close</button>
     </div>
-    <div class="modal-body" id="actualsFormBody"></div>
+    <div class="modal-body" id="actualsFormBody" style="min-height:200px"></div>
     <div class="modal-footer">
       <button class="btn" id="actClose2">Cancel</button>
       <button class="btn btn-primary" id="saveActualsBtn">Save to ${state.ui.mode==='sandbox'?'Sandbox':'Official'}</button>
@@ -2174,7 +2160,7 @@ function openDailyActualsDialog(preselectedFacId){
   host.querySelector('#actClose2').onclick = close;
   host.onclick = e => { if(e.target===host) close(); };
 
-  renderForm();
+  buildForm();
 }
 
 /* ─────────────────── DATA TAB ─────────────────── */

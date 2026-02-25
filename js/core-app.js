@@ -2189,8 +2189,23 @@ function openDailyActualsDialog(preselectedFacId){
         '</tbody></table>'
       : '<div class="text-muted" style="font-size:12px;padding:12px;text-align:center">No equipment for this facility</div>';
 
-    const facProdIds = new Set((s.dataset.facilityProducts||[]).filter(fp=>fp.facilityId===activeFacId).map(fp=>fp.productId));
-    const facFPs = s.finishedProducts.filter(fp => facProdIds.has(fp.id));
+    // Derive finished products: use capabilities for production plants, facilityProducts for terminals
+    const facEqForShip = s.dataset.equipment.filter(e=>e.facilityId===activeFacId);
+    const isProductionPlant = facEqForShip.length > 0;
+    let facFPs;
+    if(isProductionPlant){
+      // Products = unique finished products from capabilities
+      const capProdIds = new Set(
+        s.dataset.capabilities
+          .filter(c=>facEqForShip.some(e=>e.id===c.equipmentId))
+          .map(c=>c.productId)
+      );
+      facFPs = s.finishedProducts.filter(fp=>capProdIds.has(fp.id));
+    } else {
+      // Terminal — use facilityProducts
+      const facProdIds = new Set((s.dataset.facilityProducts||[]).filter(fp=>fp.facilityId===activeFacId).map(fp=>fp.productId));
+      facFPs = s.finishedProducts.filter(fp=>facProdIds.has(fp.id));
+    }
     const shipHTML = facFPs.length
       ? facFPs.map(fp =>
           '<div style="display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:6px;padding:8px 12px">' +

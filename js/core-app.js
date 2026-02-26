@@ -4,6 +4,25 @@ import { buildProductionPlanView, yesterdayLocal, startOfMonth } from './modules
 
 let state = loadState();
 
+// ── Runtime data patch: ensure actuals use new field names ──
+// Covers existing v3 data saved before the inventoryEOD→inventoryBOD rename
+(function patchActuals() {
+  const datasets = [state.official, ...Object.values(state.sandboxes||{}).map(sb=>sb?.data)].filter(Boolean);
+  datasets.forEach(ds => {
+    if (!ds.actuals) return;
+    // Rename inventoryEOD → inventoryBOD
+    if (ds.actuals.inventoryEOD !== undefined && ds.actuals.inventoryBOD === undefined) {
+      ds.actuals.inventoryBOD = ds.actuals.inventoryEOD;
+      delete ds.actuals.inventoryEOD;
+    }
+    // Ensure inventoryBOD always exists
+    if (!Array.isArray(ds.actuals.inventoryBOD)) ds.actuals.inventoryBOD = [];
+    // Ensure transfers always exists (new table)
+    if (!Array.isArray(ds.actuals.transfers)) ds.actuals.transfers = [];
+  });
+  saveState(state);
+})();
+
 // Two-level nav: top sections + sub-tabs
 const NAV = [
   { key:'supply',    label:'Supply', subs:[

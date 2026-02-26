@@ -9,16 +9,20 @@ let state = loadState();
 (function patchActuals() {
   const datasets = [state.official, ...Object.values(state.sandboxes||{}).map(sb=>sb?.data)].filter(Boolean);
   datasets.forEach(ds => {
-    if (!ds.actuals) return;
-    // Rename inventoryEOD → inventoryBOD
-    if (ds.actuals.inventoryEOD !== undefined && ds.actuals.inventoryBOD === undefined) {
-      ds.actuals.inventoryBOD = ds.actuals.inventoryEOD;
+    // Ensure actuals object exists
+    if (!ds.actuals) ds.actuals = {};
+    // Rename inventoryEOD → inventoryBOD (v2→v3 rename)
+    if (ds.actuals.inventoryEOD !== undefined) {
+      if (!Array.isArray(ds.actuals.inventoryBOD) || ds.actuals.inventoryBOD.length === 0) {
+        ds.actuals.inventoryBOD = ds.actuals.inventoryEOD;
+      }
       delete ds.actuals.inventoryEOD;
     }
-    // Ensure inventoryBOD always exists
+    // Guarantee all actuals arrays exist
     if (!Array.isArray(ds.actuals.inventoryBOD)) ds.actuals.inventoryBOD = [];
-    // Ensure transfers always exists (new table)
-    if (!Array.isArray(ds.actuals.transfers)) ds.actuals.transfers = [];
+    if (!Array.isArray(ds.actuals.production))   ds.actuals.production   = [];
+    if (!Array.isArray(ds.actuals.shipments))     ds.actuals.shipments    = [];
+    if (!Array.isArray(ds.actuals.transfers))     ds.actuals.transfers    = [];
   });
   saveState(state);
 })();

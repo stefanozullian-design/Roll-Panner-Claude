@@ -411,6 +411,8 @@ function render(){
 /* ─────────────────── PLAN TAB ─────────────────── */
 function renderPlan(){
   const root = el('tab-plan');
+  if(!root) return;
+  try {
   const s = selectors(state);
   const todayStr = today();
 
@@ -419,7 +421,7 @@ function renderPlan(){
   const months   = groupByMonth(allDates);
   let collapsed = loadCollapsedMonths();
   if(collapsed.size === 0){ collapsed = defaultCollapsedMonths(months); saveCollapsedMonths(collapsed); }
-  applyCollapseStyle('planTable', collapsed);
+  // Note: applyCollapseStyle is called after root.innerHTML is set below
 
   const plan = buildProductionPlanView(state, SPINE_START, allDates.length);
 
@@ -623,7 +625,7 @@ function renderPlan(){
       const dd2 = d.slice(8,10);
       let sty = isWk ? wkdColStyle : '';
       if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
-      return `<th data-date="${d}" class="day-col-${mon.ym}" style="min-width:44px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">` + dd2 + `</th>`;
+      return `<th data-date="${d}" class="day-col-${mon.ym}" style="min-width:64px;width:64px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">` + dd2 + `</th>`;
     }).join('');
     return monthTh + dayThs;
   }).join('');
@@ -805,6 +807,9 @@ function renderPlan(){
     🔴 Stockout · 🟡 Overflow · △ &gt;75% cap · Colored = producing · <span style="color:#fca5a5">■ IDL</span> = idle/stockout · <span style="color:#fcd34d">■ MNT</span> = maintenance · <span style="color:#c4b5fd">■ OOO</span> = out of order · Pink = weekend
   </div>`;
 
+  // Apply month collapse CSS after DOM is ready
+  applyCollapseStyle('planTable', collapsed);
+
   // Delegated collapse handler on tbody
   const secOpenState = {};
   const subOpenState = {};
@@ -861,10 +866,15 @@ function renderPlan(){
       tr.querySelectorAll('.collapse-icon').forEach(i=>{ i.style.transform='rotate(90deg)'; });
       table.querySelectorAll(`.sec-child.sec-${sec}`).forEach(r=>r.style.display='');
     });
-    // Find and scroll to today's th
+    // Find and scroll to today's th using getBoundingClientRect for accurate offset
     let th = null;
     table.querySelectorAll('thead th').forEach(t=>{ if(t.dataset.date===todayStr) th=t; });
-    if(th) scroll.scrollTo({ left: Math.max(0, th.offsetLeft - 200), behavior:'smooth' });
+    if(th){
+      const thRect    = th.getBoundingClientRect();
+      const scrollRect = scroll.getBoundingClientRect();
+      const delta = thRect.left - scrollRect.left;
+      scroll.scrollBy({ left: delta - 220, behavior:'smooth' });
+    }
   };
 
   // Month column collapse/expand
@@ -930,6 +940,14 @@ function renderPlan(){
       });
     };
   });
+  } catch(err) {
+    console.error('renderPlan crashed:', err);
+    root.innerHTML = `<div style="padding:40px;text-align:center;color:var(--danger);font-size:13px;">
+      <div style="font-size:32px;margin-bottom:12px">⚠</div>
+      Plan view error: ${err.message}<br><br>
+      <small style="color:var(--muted)">Open browser console (F12) for details.</small>
+    </div>`;
+  }
 }
 
 function renderProducts(){
@@ -1532,7 +1550,7 @@ function renderDemand(mode='total'){
       const isWk = isWeekendDate(d); const isTd = d===todayStr;
       let sty = isWk ? wkdColStyle : '';
       if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
-      return `<th class="day-col-${mon.ym}" style="min-width:44px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">${d.slice(8,10)}</th>`;
+      return `<th data-date="${d}" class="day-col-${mon.ym}" style="min-width:64px;width:64px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">${d.slice(8,10)}</th>`;
     }).join('');
     return monthTh + dayThs;
   }).join('');
@@ -1562,7 +1580,7 @@ function renderDemand(mode='total'){
     const grandCells = makeMonthCells((d, ym, sty) => {
       let v = 0;
       scopeFacs.forEach(fac => getFacProducts(fac.id).forEach(fp => { v += getVal(fac.id, fp.id, d).v; }));
-      return { v, html: `<td class="num day-col-${ym}" style="${sty}font-size:10px;font-weight:700;">${v ? fmt0(v) : ''}</td>` };
+      return { v, html: `<td class="num day-col-${ym}" style="min-width:64px;width:64px;${sty}font-size:10px;font-weight:700;">${v ? fmt0(v) : ''}</td>` };
     });
     bodyRows += `<tr style="background:rgba(99,179,237,0.08);">
       <td class="row-header" style="position:sticky;left:0;background:#0f1a2e;z-index:3;font-size:11px;font-weight:700;color:#93c5fd;padding-left:8px;">▶ TOTAL ALL FACILITIES</td>
@@ -1577,7 +1595,7 @@ function renderDemand(mode='total'){
       const facCells = makeMonthCells((d, ym, sty) => {
         let v = 0;
         facProds.forEach(fp => { v += getVal(fac.id, fp.id, d).v; });
-        return { v, html: `<td class="num day-col-${ym}" style="${sty}font-size:10px;font-weight:700;">${v ? fmt0(v) : ''}</td>` };
+        return { v, html: `<td class="num day-col-${ym}" style="min-width:64px;width:64px;${sty}font-size:10px;font-weight:700;">${v ? fmt0(v) : ''}</td>` };
       });
       bodyRows += `<tr class="fac-header-row" data-fac-toggle="${fac.id}" style="cursor:pointer;background:rgba(255,255,255,0.04);border-top:2px solid var(--border);">
         <td class="row-header" style="position:sticky;left:0;background:#131c2e;z-index:3;font-size:11px;font-weight:700;padding-left:8px;">
@@ -1589,8 +1607,8 @@ function renderDemand(mode='total'){
         const prodCells = makeMonthCells((d, ym, sty) => {
           const { v, isActual } = getVal(fac.id, fp.id, d);
           const html = isActual
-            ? `<td class="num day-col-${ym}" style="${sty}background:rgba(34,197,94,0.12);color:#86efac;font-size:10px;font-weight:600;" title="Actual">${v ? fmt0(v) : ''}</td>`
-            : `<td class="day-col-${ym}" style="${sty}padding:1px 2px;"><input class="cell-input demand-input" data-fac="${fac.id}" data-date="${d}" data-product="${fp.id}" value="${v||''}" style="width:100%;min-width:44px;background:transparent;border:none;color:var(--text);font-size:10px;text-align:right;padding:3px 4px;border-radius:3px;"/></td>`;
+            ? `<td class="num day-col-${ym}" style="min-width:64px;width:64px;${sty}background:rgba(34,197,94,0.12);color:#86efac;font-size:10px;font-weight:600;" title="Actual">${v ? fmt0(v) : ''}</td>`
+            : `<td class="day-col-${ym}" style="min-width:64px;width:64px;${sty}padding:1px 2px;"><input class="cell-input demand-input" data-fac="${fac.id}" data-date="${d}" data-product="${fp.id}" value="${v||''}" style="width:100%;min-width:60px;background:transparent;border:none;color:var(--text);font-size:10px;text-align:right;padding:3px 4px;border-radius:3px;"/></td>`;
           return { v, html };
         });
         bodyRows += `<tr class="fac-product-row fac-rows-${fac.id}" style="display:none;">
@@ -1675,7 +1693,12 @@ function renderDemand(mode='total'){
     if(cur.has(ym)){ cur.delete(ym); saveCollapsedMonths(cur); applyCollapseStyle('demand-table-total', cur); }
     let th = null;
     table.querySelectorAll('thead th').forEach(t=>{ if(t.dataset.date===todayStr) th=t; });
-    if(th) scroll.scrollTo({ left: Math.max(0, th.offsetLeft - 220), behavior:'smooth' });
+    if(th){
+      const thRect     = th.getBoundingClientRect();
+      const scrollRect = scroll.getBoundingClientRect();
+      const delta = thRect.left - scrollRect.left;
+      scroll.scrollBy({ left: delta - 220, behavior:'smooth' });
+    }
   };
 }
 
@@ -1692,7 +1715,7 @@ function openForecastToolDialog(){
     </div>
     <div class="modal-body">
       <div class="form-grid" style="grid-template-columns:1fr 1fr">
-        <div><label class="form-label">Product</label><select class="form-input" id="fcProduct">${s.finishedProducts.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+        <div><label class="form-label">Product</label><select class="form-input" id="fcProduct">${state.catalog.filter(m=>m.category==='FINISHED_PRODUCT').map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
         <div><label class="form-label">Start Date</label><input class="form-input" type="date" id="fcStart" value="${startDefault}"></div>
         <div><label class="form-label">Method</label><select class="form-input" id="fcMethod"><option value="rolling">Rolling weekday average</option><option value="fixed">Fixed daily value</option><option value="monthTotal">Distribute monthly total</option></select></div>
         <div id="fcRollingWrap"><label class="form-label">Rolling Window</label><select class="form-input" id="fcRollingN"><option value="5">5 weekdays</option><option value="10">10 weekdays</option><option value="30">30 weekdays</option></select></div>
@@ -1732,7 +1755,11 @@ function openForecastToolDialog(){
   const endOfYear = d => d.slice(0,4)+'-12-31';
   const enumDates = (a,b) => { const out=[]; let d=new Date(a+'T00:00:00'); const end=new Date(b+'T00:00:00'); while(d<=end){out.push(d.toISOString().slice(0,10));d.setDate(d.getDate()+1);} return out; };
   const prevDate = (d,n=1) => { const x=new Date(d+'T00:00:00'); x.setDate(x.getDate()-n); return x.toISOString().slice(0,10); };
-  const actualQty = (d,pid) => { const r=s.dataset.actuals.shipments.find(x=>x.facilityId===state.ui.selectedFacilityId&&x.date===d&&x.productId===pid); return r?+r.qtyStn:null; };
+  const actualQty = (d,pid) => {
+    const facId = state.ui.selectedFacilityId || s.facilityIds[0] || state.org.facilities[0]?.id || '';
+    const r=s.dataset.actuals.shipments.find(x=>x.facilityId===facId&&x.date===d&&x.productId===pid);
+    return r?+r.qtyStn:null;
+  };
   const hasActual = (d,pid) => actualQty(d,pid)!=null;
   const weekdaySample = (pid,start,n) => { const vals=[]; let cur=prevDate(start,1); let g=0; while(vals.length<n&&g<500){g++;const dow=new Date(cur+'T00:00:00').getDay();if(dow>=1&&dow<=5){const q=actualQty(cur,pid);if(q!=null)vals.push(q);}cur=prevDate(cur,1);} return vals; };
   const satCoef = (pid,start) => { const sat=[],wk=[]; let cur=prevDate(start,1); let g=0; while((sat.length<4||wk.length<20)&&g<400){g++;const dow=new Date(cur+'T00:00:00').getDay();const q=actualQty(cur,pid);if(q!=null){if(dow===6&&sat.length<4)sat.push(q);if(dow>=1&&dow<=5&&wk.length<20)wk.push(q);}cur=prevDate(cur,1);} const avgW=wk.length?wk.reduce((a,b)=>a+b,0)/wk.length:0;const avgS=sat.length?sat.reduce((a,b)=>a+b,0)/sat.length:0;return avgW>0?avgS/avgW:0; };
@@ -1773,12 +1800,14 @@ function openForecastToolDialog(){
   };
   q('fcApply').onclick = () => {
     const {rows,msg}=buildRows();
-    const fac=state.ui.selectedFacilityId;
+    // Use selectedFacilityId — if empty fall back to first facility in scope
+    const fac = state.ui.selectedFacilityId || s.facilityIds[0] || state.org.facilities[0]?.id || '';
+    if(!fac){ showToast('Select a facility first', 'err'); return; }
     const keys=new Set(rows.map(r=>`${r.date}|${fac}|${r.productId}`));
     s.dataset.demandForecast=s.dataset.demandForecast.filter(x=>!keys.has(`${x.date}|${x.facilityId}|${x.productId}`));
     rows.filter(r=>(+r.qtyStn||0)>0&&!hasActual(r.date,r.productId)).forEach(r=>s.dataset.demandForecast.push({date:r.date,facilityId:fac,productId:r.productId,qtyStn:+r.qtyStn,source:'forecast'}));
     persist(); renderDemand('total'); renderPlan();
-    q('fcMsg').innerHTML=`<span style="color:var(--ok)">✓ Applied</span> — `+[...msg].join(' · ');
+    q('fcMsg').innerHTML=`<span style="color:var(--ok)">✓ Applied to ${fac}</span> — `+[...msg].join(' · ');
     showToast('Forecast applied ✓');
   };
 }

@@ -97,6 +97,47 @@ function defaultCollapsedMonths(allMonths){
   return set;
 }
 
+// ── Year collapse (separate from month collapse) ──
+const YEAR_COLLAPSE_KEY = 'plannerCollapsedYears';
+function loadCollapsedYears(){
+  try{ return new Set(JSON.parse(localStorage.getItem(YEAR_COLLAPSE_KEY)||'null')||[]); }
+  catch(e){ return new Set(); }
+}
+function saveCollapsedYears(set){
+  localStorage.setItem(YEAR_COLLAPSE_KEY, JSON.stringify([...set]));
+}
+function defaultCollapsedYears(){
+  const thisYear = new Date().getFullYear();
+  // Collapse last year and next year; keep current year open
+  return new Set([String(thisYear - 1), String(thisYear + 1)]);
+}
+function applyYearCollapseStyle(collapsedYears){
+  const styleId = 'year-col-style';
+  let styleEl = document.getElementById(styleId);
+  if(!styleEl){ styleEl = document.createElement('style'); styleEl.id = styleId; document.head.appendChild(styleEl); }
+  styleEl.textContent = [...collapsedYears].map(yr =>
+    `.month-of-year-${yr} { display:none; } .year-col-${yr}-months { display:none; }`
+  ).join('\n');
+}
+function toggleYear(yr, tableId){
+  const set = loadCollapsedYears();
+  if(set.has(yr)) set.delete(yr); else set.add(yr);
+  saveCollapsedYears(set);
+  applyYearCollapseStyle(set);
+  document.querySelectorAll(`[data-year-toggle="${yr}"]`).forEach(btn => {
+    btn.textContent = set.has(yr) ? '▶' : '▼';
+  });
+}
+function groupByYear(months){
+  const map = {};
+  months.forEach(mon => {
+    const yr = mon.ym.slice(0,4);
+    if(!map[yr]) map[yr] = [];
+    map[yr].push(mon);
+  });
+  return Object.entries(map).map(([yr, mons]) => ({ yr, months: mons }));
+}
+
 // Build <style> tag content to hide day columns for collapsed months
 // Each day column has class `day-col-YYYY-MM`
 function buildCollapseStyle(collapsedSet){
@@ -129,16 +170,7 @@ const fmt0 = n => Number(n||0).toLocaleString(undefined, {maximumFractionDigits:
 const dateRange = (start, days) => { const a=[]; let d=new Date(start+'T00:00:00'); for(let i=0;i<days;i++){a.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1);} return a; };
 const today = () => new Date().toISOString().slice(0,10);
 
-// Debounced persist — batches rapid saves into one write every 400ms
-let _persistTimer = null;
-function persist(){
-  if(_persistTimer) clearTimeout(_persistTimer);
-  _persistTimer = setTimeout(() => { saveState(state); _persistTimer = null; }, 400);
-}
-function persistNow(){ 
-  if(_persistTimer){ clearTimeout(_persistTimer); _persistTimer = null; }
-  saveState(state); 
-}
+function persist(){ saveState(state); }
 
 /* ─────────────────── SHELL ─────────────────── */
 function initShell(){
@@ -154,7 +186,7 @@ function initShell(){
     const sec = NAV.find(s=>s.key===btn.dataset.section); if(!sec) return;
     // Navigate to first non-placeholder sub
     const firstSub = sec.subs.find(t=>!t.placeholder) || sec.subs[0];
-    state.ui.activeTab = firstSub.key; persistNow(); render();
+    state.ui.activeTab = firstSub.key; persist(); render();
   };
 
   // Sub nav — show subs for active section
@@ -167,7 +199,7 @@ function initShell(){
     const tabKey = btn.dataset.tab;
     const sub = activeSec.subs.find(t=>t.key===tabKey);
     if(sub?.placeholder) return; // ignore clicks on placeholders
-    state.ui.activeTab = tabKey; persistNow(); render();
+    state.ui.activeTab = tabKey; persist(); render();
   };
 
   // ── Scope selector — 4 cascading dropdowns with multi-select checkboxes ──
@@ -307,14 +339,14 @@ function initShell(){
             m.style.display = 'none';
             if(_scopeChanged){
               _scopeChanged = false;
-              syncLegacyId(); persistNow(); buildScopeUI(); render();
+              syncLegacyId(); persist(); buildScopeUI(); render();
             }
           }
         });
         menu.style.display = isOpen ? 'none' : 'block';
         if(isOpen && _scopeChanged){
           _scopeChanged = false;
-          syncLegacyId(); persistNow(); buildScopeUI(); render();
+          syncLegacyId(); persist(); buildScopeUI(); render();
         }
       };
     });
@@ -648,26 +680,39 @@ function renderPlan(){
     });
   });
 
-  // Month-grouped date headers
-  const dateHeaders = months.map(mon => {
-    const isCol = collapsed.has(mon.ym);
-    const monthTh = `<th class="month-total-th" data-month-ym="${mon.ym}" style="min-width:64px;background:rgba(99,179,237,0.12);border-left:2px solid rgba(99,179,237,0.35);border-right:1px solid rgba(99,179,237,0.2);font-size:9px;font-weight:700;color:#93c5fd;text-align:center;cursor:pointer;user-select:none;white-space:nowrap;padding:3px 6px;" title="Click to toggle ${mon.label}"><span data-month-toggle="${mon.ym}" style="font-size:8px;margin-right:3px">${isCol?'▶':'▼'}</span>${mon.label}</th>`;
-    const dayThs = mon.dates.map(d => {
-      const isWk = isWeekendDate(d); const isTd = d===todayStr;
-      const dd2 = d.slice(8,10);
-      let sty = isWk ? wkdColStyle : '';
-      if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
-      return `<th data-date="${d}" class="day-col-${mon.ym}" style="min-width:64px;width:64px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">` + dd2 + `</th>`;
+  // Year + month + day headers
+  const yearGroups = groupByYear(months);
+  let collapsedYears = loadCollapsedYears();
+  if(collapsedYears.size === 0){ collapsedYears = defaultCollapsedYears(); saveCollapsedYears(collapsedYears); }
+  applyYearCollapseStyle(collapsedYears);
+
+  const dateHeaders = yearGroups.map(({ yr, months: yMons }) => {
+    const isYrCol = collapsedYears.has(yr);
+    // Year summary th
+    const yearTh = `<th class="year-total-th" data-year="${yr}" style="min-width:80px;background:rgba(139,92,246,0.18);border-left:3px solid rgba(139,92,246,0.5);font-size:9px;font-weight:700;color:#c4b5fd;text-align:center;cursor:pointer;user-select:none;white-space:nowrap;padding:3px 8px;position:sticky;" title="Click to collapse ${yr}"><span data-year-toggle="${yr}" style="font-size:8px;margin-right:3px">${isYrCol?'▶':'▼'}</span>${yr}</th>`;
+    // Month + day ths (hidden when year collapsed)
+    const monthThs = yMons.map(mon => {
+      const isCol = collapsed.has(mon.ym);
+      const monthTh = `<th class="month-total-th month-of-year-${yr} year-col-${yr}-months" data-month-ym="${mon.ym}" style="min-width:64px;background:rgba(99,179,237,0.12);border-left:2px solid rgba(99,179,237,0.35);border-right:1px solid rgba(99,179,237,0.2);font-size:9px;font-weight:700;color:#93c5fd;text-align:center;cursor:pointer;user-select:none;white-space:nowrap;padding:3px 6px;" title="Click to toggle ${mon.label}"><span data-month-toggle="${mon.ym}" style="font-size:8px;margin-right:3px">${isCol?'▶':'▼'}</span>${mon.label}</th>`;
+      const dayThs = mon.dates.map(d => {
+        const isWk = isWeekendDate(d); const isTd = d===todayStr;
+        const dd2 = d.slice(8,10);
+        let sty = isWk ? wkdColStyle : '';
+        if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
+        return `<th data-date="${d}" class="day-col-${mon.ym} month-of-year-${yr} year-col-${yr}-months" style="min-width:64px;width:64px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">` + dd2 + `</th>`;
+      }).join('');
+      return monthTh + dayThs;
     }).join('');
-    return monthTh + dayThs;
+    return yearTh + monthThs;
   }).join('');
 
-  // Month total cell for plan table
+  // Month total cell + year total cell for plan table
   const renderMonthTotalCell = (r, mon) => {
     if(r._type==='section-header' || r._type==='group-label') return '';
+    const yr = mon.ym.slice(0,4);
     const total = mon.dates.reduce((sum, d) => sum + (r.values?.[d]||0), 0);
     if(r.rowType==='equipment'){
-      return `<td class="num" style="background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd">${total?fmt0(total):''}</td>`;
+      return `<td class="num month-of-year-${yr} year-col-${yr}-months" style="background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd">${total?fmt0(total):''}</td>`;
     }
     const sev = r.storageId ? (() => {
       const hasStockout = mon.dates.some(d => plan.inventoryCellMeta?.[`${d}|${r.storageId}`]?.severity==='stockout');
@@ -677,7 +722,19 @@ function renderPlan(){
     let sty = 'background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd;';
     if(sev==='stockout') sty = 'background:rgba(239,68,68,0.2);border-left:2px solid rgba(239,68,68,0.5);font-size:10px;font-weight:700;color:#fca5a5;';
     else if(sev==='full') sty = 'background:rgba(245,158,11,0.2);border-left:2px solid rgba(245,158,11,0.5);font-size:10px;font-weight:700;color:#fcd34d;';
-    return `<td class="num" style="${sty}">${total?fmt0(total):''}</td>`;
+    return `<td class="num month-of-year-${yr} year-col-${yr}-months" style="${sty}">${total?fmt0(total):''}</td>`;
+  };
+
+  // Year total cell for plan table (one per year group per row)
+  const renderYearTotalCell = (r, yMons) => {
+    if(r._type==='section-header' || r._type==='group-label') return '';
+    const yr = yMons[0].ym.slice(0,4);
+    const allDatesInYear = yMons.flatMap(m => m.dates);
+    const total = allDatesInYear.reduce((sum, d) => sum + (r.values?.[d]||0), 0);
+    const sty = r.rowType==='equipment'
+      ? 'background:rgba(139,92,246,0.15);border-left:3px solid rgba(139,92,246,0.4);font-size:10px;font-weight:700;color:#c4b5fd;'
+      : 'background:rgba(139,92,246,0.15);border-left:3px solid rgba(139,92,246,0.4);font-size:10px;font-weight:700;color:#c4b5fd;';
+    return `<td class="num year-total-cell" data-year="${yr}" style="${sty}">${total?fmt0(total):''}</td>`;
   };
 
   // Day cell renderer for a single date
@@ -719,10 +776,13 @@ function renderPlan(){
     return `<td class="num ${cls}" style="${baseSty}font-size:10px;${isSubtotal?'font-weight:700;':'color:var(--muted);'}">${v?fmt0(v):''}</td>`;
   };
 
-  // Full month-grouped renderer — replaces renderDataCells in row building
+  // Full year+month+day renderer for a row
   const renderAllCells = r => {
     if(r._type==='section-header' || r._type==='group-label') return '';
-    return months.map(mon => renderMonthTotalCell(r, mon) + mon.dates.map(d => renderDayCell(r, d, mon)).join('')).join('');
+    return yearGroups.map(({ yr, months: yMons }) =>
+      renderYearTotalCell(r, yMons) +
+      yMons.map(mon => renderMonthTotalCell(r, mon) + mon.dates.map(d => renderDayCell(r, d, mon)).join('')).join('')
+    ).join('');
   };
 
   // Cell renderer
@@ -905,15 +965,39 @@ function renderPlan(){
       const thRect    = th.getBoundingClientRect();
       const scrollRect = scroll.getBoundingClientRect();
       const delta = thRect.left - scrollRect.left;
-      scroll.scrollBy({ left: delta - 220, behavior:'smooth' });
+      const center = delta - (scrollRect.width / 2) + 32;
+      scroll.scrollBy({ left: center, behavior:'smooth' });
     }
   };
 
-  // Month column collapse/expand
+  // Year column collapse/expand
   root.querySelector('#planTable thead').addEventListener('click', e => {
+    const yearTh = e.target.closest('[data-year]');
+    if(yearTh && !e.target.closest('[data-month-ym]')){
+      toggleYear(yearTh.dataset.year, 'planTable');
+      return;
+    }
+    // Month column collapse/expand
     const th = e.target.closest('[data-month-ym]');
     if(!th) return;
     toggleMonth(th.dataset.monthYm, 'planTable');
+  });
+
+  // Auto-scroll to today on open
+  requestAnimationFrame(() => {
+    const scroll = document.getElementById('planTableScroll');
+    const table  = document.getElementById('planTable');
+    if(!scroll || !table) return;
+    const todayStr = today();
+    let th = null;
+    table.querySelectorAll('thead th').forEach(t=>{ if(t.dataset.date===todayStr) th=t; });
+    if(th){
+      const thRect    = th.getBoundingClientRect();
+      const scrollRect = scroll.getBoundingClientRect();
+      const delta = thRect.left - scrollRect.left;
+      const center = delta - (scrollRect.width / 2) + 32;
+      scroll.scrollBy({ left: center, behavior:'instant' });
+    }
   });
 
   // Alert strip collapse toggle
@@ -1574,32 +1658,48 @@ function renderDemand(mode='total'){
     return { v: fc ? +fc.qtyStn||0 : 0, isActual: false };
   };
 
-  // Date headers
-  const dateHeaders = months.map(mon => {
-    const isCol = collapsed.has(mon.ym);
-    const monthTh = `<th class="month-total-th" data-month-ym="${mon.ym}" style="min-width:64px;background:rgba(99,179,237,0.12);border-left:2px solid rgba(99,179,237,0.35);border-right:1px solid rgba(99,179,237,0.2);font-size:9px;font-weight:700;color:#93c5fd;text-align:center;cursor:pointer;user-select:none;white-space:nowrap;padding:3px 6px;" title="Click to toggle ${mon.label}"><span data-month-toggle="${mon.ym}" style="font-size:8px;margin-right:3px">${isCol?'▶':'▼'}</span>${mon.label}</th>`;
-    const dayThs = mon.dates.map(d => {
-      const isWk = isWeekendDate(d); const isTd = d===todayStr;
-      let sty = isWk ? wkdColStyle : '';
-      if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
-      return `<th data-date="${d}" class="day-col-${mon.ym}" style="min-width:64px;width:64px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">${d.slice(8,10)}</th>`;
+  // Year + month + day headers for demand table
+  const demandYearGroups = groupByYear(months);
+  let collapsedYears = loadCollapsedYears();
+  if(collapsedYears.size === 0){ collapsedYears = defaultCollapsedYears(); saveCollapsedYears(collapsedYears); }
+  applyYearCollapseStyle(collapsedYears);
+
+  const dateHeaders = demandYearGroups.map(({ yr, months: yMons }) => {
+    const isYrCol = collapsedYears.has(yr);
+    const yearTh = `<th class="year-total-th" data-year="${yr}" style="min-width:80px;background:rgba(139,92,246,0.18);border-left:3px solid rgba(139,92,246,0.5);font-size:9px;font-weight:700;color:#c4b5fd;text-align:center;cursor:pointer;user-select:none;white-space:nowrap;padding:3px 8px;" title="Click to collapse ${yr}"><span data-year-toggle="${yr}" style="font-size:8px;margin-right:3px">${isYrCol?'▶':'▼'}</span>${yr}</th>`;
+    const monthThs = yMons.map(mon => {
+      const isCol = collapsed.has(mon.ym);
+      const monthTh = `<th class="month-total-th month-of-year-${yr} year-col-${yr}-months" data-month-ym="${mon.ym}" style="min-width:64px;background:rgba(99,179,237,0.12);border-left:2px solid rgba(99,179,237,0.35);border-right:1px solid rgba(99,179,237,0.2);font-size:9px;font-weight:700;color:#93c5fd;text-align:center;cursor:pointer;user-select:none;white-space:nowrap;padding:3px 6px;" title="Click to toggle ${mon.label}"><span data-month-toggle="${mon.ym}" style="font-size:8px;margin-right:3px">${isCol?'▶':'▼'}</span>${mon.label}</th>`;
+      const dayThs = mon.dates.map(d => {
+        const isWk = isWeekendDate(d); const isTd = d===todayStr;
+        let sty = isWk ? wkdColStyle : '';
+        if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
+        return `<th data-date="${d}" class="day-col-${mon.ym} month-of-year-${yr} year-col-${yr}-months" style="min-width:64px;width:64px;${sty}font-size:9px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':''}">${d.slice(8,10)}</th>`;
+      }).join('');
+      return monthTh + dayThs;
     }).join('');
-    return monthTh + dayThs;
+    return yearTh + monthThs;
   }).join('');
 
-  // Helper: build all month+day cells for a row given a getCellData fn
-  const makeMonthCells = (getCellData) => months.map(mon => {
-    let monthTotal = 0;
-    const dayCells = mon.dates.map(d => {
-      const isWk = isWeekendDate(d); const isTd = d===todayStr;
-      let sty = isWk ? wkdColStyle : '';
-      if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
-      const { v, html } = getCellData(d, mon.ym, sty);
-      monthTotal += v;
-      return html;
+  // Helper: build year+month+day cells for a row given a getCellData fn
+  const makeMonthCells = (getCellData) => demandYearGroups.map(({ yr, months: yMons }) => {
+    let yearTotal = 0;
+    const monthCells = yMons.map(mon => {
+      let monthTotal = 0;
+      const dayCells = mon.dates.map(d => {
+        const isWk = isWeekendDate(d); const isTd = d===todayStr;
+        let sty = isWk ? wkdColStyle : '';
+        if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);';
+        const { v, html } = getCellData(d, mon.ym, sty);
+        monthTotal += v;
+        yearTotal  += v;
+        return html;
+      }).join('');
+      const monthCell = `<td class="num month-of-year-${yr} year-col-${yr}-months" style="background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd">${monthTotal ? fmt0(monthTotal) : ''}</td>`;
+      return monthCell + dayCells;
     }).join('');
-    const monthCell = `<td class="num" style="background:rgba(99,179,237,0.1);border-left:2px solid rgba(99,179,237,0.3);font-size:10px;font-weight:700;color:#93c5fd">${monthTotal ? fmt0(monthTotal) : ''}</td>`;
-    return monthCell + dayCells;
+    const yearCell = `<td class="num year-total-cell" data-year="${yr}" style="background:rgba(139,92,246,0.15);border-left:3px solid rgba(139,92,246,0.4);font-size:10px;font-weight:700;color:#c4b5fd;">${yearTotal ? fmt0(yearTotal) : ''}</td>`;
+    return yearCell + monthCells;
   }).join('');
 
   // Build rows
@@ -1707,11 +1807,33 @@ function renderDemand(mode='total'){
 
   // Month collapse (synced with supply plan)
   root.querySelector(`#${demandTableId}`)?.querySelector('thead')?.addEventListener('click', e => {
+    const yearTh = e.target.closest('[data-year]');
+    if(yearTh && !e.target.closest('[data-month-ym]')){
+      toggleYear(yearTh.dataset.year, demandTableId);
+      return;
+    }
     const th = e.target.closest('[data-month-ym]');
     if(!th) return;
     toggleMonth(th.dataset.monthYm, demandTableId);
     applyCollapseStyle('planTable', loadCollapsedMonths());
     applyCollapseStyle('demand-table-total', loadCollapsedMonths());
+  });
+
+  // Auto-scroll to today on open (centered)
+  requestAnimationFrame(() => {
+    const scroll = document.getElementById('demandTableScroll');
+    const table  = document.getElementById('demand-table-total');
+    if(!scroll || !table) return;
+    const todayStr = today();
+    let th = null;
+    table.querySelectorAll('thead th').forEach(t=>{ if(t.dataset.date===todayStr) th=t; });
+    if(th){
+      const thRect     = th.getBoundingClientRect();
+      const scrollRect = scroll.getBoundingClientRect();
+      const delta = thRect.left - scrollRect.left;
+      const center = delta - (scrollRect.width / 2) + 32;
+      scroll.scrollBy({ left: center, behavior:'instant' });
+    }
   });
 
   root.querySelector('#openForecastTool').onclick = () => openForecastToolDialog();
@@ -1729,7 +1851,8 @@ function renderDemand(mode='total'){
       const thRect     = th.getBoundingClientRect();
       const scrollRect = scroll.getBoundingClientRect();
       const delta = thRect.left - scrollRect.left;
-      scroll.scrollBy({ left: delta - 220, behavior:'smooth' });
+      const center = delta - (scrollRect.width / 2) + 32;
+      scroll.scrollBy({ left: center, behavior:'smooth' });
     }
   };
 }

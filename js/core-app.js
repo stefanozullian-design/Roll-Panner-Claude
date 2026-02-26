@@ -1240,8 +1240,12 @@ function renderProducts(){
 
   // Wire material form
   const clearMaterialForm = () => {
-    root.querySelector('#materialForm').reset();
-    root.querySelector('[name=id]').value='';
+    const mf = root.querySelector('#materialForm');
+    if(!mf) return;
+    mf.reset();
+    mf.querySelector('[name=id]').value='';
+    mf.querySelector('[name=code]').value='';
+    mf.querySelector('[name=name]').value='';
     root.querySelector('#saveMaterialBtn').textContent='Save';
     root.querySelector('#cancelMaterialEdit').classList.add('hidden');
   };
@@ -1317,17 +1321,29 @@ function renderProducts(){
   root.querySelector('#materialForm').onsubmit=e=>{
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target).entries());
+
+    // Guard: name is required
+    const productName = (fd.name||'').trim();
+    if(!productName){
+      const nameInput = root.querySelector('#materialForm [name=name]');
+      if(nameInput){ nameInput.style.border='1.5px solid var(--danger,#ef4444)'; nameInput.focus(); setTimeout(()=>nameInput.style.border='',2000); }
+      showToast('Product name is required', 'err');
+      return;
+    }
+    fd.name = productName;
+
     const saved = a.upsertMaterial(fd);
     // upsertCatalogItem drops extra fields — patch them back in immediately
     if(saved){
       const idx = state.catalog.findIndex(m=>m.id===saved.id);
       if(idx>=0){
-        state.catalog[idx].materialNumber        = fd.materialNumber||'';
-        state.catalog[idx].materialNumbers       = state.catalog[idx].materialNumbers||[];
-        state.catalog[idx].familyId              = fd.familyId||null;
-        state.catalog[idx].typeId                = fd.typeId||null;
-        state.catalog[idx].subTypeId             = fd.subTypeId||null;
-        state.catalog[idx].producerId            = fd.producerId||null;
+        state.catalog[idx].name            = productName; // ensure name is never lost
+        state.catalog[idx].materialNumber  = fd.materialNumber||'';
+        state.catalog[idx].materialNumbers = state.catalog[idx].materialNumbers||[];
+        state.catalog[idx].familyId        = fd.familyId||null;
+        state.catalog[idx].typeId          = fd.typeId||null;
+        state.catalog[idx].subTypeId       = fd.subTypeId||null;
+        state.catalog[idx].producerId      = fd.producerId||null;
       }
     }
     persist(); clearMaterialForm(); renderProducts(); renderDemand(); renderFlow(); renderPlan(); showToast('Material saved ✓');

@@ -129,7 +129,16 @@ const fmt0 = n => Number(n||0).toLocaleString(undefined, {maximumFractionDigits:
 const dateRange = (start, days) => { const a=[]; let d=new Date(start+'T00:00:00'); for(let i=0;i<days;i++){a.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1);} return a; };
 const today = () => new Date().toISOString().slice(0,10);
 
-function persist(){ saveState(state); }
+// Debounced persist — batches rapid saves into one write every 400ms
+let _persistTimer = null;
+function persist(){
+  if(_persistTimer) clearTimeout(_persistTimer);
+  _persistTimer = setTimeout(() => { saveState(state); _persistTimer = null; }, 400);
+}
+function persistNow(){ 
+  if(_persistTimer){ clearTimeout(_persistTimer); _persistTimer = null; }
+  saveState(state); 
+}
 
 /* ─────────────────── SHELL ─────────────────── */
 function initShell(){
@@ -145,7 +154,7 @@ function initShell(){
     const sec = NAV.find(s=>s.key===btn.dataset.section); if(!sec) return;
     // Navigate to first non-placeholder sub
     const firstSub = sec.subs.find(t=>!t.placeholder) || sec.subs[0];
-    state.ui.activeTab = firstSub.key; persist(); render();
+    state.ui.activeTab = firstSub.key; persistNow(); render();
   };
 
   // Sub nav — show subs for active section
@@ -158,7 +167,7 @@ function initShell(){
     const tabKey = btn.dataset.tab;
     const sub = activeSec.subs.find(t=>t.key===tabKey);
     if(sub?.placeholder) return; // ignore clicks on placeholders
-    state.ui.activeTab = tabKey; persist(); render();
+    state.ui.activeTab = tabKey; persistNow(); render();
   };
 
   // ── Scope selector — 4 cascading dropdowns with multi-select checkboxes ──
@@ -298,14 +307,14 @@ function initShell(){
             m.style.display = 'none';
             if(_scopeChanged){
               _scopeChanged = false;
-              syncLegacyId(); persist(); buildScopeUI(); render();
+              syncLegacyId(); persistNow(); buildScopeUI(); render();
             }
           }
         });
         menu.style.display = isOpen ? 'none' : 'block';
         if(isOpen && _scopeChanged){
           _scopeChanged = false;
-          syncLegacyId(); persist(); buildScopeUI(); render();
+          syncLegacyId(); persistNow(); buildScopeUI(); render();
         }
       };
     });

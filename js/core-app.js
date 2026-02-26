@@ -2813,11 +2813,11 @@ function openDataIODialog(){
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(campRows), 'Campaigns');
 
     // Sheet 3: Production Actuals
-    const prodRows = [['Date','Facility','Material Number','Qty (STn)']];
+    const prodRows = [['Date','Equipment','Material Number','Qty (STn)']];
     ds.actuals.production.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
-      const fac  = state.org.facilities.find(f=>f.id===r.facilityId);
+      const eq   = ds.equipment.find(e=>e.id===r.equipmentId);
       const prod = state.catalog.find(m=>m.id===r.productId);
-      prodRows.push([r.date, fac?.code||fac?.name||r.facilityId, matNums(prod), +r.qtyStn||0]);
+      prodRows.push([r.date, eq?.name||r.equipmentId, matNums(prod), +r.qtyStn||0]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(prodRows), 'Production Actuals');
 
@@ -2954,18 +2954,29 @@ function openDataIODialog(){
             imported.push(`${rows.length} demand rows`);
           }
 
-          // Import Production Actuals  [Date, Facility, Material Number, Qty (STn)]
+          // Import Production Actuals  [Date, Equipment, Material Number, Qty (STn)]
           const prod = readSheet('Production Actuals');
           if(prod?.length){
-            const rows = prod.map(r=>({
-              date:        parseDate(r['Date']),
-              facilityId:  lookupFacility(r['Facility']) || fac,
-              productId:   lookupProduct(r['Material Number']||r['Mat. Number']||''),
-              equipmentId: ds.equipment.find(e=>e.name===r['Equipment']||e.id===r['Equipment'])?.id || '',
-              qtyStn:      +r['Qty (STn)']||0
-            })).filter(r=>r.date && r.productId && r.qtyStn!==0);
-            ds.actuals.production = accumImport(rows, ds.actuals.production);
-            imported.push(`${rows.length} production rows`);
+            const rows = prod.map(r=>{
+              const eq = ds.equipment.find(e=>e.name===String(r['Equipment']||'').trim() || e.id===String(r['Equipment']||'').trim());
+              return {
+                date:        parseDate(r['Date']),
+                equipmentId: eq?.id || '',
+                facilityId:  eq?.facilityId || fac,  // derive facility from equipment
+                productId:   lookupProduct(r['Material Number']||r['Mat. Number']||''),
+                qtyStn:      +r['Qty (STn)']||0
+              };
+            }).filter(r=>r.date && r.equipmentId && r.productId && r.qtyStn!==0);
+            // Dedup key: date|equipmentId|productId (not facilityId — already encoded in equipment)
+            const accum = new Map();
+            rows.forEach(r=>{
+              const k = `${r.date}|${r.equipmentId}|${r.productId}`;
+              accum.set(k, { ...r, qtyStn: (accum.get(k)?.qtyStn||0) + r.qtyStn });
+            });
+            const keys = new Set(accum.keys());
+            ds.actuals.production = ds.actuals.production.filter(x=>!keys.has(`${x.date}|${x.equipmentId}|${x.productId}`));
+            accum.forEach(r => ds.actuals.production.push(r));
+            imported.push(`${accum.size} production rows`);
           }
 
           // Import Shipment Actuals  [Date, Facility, Material Number, Qty (STn)]

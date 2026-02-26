@@ -2377,7 +2377,7 @@ function renderData(){
     Equipment: ds.equipment,
     Storage: ds.storages,
     Capabilities: ds.capabilities,
-    InventoryEOD: ds.actuals.inventoryEOD,
+    InventoryBOD: ds.actuals.inventoryBOD,
     ProductionActuals: ds.actuals.production,
     Shipments: ds.actuals.shipments,
     DemandForecast: ds.demandForecast,
@@ -2809,7 +2809,7 @@ function openDataIODialog(){
 
     // Sheet 5: Inventory EOD
     const invRows = [['Facility','Storage','Material Number','Product','Date','Qty (STn)']];
-    (ds.actuals.inventoryEOD||[]).filter(r=>fids.includes(r.facilityId)).forEach(r=>{
+    (ds.actuals.inventoryBOD||[]).filter(r=>fids.includes(r.facilityId)).forEach(r=>{
       const fac  = state.org.facilities.find(f=>f.id===r.facilityId);
       const stor = ds.storages.find(s=>s.id===r.storageId);
       const prod = state.catalog.find(m=>m.id===r.productId);
@@ -2912,7 +2912,7 @@ function openDataIODialog(){
               productId: state.catalog.find(m=>(m.materialNumber && m.materialNumber===String(r['Material Number']||r['Mat. Number']||r['MatNum']||'')) || (m.materialNumbers||[]).includes(String(r['Material Number']||r['Mat. Number']||r['MatNum']||'')) || m.code===r['Product'] || m.name===r['Product'] || m.id===r['Product'])?.id || '',
               qtyStn: +r['Qty (STn)']||0
             })).filter(r=>r.date && r.storageId && r.productId);
-            rows.forEach(r=>{ ds.actuals.inventoryEOD = ds.actuals.inventoryEOD.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.storageId===r.storageId)); ds.actuals.inventoryEOD.push(r); });
+            rows.forEach(r=>{ ds.actuals.inventoryBOD = ds.actuals.inventoryBOD.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.storageId===r.storageId)); ds.actuals.inventoryBOD.push(r); });
             imported.push(`${rows.length} inventory rows`);
           }
 

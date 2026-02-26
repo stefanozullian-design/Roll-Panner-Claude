@@ -106,57 +106,51 @@ function simulateFacility(state, s, ds, facId, dates) {
     }
   });
 
-  // ── Rolling demand fallback ──
-  const demandCache = new Map();
-  const avgActualShip = (pid, beforeDate, n = 7) => {
-    const key = `avg|${pid}|${beforeDate}`;
-    if (demandCache.has(key)) return demandCache.get(key);
-    const vals = [];
-    let cur = new Date(beforeDate + 'T00:00:00');
-    cur.setDate(cur.getDate() - 1);
-    let guard = 0;
-    while (vals.length < n && guard < 120) {
-      guard++;
-      const ds0 = fmtDate(cur);
-      const dow = cur.getDay();
-      if (dow !== 0) {
-        const row = ds.actuals.shipments.find(r => r.facilityId === facId && r.date === ds0 && r.productId === pid);
-        if (row && +row.qtyStn > 0) vals.push(+row.qtyStn);
-      }
-      cur.setDate(cur.getDate() - 1);
-    }
-    const v = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
-    demandCache.set(key, v);
-    return v;
-  };
+  // ── Pre-index campaigns for O(1) lookup ──
+  const campaignIndex = new Map(); // `date|eqId|pid` → camp, `date|eqId` → status camp
+  ds.campaigns
+    .filter(c => c.facilityId === facId)
+    .forEach(c => {
+      // Index by date|eqId|productId for production lookup
+      if (c.productId) campaignIndex.set(`${c.date}|${c.equipmentId}|${c.productId}`, c);
+      // Index by date|eqId for status lookup (maintenance, idle, etc.)
+      campaignIndex.set(`${c.date}|${c.equipmentId}`, c);
+    });
 
+  // ── Pre-index demandForecast for O(1) lookup ──
+  const forecastIndex = new Map(); // `date|pid` → total qty
+  ds.demandForecast
+    .filter(r => r.facilityId === facId)
+    .forEach(r => {
+      const k = `${r.date}|${r.productId}`;
+      forecastIndex.set(k, (forecastIndex.get(k) || 0) + (+r.qtyStn || 0));
+    });
+
+  // ── Pre-index actuals shipments for O(1) rolling avg ──
+  const shipmentIndex = new Map(); // `date|pid` → total qty
+  ds.actuals.shipments
+    .filter(r => r.facilityId === facId)
+    .forEach(r => {
+      const k = `${r.date}|${r.productId}`;
+      shipmentIndex.set(k, (shipmentIndex.get(k) || 0) + (+r.qtyStn || 0));
+    });
+
+  // ── Demand lookup: stored data only (actuals → forecast → 0) ──
+  // Rolling average / auto-forecast runs only via the Forecast Tool, never automatically.
   const expectedShip = (date, pid) => {
-    const k = `exp|${date}|${pid}`;
-    if (demandCache.has(k)) return demandCache.get(k);
-    // Actual shipment for this date takes precedence
-    const actualQ = ds.actuals.shipments
-      .filter(r => r.facilityId === facId && r.date === date && r.productId === pid)
-      .reduce((sum, r) => sum + (+r.qtyStn || 0), 0);
-    if (actualQ > 0) { demandCache.set(k, actualQ); return actualQ; }
-    // Demand forecast next
-    const forecastQ = ds.demandForecast
-      .filter(r => r.facilityId === facId && r.date === date && r.productId === pid)
-      .reduce((sum, r) => sum + (+r.qtyStn || 0), 0);
-    const v = forecastQ > 0 ? forecastQ : avgActualShip(pid, date, 7);
-    demandCache.set(k, v);
-    return v;
+    // 1. Confirmed actual shipment takes precedence
+    const actualQ = shipmentIndex.get(`${date}|${pid}`) || 0;
+    if (actualQ > 0) return actualQ;
+    // 2. Saved forecast entry
+    return forecastIndex.get(`${date}|${pid}`) || 0;
+    // Note: no rolling-average fallback — use Forecast Tool to generate future values
   };
 
   const getEqProd = (date, eqId, pid) => {
-    // Actual production overrides campaign plan
     const actual = actualProdIndex.get(`${date}|${eqId}|${pid}`);
     if (actual != null) return actual;
-    const camp = ds.campaigns.find(c =>
-      c.date === date && c.facilityId === facId &&
-      c.equipmentId === eqId && (c.status || 'produce') === 'produce' &&
-      c.productId === pid
-    );
-    return camp?.rateStn ?? 0;
+    const camp = campaignIndex.get(`${date}|${eqId}|${pid}`);
+    return (camp && (camp.status || 'produce') === 'produce') ? (camp.rateStn ?? 0) : 0;
   };
 
   // ── Output maps ──
@@ -364,7 +358,7 @@ function simulateFacility(state, s, ds, facId, dates) {
         });
         return;
       }
-      const camp = ds.campaigns.find(c => c.facilityId === facId && c.date === date && c.equipmentId === eq.id);
+      const camp = campaignIndex.get(`${date}|${eq.id}`);
       if (camp) {
         const st = camp.status || ((camp.productId && (+camp.rateStn || 0) > 0) ? 'produce' : 'idle');
         eqCellMeta.set(`${date}|${eq.id}`, {

@@ -375,6 +375,41 @@
     .stree-code { font-size:10px; color:var(--muted); font-family:'IBM Plex Mono',monospace; flex-shrink:0; }
     .stree-children { display:none; }
     .stree-children.open { display:block; }
+
+    /* ── RULES OF ENGAGEMENT ── */
+    .roe-fac-block {
+      border-bottom: 1px solid var(--border);
+    }
+    .roe-fac-block:last-child { border-bottom: none; }
+    .roe-fac-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 16px;
+      background: rgba(255,255,255,0.025);
+      border-bottom: 1px solid var(--border);
+    }
+    .roe-fac-name { font-size: 12px; font-weight: 700; }
+    .roe-rules-list { padding: 0; }
+    .roe-rule-row {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+      padding: 8px 16px 8px 32px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      transition: background .1s;
+    }
+    .roe-rule-row:last-child { border-bottom: none; }
+    .roe-rule-row:hover { background: rgba(255,255,255,0.025); }
+    .roe-rule-product {
+      font-size: 12px; font-weight: 600; color: var(--accent);
+      min-width: 140px; flex-shrink: 0;
+    }
+    .roe-rule-stat {
+      display: flex; flex-direction: column; align-items: center;
+      background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+      border-radius: 6px; padding: 4px 10px; min-width: 80px;
+    }
+    .roe-stat-label { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+    .roe-stat-value { font-size: 12px; font-weight: 700; color: var(--text); font-family: 'IBM Plex Mono', monospace; }
+    .roe-rule-notes { font-size: 11px; color: var(--muted); flex: 1; }
+    .roe-rule-actions { display: flex; gap: 4px; margin-left: auto; }
   </style>
 </head>
 <body>
@@ -410,6 +445,7 @@
   <section id="tab-demand-external" class="tab-panel"></section>
   <section id="tab-demand-internal" class="tab-panel"></section>
   <section id="tab-demand-total" class="tab-panel"></section>
+  <section id="tab-logistics-rules" class="tab-panel"></section>
   <section id="tab-logistics-shipments" class="tab-panel"></section>
   <section id="tab-logistics-imports" class="tab-panel"></section>
   <section id="tab-logistics-transfers" class="tab-panel"></section>

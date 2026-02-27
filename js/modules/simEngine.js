@@ -461,10 +461,14 @@ function simulateFacility(state, s, ds, facId, dates) {
 
   // Outflow rows
   const facFinished = s.getFacilityProducts(facId).filter(m => m.category === Categories.FIN);
+  // Prefix row labels with facility code so identical product names across facilities
+  // are distinguishable (e.g. "JAX / BRS IL / BULK" vs "ORL / BRS IL / BULK")
+  const facObj = state.org.facilities.find(f => f.id === facId);
+  const facCode = facObj?.code || facId;
   const outflowRows = [];
   outflowRows.push({ kind: 'group', label: 'CUSTOMER SHIPMENTS' });
   facFinished.forEach(fp => outflowRows.push({
-    kind: 'row', label: fp.name, productLabel: fp.name,
+    kind: 'row', label: `${facCode} / ${fp.name}`, productLabel: fp.name,
     values: mkValues(d => shipMap.get(`${d}|${fp.id}`) || 0),
   }));
   outflowRows.push({ kind: 'group', label: 'TRANSFERS OUT' });

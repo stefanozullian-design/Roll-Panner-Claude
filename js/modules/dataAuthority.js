@@ -198,9 +198,13 @@ export function selectors(state) {
           .filter(fp => fp.facilityId === facId)
           .map(fp => fp.productId)
       );
+      // When no products are activated for this facility, return empty array.
+      // Returning the full catalog was causing every product to appear on every
+      // facility in multi-facility view. An unconfigured facility shows nothing.
+      if (ids.size === 0) return [];
       const rId = getFacRegionId(state, facId);
       const cat = state.catalog.filter(m => !rId || m.regionId === rId);
-      return ids.size > 0 ? cat.filter(m => ids.has(m.id)) : cat;
+      return cat.filter(m => ids.has(m.id));
     },
 
     // Lookups

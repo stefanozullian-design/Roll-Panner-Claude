@@ -153,17 +153,6 @@ function simulateFacility(state, s, ds, facId, dates) {
     return (camp && (camp.status || 'produce') === 'produce') ? (camp.rateStn ?? 0) : 0;
   };
 
-  // ── Activated products for this facility (built once, used throughout) ──
-  // IMPORTANT: must be defined before the date loop.
-  // When facilityProducts has entries, restrict to only those products.
-  // Fallback to empty set means getFacilityProducts legacy path is used — see usages below.
-  const activatedProductIds = new Set(
-    (ds.facilityProducts || [])
-      .filter(fp => fp.facilityId === facId)
-      .map(fp => fp.productId)
-  );
-  const hasActivation = activatedProductIds.size > 0;
-
   // ── Output maps ──
   const bodMap          = new Map();  // `date|storageId` → qty
   const eodMap          = new Map();  // `date|storageId` → qty
@@ -222,11 +211,8 @@ function simulateFacility(state, s, ds, facId, dates) {
     // ── Step 1: Outbound shipments (demand) ──
     // Apply demand first so cement silo headroom calculation in FM allocation
     // correctly accounts for product that will leave today.
-    // Use activatedProductIds (built once above) — never fall back to full catalog
-    // because that causes every product to appear on every facility in multi-facility view.
-    const facFinished = activatedProductIds.size > 0
-      ? state.catalog.filter(m => activatedProductIds.has(m.id) && m.category === Categories.FIN)
-      : s.getFacilityProducts(facId).filter(m => m.category === Categories.FIN);
+    // getFacilityProducts now returns [] (not full catalog) when no products configured
+    const facFinished = s.getFacilityProducts(facId).filter(m => m.category === Categories.FIN);
 
     const shipByPid = new Map();
     facFinished.forEach(fp => {
@@ -430,19 +416,24 @@ function simulateFacility(state, s, ds, facId, dates) {
   // ── Build row objects ──
   const mkValues = getter => Object.fromEntries(dates.map(d => [d, getter(d)]));
 
+  // Products activated at this facility (now returns [] if none configured — no catalog fallback)
+  const facActivatedIds = new Set(s.getFacilityProducts(facId).map(m => m.id));
+
+  // A storage is visible only if its product family is CLINKER or CEMENT
+  // AND its product is activated for this facility (or facility has no config — legacy)
   const visibleStorages = storages.filter(st => {
     const fam = familyOfProduct(s, (st.allowedProductIds || [])[0]);
     if (fam !== 'CLINKER' && fam !== 'CEMENT') return false;
-    if (!hasActivation) return true; // legacy: no facilityProducts configured, show all
-    return (st.allowedProductIds || []).some(pid => activatedProductIds.has(pid));
+    if (facActivatedIds.size === 0) return true; // legacy: no products configured yet
+    return (st.allowedProductIds || []).some(pid => facActivatedIds.has(pid));
   });
   const storageFamily = st => familyOfProduct(s, (st.allowedProductIds || [])[0]);
 
-  // BOD rows — only emit sections that have at least one storage at this facility
+  // BOD rows — skip groups with no storages at this facility
   const inventoryBODRows = [];
   ['CLINKER', 'CEMENT'].forEach(group => {
     const rows = visibleStorages.filter(st => storageFamily(st) === group);
-    if (rows.length === 0) return; // facility has nothing of this type — skip entirely
+    if (rows.length === 0) return;
     inventoryBODRows.push({
       kind: 'subtotal', label: `${group} INV-BOD`,
       values: mkValues(d => rows.reduce((sum, st) => sum + (bodMap.get(`${d}|${st.id}`) || 0), 0)),
@@ -469,14 +460,7 @@ function simulateFacility(state, s, ds, facId, dates) {
   }));
 
   // Outflow rows
-  // Use activatedProductIds (already built above) so terminals only show
-  // products they actually have configured — not the entire regional catalog.
-  // getFacilityProducts falls back to the full catalog when no facilityProducts
-  // entries exist, which causes every product to appear on every facility.
-  const facFinished = activatedProductIds.size > 0
-    ? state.catalog.filter(m => activatedProductIds.has(m.id) && m.category === Categories.FIN)
-    : s.getFacilityProducts(facId).filter(m => m.category === Categories.FIN);
-
+  const facFinished = s.getFacilityProducts(facId).filter(m => m.category === Categories.FIN);
   const outflowRows = [];
   outflowRows.push({ kind: 'group', label: 'CUSTOMER SHIPMENTS' });
   facFinished.forEach(fp => outflowRows.push({
@@ -527,11 +511,11 @@ function simulateFacility(state, s, ds, facId, dates) {
   }
   outflowRows.push({ kind: 'subtotal', label: 'CLK CONSUMED BY MILLS', values: mkValues(d => clkConsumedMap.get(d) || 0) });
 
-  // EOD rows — only emit sections that have at least one storage at this facility
+  // EOD rows — skip groups with no storages at this facility
   const inventoryEODRows = [];
   ['CLINKER', 'CEMENT'].forEach(group => {
     const rows = visibleStorages.filter(st => storageFamily(st) === group);
-    if (rows.length === 0) return; // skip empty sections
+    if (rows.length === 0) return;
     inventoryEODRows.push({
       kind: 'subtotal', label: `${group} INV-EOD`,
       values: mkValues(d => rows.reduce((sum, st) => sum + (eodMap.get(`${d}|${st.id}`) || 0), 0)),

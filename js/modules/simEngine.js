@@ -469,6 +469,8 @@ function simulateFacility(state, s, ds, facId, dates) {
   outflowRows.push({ kind: 'group', label: 'CUSTOMER SHIPMENTS' });
   facFinished.forEach(fp => outflowRows.push({
     kind: 'row', label: `${facCode} / ${fp.name}`, productLabel: fp.name,
+    productId: fp.id,   // ← carry productId so core-app can filter by facility
+    _facilityId: facId, // ← carry facilityId so core-app can group correctly
     values: mkValues(d => shipMap.get(`${d}|${fp.id}`) || 0),
   }));
   outflowRows.push({ kind: 'group', label: 'TRANSFERS OUT' });

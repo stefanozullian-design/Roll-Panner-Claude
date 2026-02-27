@@ -339,6 +339,40 @@
     .action-btn { padding: 2px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; border: 1px solid var(--border); background: none; color: var(--muted); transition: all .1s; }
     .action-btn:hover { color: var(--text); border-color: var(--border2); }
     .action-btn.del:hover { color: var(--danger); border-color: var(--danger); }
+
+    /* ── STICKY TABLE CARD HEADER ── */
+    /* Sticks just below the app header (~88px) so title + buttons stay visible */
+    .sticky-table-header {
+      position: sticky;
+      top: 88px;
+      z-index: 20;
+      background: var(--surface);
+      border-radius: 10px 10px 0 0;
+    }
+
+    /* ── PHANTOM SCROLLBAR (docked above table body, below dates) ── */
+    /* Sits between the card-header and the scrollable table body.
+       Shows a scrollbar that mirrors the table's horizontal scroll position.
+       This way the bar is always visible even when scrolled far down. */
+    .sticky-scroll-wrap {
+      display: flex;
+      flex-direction: column;
+    }
+    .phantom-scrollbar {
+      overflow-x: auto;
+      overflow-y: hidden;
+      height: 10px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 138px; /* app-header + card-header height */
+      z-index: 19;
+      flex-shrink: 0;
+    }
+    .phantom-scrollbar::-webkit-scrollbar { height: 6px; }
+    .phantom-scrollbar::-webkit-scrollbar-track { background: var(--surface2); }
+    .phantom-scrollbar::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+    .phantom-inner { height: 1px; } /* width set by JS to match table scroll width */
   </style>
 </head>
 <body>

@@ -376,6 +376,29 @@
     .stree-children { display:none; }
     .stree-children.open { display:block; }
 
+    /* ── STICKY CARD HEADERS ── */
+    .sticky-table-header {
+      position: sticky;
+      top: 88px;
+      z-index: 10;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ── PHANTOM SCROLLBAR (docked under sticky header, above table body) ── */
+    .sticky-scroll-wrap { position: relative; }
+    .phantom-scrollbar {
+      overflow-x: auto;
+      overflow-y: hidden;
+      height: 10px;
+      position: sticky;
+      top: 138px;
+      z-index: 9;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .phantom-inner { height: 1px; }
+
     /* ── RULES OF ENGAGEMENT ── */
     .roe-fac-block {
       border-bottom: 1px solid var(--border);

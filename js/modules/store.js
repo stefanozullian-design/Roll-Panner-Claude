@@ -3,8 +3,9 @@
 // Version: 3  (catalog restructure + transfers + BOD override + multi-facility)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const STORAGE_KEY = 'cementPlannerRebuild_v3';
-const LEGACY_KEY         = 'cementPlannerRebuild_v2';
+export const STORAGE_KEY  = 'cementPlannerRebuild_v4';
+const LEGACY_KEY_V3       = 'cementPlannerRebuild_v3';
+const LEGACY_KEY_V2       = 'cementPlannerRebuild_v2';
 
 const uid = (p = 'id') => `${p}_${Math.random().toString(36).slice(2, 9)}`;
 
@@ -96,7 +97,25 @@ export function freshFacilityData() {
       // Separate from shipments because they affect TWO facilities' inventory
       transfers:      [],   // { date, fromFacilityId, toFacilityId, productId, qtyStn,
                             //   materialNumber?, notes? }
-    }
+    },
+
+    // ── Logistics schedule (sandboxed — what-if scenarios affect this) ──
+    // Each entry is one planned movement on a lane.
+    // Agent writes status:'needed', humans promote to 'confirmed', sim consumes 'confirmed'+'arrived'.
+    logisticsSchedule: [], // {
+                           //   id, laneId, mode: 'vessel'|'rail'|'truck',
+                           //   originName,          // e.g. "Clinker Spain", "BRS"
+                           //   vesselName?,         // identifier for vessels only
+                           //   productId,
+                           //   volumeStn,
+                           //   departureDateExpected?,  // ISO date string or null
+                           //   arrivalDateExpected,     // ISO date string — the key output
+                           //   status: 'needed'|'confirmed'|'arrived'|'cancelled',
+                           //   notes?,
+                           //   createdBy: 'agent'|'user',
+                           //   createdAt,           // ISO datetime
+                           //   updatedAt?
+                           // }
   };
 }
 
@@ -105,7 +124,7 @@ export function freshFacilityData() {
  */
 function seed() {
   return {
-    _version: 3,
+    _version: 4,
 
     ui: {
       activeTab:            'plan',
@@ -121,6 +140,40 @@ function seed() {
       regions:     [],  // { id, countryId, name, code }
       subRegions:  [],  // { id, regionId, name, code }
       facilities:  [],  // { id, subRegionId, name, code, timezone? }
+    },
+
+    // ── Logistics configuration (shared, not sandboxed) ──
+    // Rules and network topology are company policy — they don't change per scenario.
+    logistics: {
+
+      // Rules of Engagement — owned at regional level, one rule per facility+product pair.
+      // The agent asks for a missing rule before making a recommendation.
+      rulesOfEngagement: [], // {
+                             //   id,
+                             //   facilityId,          // which terminal/plant this applies to
+                             //   productId,           // which product (cement, clinker, etc.)
+                             //   minCoverDays,        // trigger threshold — request supply when cover drops below this
+                             //   tradingLeadTimeDays, // how many days before arrival the team needs to act
+                             //   standardVolumeStn,   // typical shipment size for this lane/mode
+                             //   priorityRank?,       // 1=highest — used when BRS must choose which terminal to serve first
+                             //   notes?,
+                             //   updatedAt,
+                             //   updatedBy?
+                             // }
+
+      // Transport Lanes — the fixed network topology.
+      // Defines every valid origin→destination pair and its physical characteristics.
+      lanes: [],             // {
+                             //   id,
+                             //   fromFacilityId,      // null = overseas/external origin
+                             //   fromName,            // display name (e.g. "Spain", "BRS")
+                             //   toFacilityId,
+                             //   mode: 'vessel'|'rail'|'truck',
+                             //   transitDays,         // typical days from departure to arrival
+                             //   isPrimary,           // false = backup lane
+                             //   scheduleFrequencyDays?, // for fixed-schedule rail (e.g. 3 = every 3 days)
+                             //   notes?
+                             // }
     },
 
     // ── Product reference tables (shared, users can extend) ──
@@ -179,7 +232,7 @@ export function buildProductName(state, { producerId, typeId, subTypeId }) {
 // MIGRATION  v2 → v3
 // ─────────────────────────────────────────────────────────────────────────────
 
-function migrateV2ToV3(v2) {
+function migrateV2V3(v2) {
   const base = seed();
   const out  = { ...base };
 
@@ -345,33 +398,86 @@ function migrateV2ToV3(v2) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// MIGRATION  v3 → v4
+// Purely additive — adds logistics config and logisticsSchedule to every dataset.
+// Zero existing data is renamed, moved, or deleted.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function migrateV3ToV4(v3) {
+  const base = seed();
+
+  // Deep-clone so we never mutate the input
+  const out = JSON.parse(JSON.stringify(v3));
+
+  // Add logistics block if missing (shared, not sandboxed)
+  if (!out.logistics) {
+    out.logistics = base.logistics;
+  } else {
+    // Ensure both sub-arrays exist even if partial data was saved
+    if (!Array.isArray(out.logistics.rulesOfEngagement)) out.logistics.rulesOfEngagement = [];
+    if (!Array.isArray(out.logistics.lanes))             out.logistics.lanes = [];
+  }
+
+  // Helper: add logisticsSchedule to a single dataset if missing
+  const patchDataset = (ds) => {
+    if (!ds) return;
+    if (!Array.isArray(ds.logisticsSchedule)) ds.logisticsSchedule = [];
+  };
+
+  patchDataset(out.official);
+  Object.values(out.sandboxes || {}).forEach(sb => patchDataset(sb?.data));
+
+  out._version = 4;
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PUBLIC API
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function loadState() {
   try {
-    // Try v3 first
-    const raw3 = localStorage.getItem(STORAGE_KEY);
+    // ── Try v4 key first ──
+    const raw4 = localStorage.getItem(STORAGE_KEY);
+    if (raw4) {
+      const parsed = JSON.parse(raw4);
+      if (parsed._version === 4) return parsed;
+      // Key exists but wrong version — migrate forward
+      if (parsed._version === 3) {
+        const v4 = migrateV3ToV4(parsed);
+        saveState(v4);
+        return v4;
+      }
+      // Even older data in v4 key — full chain
+      const v3 = migrateV2V3(parsed);
+      const v4 = migrateV3ToV4(v3);
+      saveState(v4);
+      return v4;
+    }
+
+    // ── Fall back to v3 key ──
+    const raw3 = localStorage.getItem(LEGACY_KEY_V3);
     if (raw3) {
-      const parsed = JSON.parse(raw3);
-      if (parsed._version === 3) return parsed;
-      // v3 key exists but no version tag — migrate it anyway
-      return migrateV2ToV3(parsed);
+      const v3 = JSON.parse(raw3);
+      const v4 = migrateV3ToV4(v3._version === 3 ? v3 : migrateV2V3(v3));
+      saveState(v4);
+      return v4;
     }
 
-    // Fall back to v2
-    const raw2 = localStorage.getItem(LEGACY_KEY);
+    // ── Fall back to v2 key ──
+    const raw2 = localStorage.getItem(LEGACY_KEY_V2);
     if (raw2) {
-      const v2    = JSON.parse(raw2);
-      const v3    = migrateV2ToV3(v2);
-      saveState(v3);
-      return v3;
+      const v3 = migrateV2V3(JSON.parse(raw2));
+      const v4 = migrateV3ToV4(v3);
+      saveState(v4);
+      return v4;
     }
 
-    // Fresh install
+    // ── Fresh install ──
     const s = seed();
     saveState(s);
     return s;
+
   } catch (err) {
     console.warn('loadState error — resetting to seed:', err);
     const s = seed();

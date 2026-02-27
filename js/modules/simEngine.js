@@ -417,16 +417,30 @@ function simulateFacility(state, s, ds, facId, dates) {
   // ── Build row objects ──
   const mkValues = getter => Object.fromEntries(dates.map(d => [d, getter(d)]));
 
+  // Build set of product IDs activated for this specific facility
+  const activatedProductIds = new Set(
+    (ds.facilityProducts || [])
+      .filter(fp => fp.facilityId === facId)
+      .map(fp => fp.productId)
+  );
+  // A storage is visible only if:
+  //   (a) its product family is CLINKER or CEMENT, AND
+  //   (b) at least one of its allowed products is activated for this facility
+  //       (or no facilityProducts entries exist at all — legacy fallback)
+  const hasActivation = activatedProductIds.size > 0;
   const visibleStorages = storages.filter(st => {
     const fam = familyOfProduct(s, (st.allowedProductIds || [])[0]);
-    return fam === 'CLINKER' || fam === 'CEMENT';
+    if (fam !== 'CLINKER' && fam !== 'CEMENT') return false;
+    if (!hasActivation) return true; // legacy: no facilityProducts configured, show all
+    return (st.allowedProductIds || []).some(pid => activatedProductIds.has(pid));
   });
   const storageFamily = st => familyOfProduct(s, (st.allowedProductIds || [])[0]);
 
-  // BOD rows
+  // BOD rows — only emit sections that have at least one storage at this facility
   const inventoryBODRows = [];
   ['CLINKER', 'CEMENT'].forEach(group => {
     const rows = visibleStorages.filter(st => storageFamily(st) === group);
+    if (rows.length === 0) return; // facility has nothing of this type — skip entirely
     inventoryBODRows.push({
       kind: 'subtotal', label: `${group} INV-BOD`,
       values: mkValues(d => rows.reduce((sum, st) => sum + (bodMap.get(`${d}|${st.id}`) || 0), 0)),
@@ -504,10 +518,11 @@ function simulateFacility(state, s, ds, facId, dates) {
   }
   outflowRows.push({ kind: 'subtotal', label: 'CLK CONSUMED BY MILLS', values: mkValues(d => clkConsumedMap.get(d) || 0) });
 
-  // EOD rows
+  // EOD rows — only emit sections that have at least one storage at this facility
   const inventoryEODRows = [];
   ['CLINKER', 'CEMENT'].forEach(group => {
     const rows = visibleStorages.filter(st => storageFamily(st) === group);
+    if (rows.length === 0) return; // skip empty sections
     inventoryEODRows.push({
       kind: 'subtotal', label: `${group} INV-EOD`,
       values: mkValues(d => rows.reduce((sum, st) => sum + (eodMap.get(`${d}|${st.id}`) || 0), 0)),

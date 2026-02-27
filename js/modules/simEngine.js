@@ -467,7 +467,14 @@ function simulateFacility(state, s, ds, facId, dates) {
   }));
 
   // Outflow rows
-  const facFinished = s.getFacilityProducts(facId).filter(m => m.category === Categories.FIN);
+  // Use activatedProductIds (already built above) so terminals only show
+  // products they actually have configured — not the entire regional catalog.
+  // getFacilityProducts falls back to the full catalog when no facilityProducts
+  // entries exist, which causes every product to appear on every facility.
+  const facFinished = activatedProductIds.size > 0
+    ? state.catalog.filter(m => activatedProductIds.has(m.id) && m.category === Categories.FIN)
+    : s.getFacilityProducts(facId).filter(m => m.category === Categories.FIN);
+
   const outflowRows = [];
   outflowRows.push({ kind: 'group', label: 'CUSTOMER SHIPMENTS' });
   facFinished.forEach(fp => outflowRows.push({

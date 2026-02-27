@@ -557,11 +557,12 @@ function renderPlan(){
     ...warningGroups.map(g  => makeChip(g,'chip-high','△','>75%'))
   ].join('');
 
-  const _alertKey = 'planAlertStripCollapsed';
+  const _alertKey     = 'planAlertStripCollapsed';
   const _alertCollapsed = localStorage.getItem(_alertKey) === '1';
+  const _alertHidden    = localStorage.getItem('planAlertStripHidden') === '1';
   const totalAlertCount = stockouts.length+overflows.length+warnings.length;
   const alertStripHTML = totalAlertCount>0
-    ? `<div id="alertStrip" style="margin-bottom:16px;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(245,158,11,0.05));border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:10px 16px;">
+    ? `<div id="alertStrip" style="margin-bottom:16px;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(245,158,11,0.05));border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:10px 16px;${_alertHidden?'display:none;':''}">
         <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none" id="alertStripToggle">
           <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--danger);">
             ⚡ Action Required
@@ -575,6 +576,10 @@ function renderPlan(){
           <div style="font-size:10px;color:var(--muted);margin-bottom:6px">· click any alert to jump to that date</div>
           <div style="display:flex;flex-wrap:wrap;gap:6px;">${alertChips}</div>
         </div>
+      </div>
+      <div id="alertStripReveal" style="margin-bottom:16px;display:${_alertHidden?'flex':'none'};align-items:center;gap:8px;padding:6px 12px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:8px;cursor:pointer;" title="Show alerts">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:var(--danger);text-transform:uppercase;letter-spacing:.1em;">⚡ ${totalAlertCount} alert${totalAlertCount!==1?'s':''}</span>
+        <span style="font-size:10px;color:var(--muted)">— click to show</span>
       </div>`
     : `<div style="margin-bottom:16px;padding:10px 14px;background:var(--ok-bg);border:1px solid rgba(34,197,94,0.3);border-radius:8px;font-size:12px;color:#86efac;">✅ <strong>All clear</strong> — No stockouts or capacity issues in the planning horizon.</div>`;
 
@@ -818,13 +823,16 @@ function renderPlan(){
   const tableRows = unifiedRows.map(r => {
     if(r._type==='section-header'){
       return `<tr class="plan-section-collapse" data-sec="${r._secId}" style="cursor:pointer;user-select:none;">
-        <td colspan="${1+plan.dates.length}" style="background:#0a0d14;border:1px solid var(--border);padding:5px 10px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);">
+        <td class="row-header" style="position:sticky;left:0;z-index:3;background:#0a0d14;border:1px solid var(--border);padding:5px 10px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);white-space:nowrap;">
           <span class="collapse-icon" data-sec="${r._secId}" style="margin-right:6px;display:inline-block;transition:transform .15s;">▶</span>${esc(r.label)}
-        </td></tr>`;
+        </td>
+        <td colspan="9999" style="background:#0a0d14;border:1px solid var(--border);border-left:none;padding:0;"></td>
+        </tr>`;
     }
     if(r._type==='group-label'){
       return `<tr class="sec-child sec-${r._secId}" style="display:none;">
-        <td colspan="${1+plan.dates.length}" style="background:rgba(255,255,255,0.015);border:1px solid var(--border);padding:4px 10px 4px 22px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">${esc(r.label)}</td>
+        <td class="row-header" style="position:sticky;left:0;z-index:3;background:rgba(10,13,20,0.97);border:1px solid var(--border);padding:4px 10px 4px 22px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);white-space:nowrap;">${esc(r.label)}</td>
+        <td colspan="9999" style="background:rgba(255,255,255,0.015);border:1px solid var(--border);border-left:none;padding:0;"></td>
       </tr>`;
     }
     if(r._type==='subtotal-header'){
@@ -842,7 +850,7 @@ function renderPlan(){
   ${kpiHTML}
   ${alertStripHTML}
   <div class="card" style="margin-bottom:16px">
-    <div class="card-header">
+    <div class="card-header sticky-table-header" id="planCardHeader">
       <div>
         <div class="card-title">📊 Production Plan — 2025–2027</div>
         <div class="card-sub text-muted" style="font-size:11px">3-year view · All months collapsed by default · click month header to expand · ▶ click rows to expand · ✓ = actual · ⚠ = constrained · pink cols = weekends</div>
@@ -855,14 +863,17 @@ function renderPlan(){
     </div>
     <div class="card-body" style="padding:0">
       ${s.equipment.length===0?'<div style="padding:40px;text-align:center;color:var(--muted)">No equipment configured. Set up your Process Flow first.</div>':''}
-      <div class="table-scroll" id="planTableScroll" style="overflow-x:auto;overflow-y:auto">
-        <table class="data-table plan-table" id="planTable" style="min-width:max-content;width:100%">
-          <thead><tr>
-            <th class="row-header" style="min-width:160px;position:sticky;left:0;background:#0a0d14;z-index:5;">Row</th>
-            ${dateHeaders}
-          </tr></thead>
-          <tbody>${tableRows}</tbody>
-        </table>
+      <div class="sticky-scroll-wrap" id="planScrollWrap">
+        <div class="phantom-scrollbar" id="planPhantomBar"><div class="phantom-inner" id="planPhantomInner"></div></div>
+        <div class="table-scroll" id="planTableScroll" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 220px)">
+          <table class="data-table plan-table" id="planTable" style="min-width:max-content;width:100%">
+            <thead><tr>
+              <th class="row-header" style="min-width:160px;position:sticky;left:0;background:#0a0d14;z-index:5;">Row</th>
+              ${dateHeaders}
+            </tr></thead>
+            <tbody>${tableRows}</tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -914,6 +925,19 @@ function renderPlan(){
 
   root.querySelector('#openCampaigns').onclick = () => openCampaignDialog();
   root.querySelector('#openActuals').onclick = () => openDailyActualsDialog();
+
+  // Phantom scrollbar sync — plan
+  (function syncPlanPhantom(){
+    const scroll  = document.getElementById('planTableScroll');
+    const phantom = document.getElementById('planPhantomBar');
+    const inner   = document.getElementById('planPhantomInner');
+    if(!scroll || !phantom || !inner) return;
+    const sync = () => { inner.style.width = scroll.scrollWidth + 'px'; };
+    sync();
+    new ResizeObserver(sync).observe(scroll);
+    phantom.addEventListener('scroll', () => { scroll.scrollLeft = phantom.scrollLeft; });
+    scroll.addEventListener('scroll',  () => { phantom.scrollLeft = scroll.scrollLeft; });
+  })();
   root.querySelector('#jumpTodayPlan').onclick = () => {
     const scroll = document.getElementById('planTableScroll');
     const table  = document.getElementById('planTable');
@@ -947,7 +971,7 @@ function renderPlan(){
     toggleMonth(th.dataset.monthYm, 'planTable');
   });
 
-  // Alert strip collapse toggle
+  // Alert strip collapse toggle + hide/reveal
   const alertToggle = root.querySelector('#alertStripToggle');
   if(alertToggle){
     alertToggle.onclick = () => {
@@ -957,6 +981,31 @@ function renderPlan(){
       body.style.display = isNowHidden ? 'none' : 'block';
       caret.style.transform = isNowHidden ? 'rotate(-90deg)' : 'rotate(0deg)';
       localStorage.setItem('planAlertStripCollapsed', isNowHidden ? '1' : '0');
+    };
+    // Inject ✕ hide button next to caret
+    const caretEl = root.querySelector('#alertStripCaret');
+    if(caretEl){
+      caretEl.insertAdjacentHTML('afterend',
+        '<button id="alertStripHideBtn" title="Hide alert section" style="margin-left:10px;background:none;border:1px solid rgba(239,68,68,0.25);border-radius:4px;color:var(--muted);font-size:10px;cursor:pointer;padding:1px 7px;line-height:1.6;" onclick="event.stopPropagation()">✕ hide</button>'
+      );
+      root.querySelector('#alertStripHideBtn').onclick = (e) => {
+        e.stopPropagation();
+        const strip  = root.querySelector('#alertStrip');
+        const reveal = root.querySelector('#alertStripReveal');
+        if(strip)  strip.style.display  = 'none';
+        if(reveal) reveal.style.display = 'flex';
+        localStorage.setItem('planAlertStripHidden', '1');
+      };
+    }
+  }
+  // Reveal pill → show strip again
+  const revealPill = root.querySelector('#alertStripReveal');
+  if(revealPill){
+    revealPill.onclick = () => {
+      const strip = root.querySelector('#alertStrip');
+      if(strip) strip.style.display = '';
+      revealPill.style.display = 'none';
+      localStorage.setItem('planAlertStripHidden', '0');
     };
   }
 
@@ -1684,7 +1733,7 @@ function renderDemand(mode='total'){
 
   root.innerHTML = `
   <div class="card">
-    <div class="card-header">
+    <div class="card-header sticky-table-header" id="demandCardHeader">
       <div>
         <div class="card-title">📊 Demand Plan — Total Shipments</div>
         <div class="card-sub text-muted" style="font-size:11px">All facilities · Click facility row to expand · 🟢 Green = confirmed actual · White = forecast · Pink = weekends</div>
@@ -1696,14 +1745,17 @@ function renderDemand(mode='total'){
       </div>
     </div>
     <div class="card-body" style="padding:0">
-      <div class="table-scroll" id="demandTableScroll" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 180px)">
-        <table class="data-table plan-table" id="${demandTableId}" style="min-width:max-content;width:100%">
-          <thead><tr>
-            <th class="row-header" style="min-width:200px;position:sticky;left:0;background:#0a0d14;z-index:5;">Facility / Product</th>
-            ${dateHeaders}
-          </tr></thead>
-          <tbody>${bodyRows}</tbody>
-        </table>
+      <div class="sticky-scroll-wrap" id="demandScrollWrap">
+        <div class="phantom-scrollbar" id="demandPhantomBar"><div class="phantom-inner" id="demandPhantomInner"></div></div>
+        <div class="table-scroll" id="demandTableScroll" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 220px)">
+          <table class="data-table plan-table" id="${demandTableId}" style="min-width:max-content;width:100%">
+            <thead><tr>
+              <th class="row-header" style="min-width:200px;position:sticky;left:0;background:#0a0d14;z-index:5;">Facility / Product</th>
+              ${dateHeaders}
+            </tr></thead>
+            <tbody>${bodyRows}</tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -1746,6 +1798,19 @@ function renderDemand(mode='total'){
   });
 
   root.querySelector('#openForecastTool').onclick = () => openForecastToolDialog();
+
+  // Phantom scrollbar sync — demand
+  (function syncDemandPhantom(){
+    const scroll  = document.getElementById('demandTableScroll');
+    const phantom = document.getElementById('demandPhantomBar');
+    const inner   = document.getElementById('demandPhantomInner');
+    if(!scroll || !phantom || !inner) return;
+    const sync = () => { inner.style.width = scroll.scrollWidth + 'px'; };
+    sync();
+    new ResizeObserver(sync).observe(scroll);
+    phantom.addEventListener('scroll', () => { scroll.scrollLeft = phantom.scrollLeft; });
+    scroll.addEventListener('scroll',  () => { phantom.scrollLeft = scroll.scrollLeft; });
+  })();
   root.querySelector('#jumpTodayDemand').onclick = () => {
     const scroll = document.getElementById('demandTableScroll');
     const table  = document.getElementById('demand-table-total');

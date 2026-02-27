@@ -620,44 +620,30 @@ function renderPlan(){
     { id:'bod',  title:'INV.-BOD (STn)', rows: plan.inventoryBODRows  },
     { id:'prod', title:'PROD. (STn/day)',      rows: filterProductionRows(plan.productionRows) },
     { id:'out',  title:'SHIP. (STn)', rows: (() => {
-      // Rebuild outflow rows grouped by facility, only customer shipments
-      // Collect all shipment rows from simEngine output
+      // Collect customer shipment rows from simEngine — each row now carries _facilityId
       const allShipRows = [];
       let inCustShip = false;
       for(const r of (plan.outflowRows||[])){
-        if(r.kind==='group')      inCustShip = /CUSTOMER SHIP/i.test(r.label||'');
+        if(r.kind==='group')     inCustShip = /CUSTOMER SHIP/i.test(r.label||'');
         else if(r.kind==='subtotal') inCustShip = false;
         else if(r.kind==='row' && inCustShip) allShipRows.push(r);
       }
 
-      // Group by facility: for each selected facility that has finished products,
-      // emit a facility group header then its product rows
-      const facIds = (state.ui.selectedFacilityIds||[]).length ? state.ui.selectedFacilityIds : state.org.facilities.map(f=>f.id);
+      // Group by facility using _facilityId set by simEngine — no name matching needed
+      const facIds = plan.facilityIds || ((state.ui.selectedFacilityIds||[]).length
+        ? state.ui.selectedFacilityIds
+        : state.org.facilities.map(f=>f.id));
       const rows = [];
       facIds.forEach(facId => {
         const fac = state.org.facilities.find(f=>f.id===facId);
         if(!fac) return;
-        const facProdIds = new Set(
-          (s.dataset.facilityProducts||[])
-            .filter(fp=>fp.facilityId===facId)
-            .map(fp=>fp.productId)
-        );
-        // match shipRows to this facility's products
-        // Match shipRows by productId (if present) or by material name lookup
-        const facRows = allShipRows.filter(r => {
-          if(r.productId) return facProdIds.has(r.productId);
-          // simEngine doesn't attach productId — match by material name
-          return [...facProdIds].some(pid => {
-            const mat = s.getMaterial(pid);
-            return mat && (r.label === mat.name || r.productLabel === mat.name);
-          });
-        });
-        if(!facRows.length) return; // skip facilities with no finished products
+        const facRows = allShipRows.filter(r => r._facilityId === facId);
+        if(!facRows.length) return;
         rows.push({ kind:'group', label: fac.code ? `${fac.code} — ${fac.name}` : fac.name });
         facRows.forEach(r => rows.push(r));
       });
 
-      // Fallback: if grouping found nothing, show flat list
+      // Fallback: flat list if no _facilityId tags (shouldn't happen)
       if(!rows.length) allShipRows.forEach(r => rows.push(r));
       return rows;
     })() },

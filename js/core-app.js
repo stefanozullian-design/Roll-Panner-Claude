@@ -1,5 +1,5 @@
 import { loadState, saveState, pushSandboxToOfficial, createSandbox, deleteSandbox, renameSandbox } from './modules/store.js';
-import { actions, selectors, Categories } from './modules/dataAuthority.js';
+import { actions, selectors, Categories, getRulesOfEngagement, upsertRuleOfEngagement, deleteRuleOfEngagement } from './modules/dataAuthority.js';
 import { buildProductionPlanView, yesterdayLocal, startOfMonth } from './modules/simEngine.js';
 
 let state = loadState();
@@ -27,6 +27,17 @@ let state = loadState();
   saveState(state);
 })();
 
+// ── Runtime patch: ensure logistics arrays exist on older saved state ──
+(function patchLogistics() {
+  if (!state.logistics) state.logistics = { rulesOfEngagement: [], lanes: [] };
+  if (!Array.isArray(state.logistics.rulesOfEngagement)) state.logistics.rulesOfEngagement = [];
+  if (!Array.isArray(state.logistics.lanes))             state.logistics.lanes = [];
+  const datasets = [state.official, ...Object.values(state.sandboxes||{}).map(sb=>sb?.data)].filter(Boolean);
+  datasets.forEach(ds => {
+    if (!Array.isArray(ds.logisticsSchedule)) ds.logisticsSchedule = [];
+  });
+})();
+
 // Two-level nav: top sections + sub-tabs
 const NAV = [
   { key:'supply',    label:'Supply', subs:[
@@ -40,6 +51,7 @@ const NAV = [
     { key:'demand-total',    label:'∑ Total' },
   ]},
   { key:'logistics', label:'Logistics', subs:[
+    { key:'logistics-rules',     label:'📋 Rules',      placeholder:false },
     { key:'logistics-shipments', label:'🚢 Shipments',  placeholder:true },
     { key:'logistics-imports',   label:'📦 Imports',    placeholder:true },
     { key:'logistics-transfers', label:'🔀 Transfers',  placeholder:true },
@@ -185,258 +197,203 @@ function initShell(){
     }
   };
 
-  // ── Single hierarchy tree selector ──
   const scopeWrap = el('scopeSelectorWrap') || (() => {
+    // Fallback: replace old facilitySelector select with a div
     const old = el('facilitySelector');
     if(old) {
       const div = document.createElement('div');
       div.id = 'scopeSelectorWrap';
-      div.style.cssText = 'position:relative;display:inline-block;';
+      div.style.cssText = 'display:inline-flex;align-items:center;gap:6px;';
       old.parentNode.replaceChild(div, old);
       return div;
     }
     return null;
   })();
 
-  // Returns facility ids implied by the current selectedFacilityIds list
-  // (the list stores facility ids only — parent selections are resolved at filter time)
-  const scopeFacsUnder = (type, id) => {
-    if(type==='country'){
-      const rids = org.regions.filter(r=>r.countryId===id).map(r=>r.id);
-      const sids = org.subRegions.filter(s=>rids.includes(s.regionId)).map(s=>s.id);
-      return org.facilities.filter(f=>sids.includes(f.subRegionId)).map(f=>f.id);
-    }
-    if(type==='region'){
-      const sids = org.subRegions.filter(s=>s.regionId===id).map(s=>s.id);
-      return org.facilities.filter(f=>sids.includes(f.subRegionId)).map(f=>f.id);
-    }
-    if(type==='sub'){
-      return org.facilities.filter(f=>f.subRegionId===id).map(f=>f.id);
-    }
-    return [id]; // facility
-  };
-
-  // Compute label for the closed button based on selected facility ids
-  const scopeButtonLabel = (facIds) => {
-    const n = facIds.length;
-    const total = org.facilities.length;
-    if(!n)     return { icon:'🌎', text:'Select scope' };
-    if(n===total) return { icon:'🌎', text:'All facilities' };
-    if(n===1){
-      const fac = org.facilities.find(f=>f.id===facIds[0]);
-      return fac ? { icon:'🏭', text:`${fac.code} — ${fac.name}` } : { icon:'🏭', text:'1 facility' };
-    }
-    // Exact sub-region match?
-    for(const sub of org.subRegions){
-      const ids = scopeFacsUnder('sub', sub.id);
-      if(ids.length && ids.length===n && ids.every(id=>facIds.includes(id)))
-        return { icon:'▸', text:`${sub.code} · ${n} facilit${n===1?'y':'ies'}` };
-    }
-    // Exact region match?
-    for(const reg of org.regions){
-      const ids = scopeFacsUnder('region', reg.id);
-      if(ids.length && ids.length===n && ids.every(id=>facIds.includes(id)))
-        return { icon:'📍', text:`${reg.code} · ${n} facilit${n===1?'y':'ies'}` };
-    }
-    // Exact country match?
-    for(const cnt of org.countries){
-      const ids = scopeFacsUnder('country', cnt.id);
-      if(ids.length && ids.length===n && ids.every(id=>facIds.includes(id)))
-        return { icon:'🌎', text:`${cnt.name} · ${n} facilit${n===1?'y':'ies'}` };
-    }
-    // Mixed: show codes
-    const codes = facIds.map(id=>org.facilities.find(f=>f.id===id)?.code).filter(Boolean);
-    const label = codes.length<=3 ? codes.join(' · ') : `${codes.slice(0,2).join(' · ')} · +${codes.length-2} more`;
-    return { icon:'🏭', text:label };
-  };
-
-  // pending = facility ids being edited inside the open panel (not yet applied)
-  let _scopePending = new Set(state.ui.selectedFacilityIds || []);
-
-  // Check state of a group of facility ids against pending
-  const scopeCheckState = (facIds) => {
-    const n = facIds.filter(id=>_scopePending.has(id)).length;
-    if(n===0) return 'none';
-    if(n===facIds.length) return 'all';
-    return 'partial';
-  };
-
-  // Rebuild just the tree content inside the open panel
-  const buildScopeTree = () => {
-    const treeEl = document.getElementById('scopeTreeBody');
-    if(!treeEl) return;
-
-    const nodeHtml = (level, icon, name, code, facIds, childrenHtml, nodeId) => {
-      const st = scopeCheckState(facIds);
-      const hasChildren = !!childrenHtml;
-      const togId = `stog-${nodeId}`;
-      const childId = `sch-${nodeId}`;
-      // Start expanded by default
-      return `
-        <div class="stree-node" style="padding-left:${level*14}px">
-          <div class="stree-row ${st==='all'?'stree-checked':st==='partial'?'stree-partial':''}"
-               data-fac-ids="${facIds.join(',')}" data-node-state="${st}">
-            <span class="stree-toggle ${hasChildren?'':'stree-toggle-leaf'}" id="${togId}"
-                  data-child="${childId}" style="${hasChildren?'':'visibility:hidden'}">▶</span>
-            <input type="checkbox" class="stree-cb"
-                   ${st==='all'?'checked':''}
-                   data-fac-ids="${facIds.join(',')}"
-                   style="accent-color:var(--accent);width:12px;height:12px;flex-shrink:0;cursor:pointer;">
-            <span style="font-size:11px;flex-shrink:0">${icon}</span>
-            <span class="stree-name">${esc(name)}</span>
-            ${code?`<span class="stree-code">${esc(code)}</span>`:''}
-          </div>
-          ${hasChildren?`<div class="stree-children open" id="${childId}">${childrenHtml}</div>`:''}
-        </div>`;
-    };
-
-    const facHtml = (fac) =>
-      nodeHtml(3,'🏭',fac.name,fac.code,[fac.id],'',`fac-${fac.id}`);
-
-    const subHtml = (sub) => {
-      const fids = scopeFacsUnder('sub', sub.id);
-      const ch = org.facilities.filter(f=>f.subRegionId===sub.id).map(facHtml).join('');
-      return nodeHtml(2,'▸',sub.name,sub.code,fids,ch,`sub-${sub.id}`);
-    };
-
-    const regHtml = (reg) => {
-      const fids = scopeFacsUnder('region', reg.id);
-      const ch = org.subRegions.filter(s=>s.regionId===reg.id).map(subHtml).join('');
-      return nodeHtml(1,'📍',reg.name,reg.code,fids,ch,`reg-${reg.id}`);
-    };
-
-    const cntHtml = (cnt) => {
-      const fids = scopeFacsUnder('country', cnt.id);
-      const ch = org.regions.filter(r=>r.countryId===cnt.id).map(regHtml).join('');
-      return nodeHtml(0,'🌎',cnt.name,'',fids,ch,`cnt-${cnt.id}`);
-    };
-
-    treeEl.innerHTML = org.countries.map(cntHtml).join('');
-
-    // Fix indeterminate checkboxes
-    treeEl.querySelectorAll('.stree-cb').forEach(cb => {
-      const row = cb.closest('.stree-row');
-      cb.indeterminate = row?.classList.contains('stree-partial') || false;
-    });
-
-    // Toggle expand/collapse of children
-    treeEl.querySelectorAll('.stree-toggle:not(.stree-toggle-leaf)').forEach(tog => {
-      tog.onclick = e => {
-        e.stopPropagation();
-        const ch = document.getElementById(tog.dataset.child);
-        if(!ch) return;
-        const isOpen = ch.classList.contains('open');
-        ch.classList.toggle('open', !isOpen);
-        tog.classList.toggle('open', !isOpen);
-      };
-    });
-
-    // Checkbox click — toggle all facility ids for this node
-    treeEl.querySelectorAll('.stree-cb').forEach(cb => {
-      cb.onclick = e => e.stopPropagation();
-      cb.onchange = () => {
-        const fids = cb.dataset.facIds.split(',').filter(Boolean);
-        const st = scopeCheckState(fids);
-        if(st === 'all') fids.forEach(id => _scopePending.delete(id));
-        else             fids.forEach(id => _scopePending.add(id));
-        buildScopeTree(); // rebuild to update parent states
-        updateScopeFooter();
-      };
-    });
-
-    // Row click (not on checkbox or toggle) also toggles
-    treeEl.querySelectorAll('.stree-row').forEach(row => {
-      row.onclick = e => {
-        if(e.target.classList.contains('stree-cb') || e.target.classList.contains('stree-toggle')) return;
-        const cb = row.querySelector('.stree-cb');
-        if(cb){ cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); }
-      };
-    });
-  };
-
-  const updateScopeFooter = () => {
-    const n = _scopePending.size;
-    const total = org.facilities.length;
-    const el2 = document.getElementById('scopeFooterSummary');
-    if(el2) el2.textContent = n===0 ? 'No facilities selected' : n===total ? 'All facilities' : `${n} facilit${n===1?'y':'ies'} selected`;
-  };
-
-  const updateScopeButton = () => {
-    const btn = document.getElementById('scopeTriggerBtn');
-    if(!btn) return;
-    const fids = state.ui.selectedFacilityIds || [];
-    const { icon, text } = scopeButtonLabel(fids);
-    const iconEl = btn.querySelector('#scopeBtnIcon');
-    const labelEl = btn.querySelector('#scopeBtnLabel');
-    if(iconEl) iconEl.textContent = icon;
-    if(labelEl) labelEl.textContent = text;
-  };
-
   const buildScopeUI = () => {
     if(!scopeWrap) return;
-    if(!org.countries.length && !org.facilities.length) {
-      scopeWrap.innerHTML = `<span style="font-size:11px;color:var(--muted)">— Set up facilities in ⚙ Settings —</span>`;
-      return;
-    }
+    const selIds = new Set(state.ui.selectedFacilityIds || []);
 
-    scopeWrap.innerHTML = `
-      <button id="scopeTriggerBtn" class="scope-tree-btn" onclick="document.getElementById('scopeTreePanel').classList.toggle('open');event.stopPropagation();">
-        <span id="scopeBtnIcon" style="font-size:12px">🌎</span>
-        <span id="scopeBtnLabel" style="flex:1;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;">Select scope</span>
-        <span style="font-size:8px;color:var(--muted);flex-shrink:0">▼</span>
-      </button>
-      <div id="scopeTreePanel" class="scope-tree-panel" onclick="event.stopPropagation()">
-        <div style="padding:9px 14px 7px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
-          <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Select Scope</span>
-          <button id="scopeClearBtn" style="font-size:10px;color:var(--muted);border:none;background:none;cursor:pointer;padding:2px 6px;border-radius:4px;">✕ Clear all</button>
-        </div>
-        <div class="scope-tree-body" id="scopeTreeBody"></div>
-        <div style="padding:7px 14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
-          <span id="scopeFooterSummary" style="font-size:10px;color:var(--muted)"></span>
-          <button id="scopeApplyBtn" style="padding:4px 14px;border-radius:5px;font-size:11px;font-weight:600;background:var(--accent);color:#fff;border:none;cursor:pointer;">Apply</button>
+    // Derive selected countries/regions/subregions from selected facility ids
+    const selectedFacIds    = [...selIds].filter(id => org.facilities.find(f=>f.id===id));
+    const selectedSubIds    = [...selIds].filter(id => org.subRegions.find(s=>s.id===id));
+    const selectedRegIds    = [...selIds].filter(id => org.regions.find(r=>r.id===id));
+    const selectedCntIds    = [...selIds].filter(id => org.countries.find(c=>c.id===id));
+
+    // Filter cascades based on what's selected above
+    const activeCntIds  = org.countries.map(c=>c.id);
+    const activeRegIds  = selectedCntIds.length
+      ? org.regions.filter(r=>selectedCntIds.includes(r.countryId)).map(r=>r.id)
+      : org.regions.map(r=>r.id);
+    const activeSubIds  = selectedRegIds.length
+      ? org.subRegions.filter(s=>selectedRegIds.includes(s.regionId)).map(s=>s.id)
+      : selectedCntIds.length
+        ? org.subRegions.filter(s=>activeRegIds.includes(s.regionId)).map(s=>s.id)
+        : org.subRegions.map(s=>s.id);
+    const activeFacIds  = selectedSubIds.length
+      ? org.facilities.filter(f=>selectedSubIds.includes(f.subRegionId)).map(f=>f.id)
+      : selectedRegIds.length
+        ? org.facilities.filter(f=>activeSubIds.includes(f.subRegionId)).map(f=>f.id)
+        : selectedCntIds.length
+          ? org.facilities.filter(f=>activeSubIds.includes(f.subRegionId)).map(f=>f.id)
+          : org.facilities.map(f=>f.id);
+
+    const mkDropdown = (id, placeholder, items, selectedSet) => {
+      if(!items.length) return `<div style="display:none"></div>`;
+      const allChecked = items.every(it=>selectedSet.has(it.id));
+      const selectAllRow = `<label style="display:flex;align-items:center;gap:6px;padding:5px 10px;cursor:pointer;white-space:nowrap;font-size:11px;font-weight:700;border-bottom:1px solid var(--border);color:var(--text)" data-scope-all="${id}">
+        <input type="checkbox" ${allChecked?'checked':''} data-scope-all-cb="${id}" style="accent-color:var(--accent);width:12px;height:12px">
+        Select All
+      </label>`;
+      const opts = items.map(it =>
+        `<label style="display:flex;align-items:center;gap:6px;padding:4px 10px;cursor:pointer;white-space:nowrap;font-size:11px;${selectedSet.has(it.id)?'color:var(--accent);background:rgba(99,179,237,0.08)':''}" data-scope-item="${it.id}">
+          <input type="checkbox" ${selectedSet.has(it.id)?'checked':''} data-scope-cb="${it.id}" style="accent-color:var(--accent);width:12px;height:12px">
+          ${esc(it.label)}
+        </label>`
+      ).join('');
+      const anySelected = items.some(it=>selectedSet.has(it.id));
+      const selCount = items.filter(it=>selectedSet.has(it.id)).length;
+      return `<div style="position:relative;display:inline-block">
+        <button class="scope-dd-btn" data-dd="${id}" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:11px;color:${anySelected?'var(--accent)':'var(--muted)'};cursor:pointer;white-space:nowrap;min-width:80px;display:flex;align-items:center;gap:4px">
+          ${placeholder}${anySelected?` <span style="background:var(--accent);color:#000;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700">${selCount}</span>`:''}
+          <span style="font-size:8px;margin-left:2px">▼</span>
+        </button>
+        <div class="scope-dd-menu" id="dd-${id}" style="display:none;position:absolute;top:100%;left:0;z-index:200;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 0;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,0.4);max-height:280px;overflow-y:auto;margin-top:2px">
+          ${selectAllRow}${opts}
         </div>
       </div>`;
-
-    // Sync pending with current state each time panel opens
-    document.getElementById('scopeTriggerBtn').addEventListener('click', () => {
-      const panel = document.getElementById('scopeTreePanel');
-      if(panel.classList.contains('open')){
-        _scopePending = new Set(state.ui.selectedFacilityIds || []);
-        buildScopeTree();
-        updateScopeFooter();
-      }
-    });
-
-    // Apply
-    document.getElementById('scopeApplyBtn').onclick = () => {
-      state.ui.selectedFacilityIds = [..._scopePending];
-      syncLegacyId(); persist();
-      updateScopeButton();
-      document.getElementById('scopeTreePanel').classList.remove('open');
-      render();
     };
 
-    // Clear all
-    document.getElementById('scopeClearBtn').onclick = () => {
-      _scopePending = new Set();
-      buildScopeTree();
-      updateScopeFooter();
+    const cntItems  = org.countries.map(c=>({id:c.id, label:`🌎 ${c.name}`}));
+    const regItems  = org.regions.filter(r=>activeRegIds.includes(r.id)).map(r=>({id:r.id, label:`📍 ${r.code} — ${r.name}`}));
+    const subItems  = org.subRegions.filter(s=>activeSubIds.includes(s.id)).map(s=>({id:s.id, label:`▸ ${s.code} — ${s.name}`}));
+    const facItems  = org.facilities.filter(f=>activeFacIds.includes(f.id)).map(f=>({id:f.id, label:`🏭 ${f.code} — ${f.name}`}));
+
+    scopeWrap.innerHTML = `
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        ${mkDropdown('cnt', 'Country', cntItems, new Set(selectedCntIds))}
+        ${mkDropdown('reg', 'Region', regItems, new Set(selectedRegIds))}
+        ${mkDropdown('sub', 'Sub-Region', subItems, new Set(selectedSubIds))}
+        ${mkDropdown('fac', 'Facility', facItems, new Set(selectedFacIds))}
+        ${selIds.size ? `<button id="scopeClearBtn" style="background:transparent;border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--muted);cursor:pointer">✕ Clear</button>` : ''}
+        <span style="font-size:10px;color:var(--muted);padding:0 4px">${selIds.size ? `${selIds.size} selected` : 'Select scope'}</span>
+      </div>`;
+
+    // Track if selection changed while dropdown was open
+    let _scopeChanged = false;
+
+    const closeAllMenus = () => {
+      scopeWrap.querySelectorAll('.scope-dd-menu').forEach(m => {
+        if(m.style.display !== 'none'){
+          m.style.display = 'none';
+          if(_scopeChanged){
+            _scopeChanged = false;
+            syncLegacyId();
+            persist();
+            buildScopeUI();
+            render();
+          }
+        }
+      });
     };
 
-    // Close on outside click
-    document.addEventListener('click', () => {
-      const panel = document.getElementById('scopeTreePanel');
-      if(panel) panel.classList.remove('open');
+    // Dropdown open/close — keep open while user clicks inside
+    scopeWrap.querySelectorAll('.scope-dd-btn').forEach(btn => {
+      btn.onclick = e => {
+        e.stopPropagation();
+        const ddId = 'dd-' + btn.dataset.dd;
+        const menu = document.getElementById(ddId);
+        const isOpen = menu.style.display !== 'none';
+        // Close other menus (and trigger render if they had changes)
+        scopeWrap.querySelectorAll('.scope-dd-menu').forEach(m => {
+          if(m.id !== ddId && m.style.display !== 'none'){
+            m.style.display = 'none';
+            if(_scopeChanged){
+              _scopeChanged = false;
+              syncLegacyId(); persist(); buildScopeUI(); render();
+            }
+          }
+        });
+        menu.style.display = isOpen ? 'none' : 'block';
+        if(isOpen && _scopeChanged){
+          _scopeChanged = false;
+          syncLegacyId(); persist(); buildScopeUI(); render();
+        }
+      };
     });
 
-    // Initial build
-    _scopePending = new Set(state.ui.selectedFacilityIds || []);
-    buildScopeTree();
-    updateScopeFooter();
-    updateScopeButton();
+    // Prevent clicks inside dropdown from closing it
+    scopeWrap.querySelectorAll('.scope-dd-menu').forEach(menu => {
+      menu.addEventListener('click', e => e.stopPropagation());
+    });
+
+    // Checkbox change — just update state, don't render yet
+    scopeWrap.querySelectorAll('[data-scope-cb]').forEach(cb => {
+      cb.onchange = () => {
+        const id = cb.dataset.scopeCb;
+        const ids = new Set(state.ui.selectedFacilityIds || []);
+        if(cb.checked) ids.add(id); else ids.delete(id);
+        state.ui.selectedFacilityIds = [...ids];
+        _scopeChanged = true;
+        // Update visual state of this checkbox's label without full rebuild
+        const label = cb.closest('label');
+        if(label){
+          label.style.color = cb.checked ? 'var(--accent)' : '';
+          label.style.background = cb.checked ? 'rgba(99,179,237,0.08)' : '';
+        }
+        // Update Select All checkbox for this group
+        const menu = cb.closest('.scope-dd-menu');
+        if(menu){
+          const allCbs = [...menu.querySelectorAll('[data-scope-cb]')];
+          const allCheckedNow = allCbs.every(c=>c.checked);
+          const allCb = menu.querySelector('[data-scope-all-cb]');
+          if(allCb) allCb.checked = allCheckedNow;
+        }
+      };
+    });
+
+    // Select All checkbox
+    scopeWrap.querySelectorAll('[data-scope-all-cb]').forEach(allCb => {
+      allCb.onchange = () => {
+        const menu = allCb.closest('.scope-dd-menu');
+        if(!menu) return;
+        const cbs = [...menu.querySelectorAll('[data-scope-cb]')];
+        const ids = new Set(state.ui.selectedFacilityIds || []);
+        cbs.forEach(cb => {
+          cb.checked = allCb.checked;
+          const label = cb.closest('label');
+          if(label){
+            label.style.color = allCb.checked ? 'var(--accent)' : '';
+            label.style.background = allCb.checked ? 'rgba(99,179,237,0.08)' : '';
+          }
+          if(allCb.checked) ids.add(cb.dataset.scopeCb);
+          else ids.delete(cb.dataset.scopeCb);
+        });
+        state.ui.selectedFacilityIds = [...ids];
+        _scopeChanged = true;
+      };
+    });
+
+    // Clear button
+    scopeWrap.querySelector('#scopeClearBtn')?.addEventListener('click', e => {
+      e.stopPropagation();
+      state.ui.selectedFacilityIds = [];
+      _scopeChanged = false;
+      syncLegacyId();
+      persist(); buildScopeUI(); render();
+    });
+
+    // Close dropdowns on outside click — triggers render if changed
+    document.addEventListener('click', closeAllMenus, { once: true });
   };
 
-  if(scopeWrap) buildScopeUI();
+  if(scopeWrap) {
+    if(!org.countries.length && !org.facilities.length) {
+      scopeWrap.innerHTML = `<span style="font-size:11px;color:var(--muted)">— Set up facilities in ⚙ Settings —</span>`;
+    } else {
+      buildScopeUI();
+    }
+  }
 
   // Mode badge
   const badge = el('modeBadge');
@@ -483,6 +440,7 @@ function render(){
   else if(t==='products')    renderProducts();
   else if(t==='flow')        renderFlow();
   else if(t==='demand-external' || t==='demand-internal' || t==='demand-total') renderDemand('total');
+  else if(t==='logistics-rules') renderLogisticsRules();
   else if(t==='logistics-shipments'||t==='logistics-imports'||t==='logistics-transfers') renderLogisticsPlaceholder(t);
 }
 
@@ -2741,6 +2699,300 @@ function openSandboxDialog(){
 }
 
 /* ─────────────────── LOGISTICS PLACEHOLDER ─────────────────── */
+/* ─────────────────── LOGISTICS — RULES OF ENGAGEMENT ─────────────────── */
+function renderLogisticsRules(){
+  const root = el('tab-logistics-rules');
+  if(!root) return;
+
+  const org      = state.org;
+  const allFacs  = org.facilities;
+  const catalog  = state.catalog || [];
+  const rules    = getRulesOfEngagement(state);
+
+  // Helper: product name from id
+  const prodName = pid => {
+    const p = catalog.find(c=>c.id===pid);
+    return p ? (p.name || pid) : pid;
+  };
+
+  // Helper: facility name from id
+  const facName = fid => {
+    const f = allFacs.find(f=>f.id===fid);
+    return f ? `${f.code} — ${f.name}` : fid;
+  };
+
+  // Group rules by facility for display
+  const rulesByFac = {};
+  allFacs.forEach(f => { rulesByFac[f.id] = []; });
+  rules.forEach(r => {
+    if(!rulesByFac[r.facilityId]) rulesByFac[r.facilityId] = [];
+    rulesByFac[r.facilityId].push(r);
+  });
+
+  // Facilities that have at least one rule
+  const facsWithRules = allFacs.filter(f => rulesByFac[f.id]?.length);
+  const facsNoRules   = allFacs.filter(f => !rulesByFac[f.id]?.length);
+
+  const ruleRow = (r) => `
+    <div class="roe-rule-row" data-rule-id="${r.id}">
+      <div class="roe-rule-product">${esc(prodName(r.productId))}</div>
+      <div class="roe-rule-stat" title="Minimum cover days">
+        <span class="roe-stat-label">Min Cover</span>
+        <span class="roe-stat-value">${r.minCoverDays}d</span>
+      </div>
+      <div class="roe-rule-stat" title="Trading lead time — how many days before arrival the team must act">
+        <span class="roe-stat-label">Lead Time</span>
+        <span class="roe-stat-value">${r.tradingLeadTimeDays}d</span>
+      </div>
+      <div class="roe-rule-stat" title="Standard shipment volume">
+        <span class="roe-stat-label">Std Volume</span>
+        <span class="roe-stat-value">${r.standardVolumeStn ? r.standardVolumeStn.toLocaleString() + ' STn' : '—'}</span>
+      </div>
+      ${r.priorityRank ? `<div class="roe-rule-stat" title="Priority rank (1=highest)"><span class="roe-stat-label">Priority</span><span class="roe-stat-value">#${r.priorityRank}</span></div>` : ''}
+      ${r.notes ? `<div class="roe-rule-notes" title="${esc(r.notes)}">📝 ${esc(r.notes.length>50?r.notes.slice(0,50)+'…':r.notes)}</div>` : ''}
+      <div class="roe-rule-actions">
+        <button class="btn" style="font-size:10px;padding:2px 8px" data-edit-rule="${r.id}">Edit</button>
+        <button class="btn" style="font-size:10px;padding:2px 8px;color:var(--danger)" data-del-rule="${r.id}">Delete</button>
+      </div>
+    </div>`;
+
+  const facBlock = (f) => {
+    const facRules = rulesByFac[f.id] || [];
+    return `
+      <div class="roe-fac-block">
+        <div class="roe-fac-header">
+          <span style="font-size:12px">🏭</span>
+          <span class="roe-fac-name">${esc(f.code)} <span style="font-weight:400;color:var(--muted)">— ${esc(f.name)}</span></span>
+          <button class="btn btn-primary" style="font-size:10px;padding:2px 10px;margin-left:auto" data-add-rule-fac="${f.id}">+ Add Rule</button>
+        </div>
+        <div class="roe-rules-list">
+          ${facRules.length ? facRules.map(ruleRow).join('') :
+            '<div style="padding:10px 14px;font-size:11px;color:var(--muted);font-style:italic">No rules defined — the agent will ask before making recommendations for this facility.</div>'}
+        </div>
+      </div>`;
+  };
+
+  root.innerHTML = `
+    <div style="max-width:960px;margin:0 auto;">
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <div>
+            <div class="card-title">📋 Rules of Engagement</div>
+            <div class="card-sub text-muted" style="font-size:11px">
+              Regional policy — set once, applied by the agent on every recommendation.
+              If a rule is missing, the agent will ask before proceeding.
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:10px;padding:3px 10px;border-radius:999px;background:rgba(99,179,237,0.1);border:1px solid rgba(99,179,237,0.3);color:var(--accent)">
+              🌐 Shared — applies in all scenarios
+            </span>
+          </div>
+        </div>
+        <div class="card-body" style="padding:0">
+          ${allFacs.length === 0
+            ? '<div style="padding:40px;text-align:center;color:var(--muted);font-size:12px">No facilities configured. Set up your organization in ⚙ Settings first.</div>'
+            : `<div id="roeList">
+                ${facsWithRules.map(facBlock).join('')}
+                ${facsNoRules.length && facsWithRules.length
+                  ? `<div style="padding:6px 16px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);border-top:1px solid var(--border)">Facilities with no rules yet</div>`
+                  : ''}
+                ${facsNoRules.map(facBlock).join('')}
+               </div>`
+          }
+        </div>
+      </div>
+
+      <!-- Inline form panel — hidden until add/edit triggered -->
+      <div id="roeFormCard" class="card" style="display:none;margin-bottom:16px">
+        <div class="card-header">
+          <div class="card-title" id="roeFormTitle">Add Rule</div>
+          <button class="btn" id="roeFormCancel">Cancel</button>
+        </div>
+        <div class="card-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:640px">
+
+            <div>
+              <label class="form-label">Facility *</label>
+              <select class="form-input" id="roeFacility">
+                <option value="">— select —</option>
+                ${allFacs.map(f=>`<option value="${f.id}">${esc(f.code)} — ${esc(f.name)}</option>`).join('')}
+              </select>
+            </div>
+
+            <div>
+              <label class="form-label">Product *</label>
+              <select class="form-input" id="roeProduct">
+                <option value="">— select facility first —</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="form-label">Minimum Cover Days *
+                <span style="font-weight:400;color:var(--muted);font-size:10px">— trigger threshold</span>
+              </label>
+              <input class="form-input" type="number" id="roeMinCover" min="0" step="1" placeholder="e.g. 20">
+            </div>
+
+            <div>
+              <label class="form-label">Trading Lead Time Days *
+                <span style="font-weight:400;color:var(--muted);font-size:10px">— time team needs to act</span>
+              </label>
+              <input class="form-input" type="number" id="roeTradingLead" min="0" step="1" placeholder="e.g. 35">
+            </div>
+
+            <div>
+              <label class="form-label">Standard Volume STn
+                <span style="font-weight:400;color:var(--muted);font-size:10px">— typical shipment size</span>
+              </label>
+              <input class="form-input" type="number" id="roeStdVolume" min="0" step="100" placeholder="e.g. 30000">
+            </div>
+
+            <div>
+              <label class="form-label">Priority Rank
+                <span style="font-weight:400;color:var(--muted);font-size:10px">— 1 = highest (optional)</span>
+              </label>
+              <input class="form-input" type="number" id="roePriority" min="1" step="1" placeholder="e.g. 1">
+            </div>
+
+            <div style="grid-column:1/-1">
+              <label class="form-label">Notes</label>
+              <input class="form-input" type="text" id="roeNotes" placeholder="Any context or special conditions for this rule…" maxlength="200">
+            </div>
+
+          </div>
+          <div style="margin-top:16px;display:flex;gap:8px">
+            <button class="btn btn-primary" id="roeFormSave">Save Rule</button>
+            <button class="btn" id="roeFormCancel2">Cancel</button>
+          </div>
+          <input type="hidden" id="roeEditId">
+        </div>
+      </div>
+
+    </div>`;
+
+  // ── Populate product dropdown when facility changes ──
+  const facSel  = root.querySelector('#roeFacility');
+  const prodSel = root.querySelector('#roeProduct');
+
+  const populateProducts = (facId, selectedProductId='') => {
+    const ds = state.official; // rules are shared — always use official catalog
+    const activated = (ds.facilityProducts || [])
+      .filter(fp => fp.facilityId === facId)
+      .map(fp => fp.productId);
+    const prods = catalog.filter(p => activated.includes(p.id));
+    prodSel.innerHTML = prods.length
+      ? prods.map(p=>`<option value="${p.id}" ${p.id===selectedProductId?'selected':''}>${esc(p.name)}</option>`).join('')
+      : '<option value="">— no products activated for this facility —</option>';
+  };
+
+  facSel?.addEventListener('change', () => populateProducts(facSel.value));
+
+  // ── Show form ──
+  const showForm = (facId='', ruleId='') => {
+    const formCard = root.querySelector('#roeFormCard');
+    formCard.style.display = '';
+    formCard.scrollIntoView({ behavior:'smooth', block:'nearest' });
+
+    const existing = ruleId ? rules.find(r=>r.id===ruleId) : null;
+    root.querySelector('#roeFormTitle').textContent = existing ? 'Edit Rule' : 'Add Rule';
+    root.querySelector('#roeEditId').value = ruleId || '';
+
+    if(facId) facSel.value = facId;
+    populateProducts(facSel.value, existing?.productId || '');
+
+    if(existing){
+      root.querySelector('#roeMinCover').value   = existing.minCoverDays   || '';
+      root.querySelector('#roeTradingLead').value = existing.tradingLeadTimeDays || '';
+      root.querySelector('#roeStdVolume').value   = existing.standardVolumeStn  || '';
+      root.querySelector('#roePriority').value    = existing.priorityRank  || '';
+      root.querySelector('#roeNotes').value       = existing.notes         || '';
+    } else {
+      root.querySelector('#roeMinCover').value    = '';
+      root.querySelector('#roeTradingLead').value = '';
+      root.querySelector('#roeStdVolume').value   = '';
+      root.querySelector('#roePriority').value    = '';
+      root.querySelector('#roeNotes').value       = '';
+    }
+  };
+
+  const hideForm = () => {
+    root.querySelector('#roeFormCard').style.display = 'none';
+  };
+
+  // ── Delegate list button clicks (edit / delete / add) ──
+  root.querySelector('#roeList')?.addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if(!btn) return;
+
+    if(btn.dataset.addRuleFac){
+      showForm(btn.dataset.addRuleFac, '');
+      return;
+    }
+    if(btn.dataset.editRule){
+      const rule = rules.find(r=>r.id===btn.dataset.editRule);
+      if(rule) showForm(rule.facilityId, rule.id);
+      return;
+    }
+    if(btn.dataset.delRule){
+      if(!confirm('Delete this rule? The agent will ask for it again next time it needs it.')) return;
+      deleteRuleOfEngagement(state, btn.dataset.delRule);
+      persistNow();
+      showToast('Rule deleted');
+      renderLogisticsRules();
+    }
+  });
+
+  // ── Cancel buttons ──
+  root.querySelector('#roeFormCancel')?.addEventListener('click',  hideForm);
+  root.querySelector('#roeFormCancel2')?.addEventListener('click', hideForm);
+
+  // ── Save ──
+  root.querySelector('#roeFormSave')?.addEventListener('click', () => {
+    const facilityId  = facSel?.value?.trim();
+    const productId   = prodSel?.value?.trim();
+    const minCover    = root.querySelector('#roeMinCover').value;
+    const leadTime    = root.querySelector('#roeTradingLead').value;
+    const stdVol      = root.querySelector('#roeStdVolume').value;
+    const priority    = root.querySelector('#roePriority').value;
+    const notes       = root.querySelector('#roeNotes').value.trim();
+    const editId      = root.querySelector('#roeEditId').value || undefined;
+
+    if(!facilityId){ showToast('Select a facility', 'warn'); return; }
+    if(!productId){  showToast('Select a product',  'warn'); return; }
+    if(!minCover || +minCover < 0){ showToast('Enter minimum cover days', 'warn'); return; }
+    if(!leadTime || +leadTime < 0){ showToast('Enter trading lead time',  'warn'); return; }
+
+    // Check for duplicate (different id, same facility+product)
+    const duplicate = rules.find(r =>
+      r.facilityId === facilityId &&
+      r.productId  === productId  &&
+      r.id         !== editId
+    );
+    if(duplicate){
+      if(!confirm('A rule already exists for this facility and product. Replace it?')) return;
+      deleteRuleOfEngagement(state, duplicate.id);
+    }
+
+    upsertRuleOfEngagement(state, {
+      id:                  editId,
+      facilityId,
+      productId,
+      minCoverDays:        +minCover,
+      tradingLeadTimeDays: +leadTime,
+      standardVolumeStn:   stdVol   ? +stdVol   : 0,
+      priorityRank:        priority ? +priority : null,
+      notes,
+    });
+
+    persistNow();
+    showToast('Rule saved ✓');
+    hideForm();
+    renderLogisticsRules();
+  });
+}
+
 function renderLogisticsPlaceholder(tabKey){
   const labels = {
     'logistics-shipments': { icon:'🚢', title:'Shipments', desc:'Track outbound shipments to customers by route and vessel.' },

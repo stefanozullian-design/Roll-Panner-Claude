@@ -153,6 +153,17 @@ function simulateFacility(state, s, ds, facId, dates) {
     return (camp && (camp.status || 'produce') === 'produce') ? (camp.rateStn ?? 0) : 0;
   };
 
+  // ── Activated products for this facility (built once, used throughout) ──
+  // IMPORTANT: must be defined before the date loop.
+  // When facilityProducts has entries, restrict to only those products.
+  // Fallback to empty set means getFacilityProducts legacy path is used — see usages below.
+  const activatedProductIds = new Set(
+    (ds.facilityProducts || [])
+      .filter(fp => fp.facilityId === facId)
+      .map(fp => fp.productId)
+  );
+  const hasActivation = activatedProductIds.size > 0;
+
   // ── Output maps ──
   const bodMap          = new Map();  // `date|storageId` → qty
   const eodMap          = new Map();  // `date|storageId` → qty
@@ -419,17 +430,6 @@ function simulateFacility(state, s, ds, facId, dates) {
   // ── Build row objects ──
   const mkValues = getter => Object.fromEntries(dates.map(d => [d, getter(d)]));
 
-  // Build set of product IDs activated for this specific facility
-  const activatedProductIds = new Set(
-    (ds.facilityProducts || [])
-      .filter(fp => fp.facilityId === facId)
-      .map(fp => fp.productId)
-  );
-  // A storage is visible only if:
-  //   (a) its product family is CLINKER or CEMENT, AND
-  //   (b) at least one of its allowed products is activated for this facility
-  //       (or no facilityProducts entries exist at all — legacy fallback)
-  const hasActivation = activatedProductIds.size > 0;
   const visibleStorages = storages.filter(st => {
     const fam = familyOfProduct(s, (st.allowedProductIds || [])[0]);
     if (fam !== 'CLINKER' && fam !== 'CEMENT') return false;

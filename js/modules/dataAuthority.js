@@ -826,3 +826,281 @@ export function actions(state) {
     },
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LOGISTICS SELECTORS
+// Read-only helpers that work against state.logistics (shared) and
+// ds.logisticsSchedule (sandboxed).  No mutation here.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Return all Rules of Engagement, optionally filtered by facilityId and/or productId.
+ */
+export function getRulesOfEngagement(state, { facilityId, productId } = {}) {
+  const rules = state.logistics?.rulesOfEngagement || [];
+  return rules.filter(r =>
+    (!facilityId || r.facilityId === facilityId) &&
+    (!productId  || r.productId  === productId)
+  );
+}
+
+/**
+ * Return the single Rule of Engagement for a facility+product pair, or null.
+ * This is what the agent calls first before making any recommendation.
+ */
+export function getRuleForFacilityProduct(state, facilityId, productId) {
+  return (state.logistics?.rulesOfEngagement || []).find(
+    r => r.facilityId === facilityId && r.productId === productId
+  ) || null;
+}
+
+/**
+ * Return all transport lanes, optionally filtered by toFacilityId or mode.
+ */
+export function getLanes(state, { toFacilityId, mode, isPrimary } = {}) {
+  const lanes = state.logistics?.lanes || [];
+  return lanes.filter(l =>
+    (toFacilityId === undefined || l.toFacilityId === toFacilityId) &&
+    (mode         === undefined || l.mode         === mode)         &&
+    (isPrimary    === undefined || l.isPrimary     === isPrimary)
+  );
+}
+
+/**
+ * Return primary lane(s) that supply a given facility.
+ * Multiple lanes can be primary if different modes supply the same terminal
+ * (e.g. SUTT gets both rail and vessel).
+ */
+export function getPrimaryLanes(state, toFacilityId) {
+  return getLanes(state, { toFacilityId, isPrimary: true });
+}
+
+/**
+ * Return logistics schedule entries from the active dataset.
+ * Filtered by status, laneId, or facilityId (destination).
+ */
+export function getScheduleEntries(state, { status, laneId, toFacilityId, mode } = {}) {
+  const ds      = getDataset(state);
+  const entries = ds.logisticsSchedule || [];
+  const lanes   = state.logistics?.lanes || [];
+
+  return entries.filter(e => {
+    if (status      && e.status  !== status)  return false;
+    if (laneId      && e.laneId  !== laneId)  return false;
+    if (mode        && e.mode    !== mode)    return false;
+    if (toFacilityId) {
+      // Resolve via lane
+      const lane = lanes.find(l => l.id === e.laneId);
+      if (!lane || lane.toFacilityId !== toFacilityId) return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * Return schedule entries arriving within a date window (inclusive).
+ * Used by the simulation to project future inventory from confirmed movements.
+ */
+export function getScheduleInWindow(state, fromDate, toDate, { status = ['confirmed','arrived'] } = {}) {
+  const ds      = getDataset(state);
+  const entries = ds.logisticsSchedule || [];
+  const statusSet = new Set(Array.isArray(status) ? status : [status]);
+  return entries.filter(e =>
+    statusSet.has(e.status) &&
+    e.arrivalDateExpected >= fromDate &&
+    e.arrivalDateExpected <= toDate
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LOGISTICS ACTIONS
+// All mutations go through here — keeps core-app.js clean.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const logUid = () => `log_${Math.random().toString(36).slice(2, 9)}`;
+
+/**
+ * Upsert a Rule of Engagement.
+ * Pass id to update an existing rule, omit to create new.
+ */
+export function upsertRuleOfEngagement(state, {
+  id,
+  facilityId,
+  productId,
+  minCoverDays,
+  tradingLeadTimeDays,
+  standardVolumeStn,
+  priorityRank = null,
+  notes = '',
+}) {
+  if (!facilityId || !productId) throw new Error('facilityId and productId are required');
+
+  const rules  = state.logistics.rulesOfEngagement;
+  const now    = new Date().toISOString();
+  const ruleId = id || logUid();
+
+  const row = {
+    id:                  ruleId,
+    facilityId,
+    productId,
+    minCoverDays:        +(minCoverDays        || 0),
+    tradingLeadTimeDays: +(tradingLeadTimeDays || 0),
+    standardVolumeStn:   +(standardVolumeStn   || 0),
+    priorityRank:        priorityRank !== null ? +priorityRank : null,
+    notes:               notes || '',
+    updatedAt:           now,
+  };
+
+  const idx = rules.findIndex(r => r.id === ruleId);
+  if (idx >= 0) rules[idx] = row;
+  else          rules.push(row);
+
+  return row;
+}
+
+/**
+ * Delete a Rule of Engagement by id.
+ */
+export function deleteRuleOfEngagement(state, id) {
+  if (!state.logistics?.rulesOfEngagement) return;
+  state.logistics.rulesOfEngagement = state.logistics.rulesOfEngagement.filter(r => r.id !== id);
+}
+
+/**
+ * Upsert a Transport Lane.
+ * fromFacilityId may be null for overseas/external origins — use fromName instead.
+ */
+export function upsertLane(state, {
+  id,
+  fromFacilityId = null,
+  fromName,
+  toFacilityId,
+  mode,                       // 'vessel' | 'rail' | 'truck'
+  transitDays,
+  isPrimary = true,
+  scheduleFrequencyDays = null,
+  notes = '',
+}) {
+  if (!toFacilityId)                           throw new Error('toFacilityId is required');
+  if (!['vessel','rail','truck'].includes(mode)) throw new Error('mode must be vessel | rail | truck');
+
+  const lanes  = state.logistics.lanes;
+  const laneId = id || logUid();
+
+  const row = {
+    id:                    laneId,
+    fromFacilityId:        fromFacilityId || null,
+    fromName:              fromName || '',
+    toFacilityId,
+    mode,
+    transitDays:           +(transitDays || 0),
+    isPrimary:             !!isPrimary,
+    scheduleFrequencyDays: scheduleFrequencyDays ? +scheduleFrequencyDays : null,
+    notes:                 notes || '',
+  };
+
+  const idx = lanes.findIndex(l => l.id === laneId);
+  if (idx >= 0) lanes[idx] = row;
+  else          lanes.push(row);
+
+  return row;
+}
+
+/**
+ * Delete a Transport Lane.
+ * Note: does NOT delete schedule entries on this lane — caller decides.
+ */
+export function deleteLane(state, id) {
+  if (!state.logistics?.lanes) return;
+  state.logistics.lanes = state.logistics.lanes.filter(l => l.id !== id);
+}
+
+/**
+ * Upsert a logistics schedule entry in the active dataset.
+ * Status flow:  needed → confirmed → arrived
+ *                                  ↘ cancelled (from any status)
+ *
+ * createdBy: 'agent' when the agent proposes it, 'user' when manually entered.
+ */
+export function upsertScheduleEntry(state, {
+  id,
+  laneId,
+  mode,
+  originName,
+  vesselName = null,
+  productId,
+  volumeStn,
+  departureDateExpected = null,
+  arrivalDateExpected,
+  status = 'needed',
+  notes = '',
+  createdBy = 'user',
+}) {
+  if (!laneId)               throw new Error('laneId is required');
+  if (!arrivalDateExpected)  throw new Error('arrivalDateExpected is required');
+  if (!['vessel','rail','truck'].includes(mode))
+    throw new Error('mode must be vessel | rail | truck');
+  if (!['needed','confirmed','arrived','cancelled'].includes(status))
+    throw new Error('invalid status');
+
+  const ds      = getDataset(state);
+  if (!Array.isArray(ds.logisticsSchedule)) ds.logisticsSchedule = [];
+
+  const now     = new Date().toISOString();
+  const entryId = id || logUid();
+
+  const existing = ds.logisticsSchedule.find(e => e.id === entryId);
+
+  const row = {
+    id:                   entryId,
+    laneId,
+    mode,
+    originName:           originName || '',
+    vesselName:           vesselName || null,
+    productId:            productId  || null,
+    volumeStn:            +(volumeStn || 0),
+    departureDateExpected: departureDateExpected || null,
+    arrivalDateExpected,
+    status,
+    notes:                notes || '',
+    createdBy,
+    createdAt:            existing?.createdAt || now,
+    updatedAt:            now,
+  };
+
+  const idx = ds.logisticsSchedule.findIndex(e => e.id === entryId);
+  if (idx >= 0) ds.logisticsSchedule[idx] = row;
+  else          ds.logisticsSchedule.push(row);
+
+  return row;
+}
+
+/**
+ * Update only the status of a schedule entry.
+ * Clean shorthand for the common human approval flow: needed → confirmed.
+ */
+export function updateScheduleStatus(state, id, status) {
+  if (!['needed','confirmed','arrived','cancelled'].includes(status))
+    throw new Error('invalid status');
+
+  const ds  = getDataset(state);
+  const idx = (ds.logisticsSchedule || []).findIndex(e => e.id === id);
+  if (idx < 0) return null;
+
+  ds.logisticsSchedule[idx] = {
+    ...ds.logisticsSchedule[idx],
+    status,
+    updatedAt: new Date().toISOString(),
+  };
+
+  return ds.logisticsSchedule[idx];
+}
+
+/**
+ * Delete a schedule entry.
+ */
+export function deleteScheduleEntry(state, id) {
+  const ds = getDataset(state);
+  if (!Array.isArray(ds.logisticsSchedule)) return;
+  ds.logisticsSchedule = ds.logisticsSchedule.filter(e => e.id !== id);
+}

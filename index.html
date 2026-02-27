@@ -340,39 +340,41 @@
     .action-btn:hover { color: var(--text); border-color: var(--border2); }
     .action-btn.del:hover { color: var(--danger); border-color: var(--danger); }
 
-    /* ── STICKY TABLE CARD HEADER ── */
-    /* Sticks just below the app header (~88px) so title + buttons stay visible */
-    .sticky-table-header {
-      position: sticky;
-      top: 88px;
-      z-index: 20;
-      background: var(--surface);
-      border-radius: 10px 10px 0 0;
+    /* ── SCOPE TREE SELECTOR ── */
+    .scope-tree-btn {
+      display:inline-flex; align-items:center; gap:7px;
+      padding:5px 11px; border-radius:6px; font-size:12px; font-weight:500;
+      cursor:pointer; border:1px solid var(--border2);
+      background:var(--surface2); color:var(--text);
+      min-width:180px; max-width:260px;
     }
-
-    /* ── PHANTOM SCROLLBAR (docked above table body, below dates) ── */
-    /* Sits between the card-header and the scrollable table body.
-       Shows a scrollbar that mirrors the table's horizontal scroll position.
-       This way the bar is always visible even when scrolled far down. */
-    .sticky-scroll-wrap {
-      display: flex;
-      flex-direction: column;
+    .scope-tree-btn:hover { border-color:var(--accent); }
+    .scope-tree-panel {
+      display:none; position:absolute; top:calc(100% + 4px); left:0;
+      background:var(--surface); border:1px solid var(--border2);
+      border-radius:10px; box-shadow:0 16px 48px rgba(0,0,0,0.55);
+      z-index:300; width:280px; overflow:hidden;
     }
-    .phantom-scrollbar {
-      overflow-x: auto;
-      overflow-y: hidden;
-      height: 10px;
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
-      position: sticky;
-      top: 138px; /* app-header + card-header height */
-      z-index: 19;
-      flex-shrink: 0;
+    .scope-tree-panel.open { display:block; }
+    .scope-tree-body { max-height:320px; overflow-y:auto; padding:5px 0; }
+    .scope-tree-body::-webkit-scrollbar { width:4px; }
+    .scope-tree-body::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+    .stree-row {
+      display:flex; align-items:center; gap:5px;
+      padding:4px 12px; cursor:pointer; user-select:none;
     }
-    .phantom-scrollbar::-webkit-scrollbar { height: 6px; }
-    .phantom-scrollbar::-webkit-scrollbar-track { background: var(--surface2); }
-    .phantom-scrollbar::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
-    .phantom-inner { height: 1px; } /* width set by JS to match table scroll width */
+    .stree-row:hover { background:rgba(255,255,255,0.04); }
+    .stree-row.stree-checked .stree-name { color:var(--accent); }
+    .stree-row.stree-partial .stree-name { color:#93c5fd; opacity:.85; }
+    .stree-toggle {
+      font-size:8px; color:var(--muted); width:12px; text-align:center;
+      flex-shrink:0; cursor:pointer; transition:transform .15s;
+    }
+    .stree-toggle.open { transform:rotate(90deg); }
+    .stree-name { font-size:12px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .stree-code { font-size:10px; color:var(--muted); font-family:'IBM Plex Mono',monospace; flex-shrink:0; }
+    .stree-children { display:none; }
+    .stree-children.open { display:block; }
   </style>
 </head>
 <body>

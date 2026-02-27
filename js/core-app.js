@@ -197,203 +197,230 @@ function initShell(){
     }
   };
 
+  // ── Single hierarchy tree selector ──
   const scopeWrap = el('scopeSelectorWrap') || (() => {
-    // Fallback: replace old facilitySelector select with a div
     const old = el('facilitySelector');
     if(old) {
       const div = document.createElement('div');
       div.id = 'scopeSelectorWrap';
-      div.style.cssText = 'display:inline-flex;align-items:center;gap:6px;';
+      div.style.cssText = 'position:relative;display:inline-block;';
       old.parentNode.replaceChild(div, old);
       return div;
     }
     return null;
   })();
 
-  const buildScopeUI = () => {
-    if(!scopeWrap) return;
-    const selIds = new Set(state.ui.selectedFacilityIds || []);
-
-    // Derive selected countries/regions/subregions from selected facility ids
-    const selectedFacIds    = [...selIds].filter(id => org.facilities.find(f=>f.id===id));
-    const selectedSubIds    = [...selIds].filter(id => org.subRegions.find(s=>s.id===id));
-    const selectedRegIds    = [...selIds].filter(id => org.regions.find(r=>r.id===id));
-    const selectedCntIds    = [...selIds].filter(id => org.countries.find(c=>c.id===id));
-
-    // Filter cascades based on what's selected above
-    const activeCntIds  = org.countries.map(c=>c.id);
-    const activeRegIds  = selectedCntIds.length
-      ? org.regions.filter(r=>selectedCntIds.includes(r.countryId)).map(r=>r.id)
-      : org.regions.map(r=>r.id);
-    const activeSubIds  = selectedRegIds.length
-      ? org.subRegions.filter(s=>selectedRegIds.includes(s.regionId)).map(s=>s.id)
-      : selectedCntIds.length
-        ? org.subRegions.filter(s=>activeRegIds.includes(s.regionId)).map(s=>s.id)
-        : org.subRegions.map(s=>s.id);
-    const activeFacIds  = selectedSubIds.length
-      ? org.facilities.filter(f=>selectedSubIds.includes(f.subRegionId)).map(f=>f.id)
-      : selectedRegIds.length
-        ? org.facilities.filter(f=>activeSubIds.includes(f.subRegionId)).map(f=>f.id)
-        : selectedCntIds.length
-          ? org.facilities.filter(f=>activeSubIds.includes(f.subRegionId)).map(f=>f.id)
-          : org.facilities.map(f=>f.id);
-
-    const mkDropdown = (id, placeholder, items, selectedSet) => {
-      if(!items.length) return `<div style="display:none"></div>`;
-      const allChecked = items.every(it=>selectedSet.has(it.id));
-      const selectAllRow = `<label style="display:flex;align-items:center;gap:6px;padding:5px 10px;cursor:pointer;white-space:nowrap;font-size:11px;font-weight:700;border-bottom:1px solid var(--border);color:var(--text)" data-scope-all="${id}">
-        <input type="checkbox" ${allChecked?'checked':''} data-scope-all-cb="${id}" style="accent-color:var(--accent);width:12px;height:12px">
-        Select All
-      </label>`;
-      const opts = items.map(it =>
-        `<label style="display:flex;align-items:center;gap:6px;padding:4px 10px;cursor:pointer;white-space:nowrap;font-size:11px;${selectedSet.has(it.id)?'color:var(--accent);background:rgba(99,179,237,0.08)':''}" data-scope-item="${it.id}">
-          <input type="checkbox" ${selectedSet.has(it.id)?'checked':''} data-scope-cb="${it.id}" style="accent-color:var(--accent);width:12px;height:12px">
-          ${esc(it.label)}
-        </label>`
-      ).join('');
-      const anySelected = items.some(it=>selectedSet.has(it.id));
-      const selCount = items.filter(it=>selectedSet.has(it.id)).length;
-      return `<div style="position:relative;display:inline-block">
-        <button class="scope-dd-btn" data-dd="${id}" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:11px;color:${anySelected?'var(--accent)':'var(--muted)'};cursor:pointer;white-space:nowrap;min-width:80px;display:flex;align-items:center;gap:4px">
-          ${placeholder}${anySelected?` <span style="background:var(--accent);color:#000;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700">${selCount}</span>`:''}
-          <span style="font-size:8px;margin-left:2px">▼</span>
-        </button>
-        <div class="scope-dd-menu" id="dd-${id}" style="display:none;position:absolute;top:100%;left:0;z-index:200;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 0;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,0.4);max-height:280px;overflow-y:auto;margin-top:2px">
-          ${selectAllRow}${opts}
-        </div>
-      </div>`;
-    };
-
-    const cntItems  = org.countries.map(c=>({id:c.id, label:`🌎 ${c.name}`}));
-    const regItems  = org.regions.filter(r=>activeRegIds.includes(r.id)).map(r=>({id:r.id, label:`📍 ${r.code} — ${r.name}`}));
-    const subItems  = org.subRegions.filter(s=>activeSubIds.includes(s.id)).map(s=>({id:s.id, label:`▸ ${s.code} — ${s.name}`}));
-    const facItems  = org.facilities.filter(f=>activeFacIds.includes(f.id)).map(f=>({id:f.id, label:`🏭 ${f.code} — ${f.name}`}));
-
-    scopeWrap.innerHTML = `
-      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        ${mkDropdown('cnt', 'Country', cntItems, new Set(selectedCntIds))}
-        ${mkDropdown('reg', 'Region', regItems, new Set(selectedRegIds))}
-        ${mkDropdown('sub', 'Sub-Region', subItems, new Set(selectedSubIds))}
-        ${mkDropdown('fac', 'Facility', facItems, new Set(selectedFacIds))}
-        ${selIds.size ? `<button id="scopeClearBtn" style="background:transparent;border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--muted);cursor:pointer">✕ Clear</button>` : ''}
-        <span style="font-size:10px;color:var(--muted);padding:0 4px">${selIds.size ? `${selIds.size} selected` : 'Select scope'}</span>
-      </div>`;
-
-    // Track if selection changed while dropdown was open
-    let _scopeChanged = false;
-
-    const closeAllMenus = () => {
-      scopeWrap.querySelectorAll('.scope-dd-menu').forEach(m => {
-        if(m.style.display !== 'none'){
-          m.style.display = 'none';
-          if(_scopeChanged){
-            _scopeChanged = false;
-            syncLegacyId();
-            persist();
-            buildScopeUI();
-            render();
-          }
-        }
-      });
-    };
-
-    // Dropdown open/close — keep open while user clicks inside
-    scopeWrap.querySelectorAll('.scope-dd-btn').forEach(btn => {
-      btn.onclick = e => {
-        e.stopPropagation();
-        const ddId = 'dd-' + btn.dataset.dd;
-        const menu = document.getElementById(ddId);
-        const isOpen = menu.style.display !== 'none';
-        // Close other menus (and trigger render if they had changes)
-        scopeWrap.querySelectorAll('.scope-dd-menu').forEach(m => {
-          if(m.id !== ddId && m.style.display !== 'none'){
-            m.style.display = 'none';
-            if(_scopeChanged){
-              _scopeChanged = false;
-              syncLegacyId(); persist(); buildScopeUI(); render();
-            }
-          }
-        });
-        menu.style.display = isOpen ? 'none' : 'block';
-        if(isOpen && _scopeChanged){
-          _scopeChanged = false;
-          syncLegacyId(); persist(); buildScopeUI(); render();
-        }
-      };
-    });
-
-    // Prevent clicks inside dropdown from closing it
-    scopeWrap.querySelectorAll('.scope-dd-menu').forEach(menu => {
-      menu.addEventListener('click', e => e.stopPropagation());
-    });
-
-    // Checkbox change — just update state, don't render yet
-    scopeWrap.querySelectorAll('[data-scope-cb]').forEach(cb => {
-      cb.onchange = () => {
-        const id = cb.dataset.scopeCb;
-        const ids = new Set(state.ui.selectedFacilityIds || []);
-        if(cb.checked) ids.add(id); else ids.delete(id);
-        state.ui.selectedFacilityIds = [...ids];
-        _scopeChanged = true;
-        // Update visual state of this checkbox's label without full rebuild
-        const label = cb.closest('label');
-        if(label){
-          label.style.color = cb.checked ? 'var(--accent)' : '';
-          label.style.background = cb.checked ? 'rgba(99,179,237,0.08)' : '';
-        }
-        // Update Select All checkbox for this group
-        const menu = cb.closest('.scope-dd-menu');
-        if(menu){
-          const allCbs = [...menu.querySelectorAll('[data-scope-cb]')];
-          const allCheckedNow = allCbs.every(c=>c.checked);
-          const allCb = menu.querySelector('[data-scope-all-cb]');
-          if(allCb) allCb.checked = allCheckedNow;
-        }
-      };
-    });
-
-    // Select All checkbox
-    scopeWrap.querySelectorAll('[data-scope-all-cb]').forEach(allCb => {
-      allCb.onchange = () => {
-        const menu = allCb.closest('.scope-dd-menu');
-        if(!menu) return;
-        const cbs = [...menu.querySelectorAll('[data-scope-cb]')];
-        const ids = new Set(state.ui.selectedFacilityIds || []);
-        cbs.forEach(cb => {
-          cb.checked = allCb.checked;
-          const label = cb.closest('label');
-          if(label){
-            label.style.color = allCb.checked ? 'var(--accent)' : '';
-            label.style.background = allCb.checked ? 'rgba(99,179,237,0.08)' : '';
-          }
-          if(allCb.checked) ids.add(cb.dataset.scopeCb);
-          else ids.delete(cb.dataset.scopeCb);
-        });
-        state.ui.selectedFacilityIds = [...ids];
-        _scopeChanged = true;
-      };
-    });
-
-    // Clear button
-    scopeWrap.querySelector('#scopeClearBtn')?.addEventListener('click', e => {
-      e.stopPropagation();
-      state.ui.selectedFacilityIds = [];
-      _scopeChanged = false;
-      syncLegacyId();
-      persist(); buildScopeUI(); render();
-    });
-
-    // Close dropdowns on outside click — triggers render if changed
-    document.addEventListener('click', closeAllMenus, { once: true });
+  const scopeFacsUnder = (type, id) => {
+    if(type==='country'){
+      const rids = org.regions.filter(r=>r.countryId===id).map(r=>r.id);
+      const sids = org.subRegions.filter(s=>rids.includes(s.regionId)).map(s=>s.id);
+      return org.facilities.filter(f=>sids.includes(f.subRegionId)).map(f=>f.id);
+    }
+    if(type==='region'){
+      const sids = org.subRegions.filter(s=>s.regionId===id).map(s=>s.id);
+      return org.facilities.filter(f=>sids.includes(f.subRegionId)).map(f=>f.id);
+    }
+    if(type==='sub'){
+      return org.facilities.filter(f=>f.subRegionId===id).map(f=>f.id);
+    }
+    return [id];
   };
 
-  if(scopeWrap) {
+  const scopeButtonLabel = (facIds) => {
+    const n = facIds.length;
+    const total = org.facilities.length;
+    if(!n)        return { icon:'🌎', text:'Select scope' };
+    if(n===total) return { icon:'🌎', text:'All facilities' };
+    if(n===1){
+      const fac = org.facilities.find(f=>f.id===facIds[0]);
+      return fac ? { icon:'🏭', text:`${fac.code} — ${fac.name}` } : { icon:'🏭', text:'1 facility' };
+    }
+    for(const sub of org.subRegions){
+      const ids = scopeFacsUnder('sub', sub.id);
+      if(ids.length && ids.length===n && ids.every(id=>facIds.includes(id)))
+        return { icon:'▸', text:`${sub.code} · ${n} facilit${n===1?'y':'ies'}` };
+    }
+    for(const reg of org.regions){
+      const ids = scopeFacsUnder('region', reg.id);
+      if(ids.length && ids.length===n && ids.every(id=>facIds.includes(id)))
+        return { icon:'📍', text:`${reg.code} · ${n} facilit${n===1?'y':'ies'}` };
+    }
+    for(const cnt of org.countries){
+      const ids = scopeFacsUnder('country', cnt.id);
+      if(ids.length && ids.length===n && ids.every(id=>facIds.includes(id)))
+        return { icon:'🌎', text:`${cnt.name} · ${n} facilit${n===1?'y':'ies'}` };
+    }
+    const codes = facIds.map(id=>org.facilities.find(f=>f.id===id)?.code).filter(Boolean);
+    const label = codes.length<=3 ? codes.join(' · ') : `${codes.slice(0,2).join(' · ')} · +${codes.length-2} more`;
+    return { icon:'🏭', text:label };
+  };
+
+  let _scopePending = new Set(state.ui.selectedFacilityIds || []);
+
+  const scopeCheckState = (facIds) => {
+    const n = facIds.filter(id=>_scopePending.has(id)).length;
+    if(n===0) return 'none';
+    if(n===facIds.length) return 'all';
+    return 'partial';
+  };
+
+  const buildScopeTree = () => {
+    const treeEl = document.getElementById('scopeTreeBody');
+    if(!treeEl) return;
+
+    const nodeHtml = (level, icon, name, code, facIds, childrenHtml, nodeId) => {
+      const st = scopeCheckState(facIds);
+      const hasChildren = !!childrenHtml;
+      const togId   = `stog-${nodeId}`;
+      const childId = `sch-${nodeId}`;
+      return `
+        <div class="stree-node" style="padding-left:${level*14}px">
+          <div class="stree-row ${st==='all'?'stree-checked':st==='partial'?'stree-partial':''}"
+               data-fac-ids="${facIds.join(',')}">
+            <span class="stree-toggle ${hasChildren?'':'stree-toggle-leaf'}" id="${togId}"
+                  data-child="${childId}" style="${hasChildren?'':'visibility:hidden'}">▶</span>
+            <input type="checkbox" class="stree-cb"
+                   ${st==='all'?'checked':''}
+                   data-fac-ids="${facIds.join(',')}"
+                   style="accent-color:var(--accent);width:12px;height:12px;flex-shrink:0;cursor:pointer;">
+            <span style="font-size:11px;flex-shrink:0">${icon}</span>
+            <span class="stree-name">${esc(name)}</span>
+            ${code?`<span class="stree-code">${esc(code)}</span>`:''}
+          </div>
+          ${hasChildren?`<div class="stree-children open" id="${childId}">${childrenHtml}</div>`:''}
+        </div>`;
+    };
+
+    const facHtml = (fac) => nodeHtml(3,'🏭',fac.name,fac.code,[fac.id],'',`fac-${fac.id}`);
+    const subHtml = (sub) => {
+      const fids = scopeFacsUnder('sub', sub.id);
+      const ch   = org.facilities.filter(f=>f.subRegionId===sub.id).map(facHtml).join('');
+      return nodeHtml(2,'▸',sub.name,sub.code,fids,ch,`sub-${sub.id}`);
+    };
+    const regHtml = (reg) => {
+      const fids = scopeFacsUnder('region', reg.id);
+      const ch   = org.subRegions.filter(s=>s.regionId===reg.id).map(subHtml).join('');
+      return nodeHtml(1,'📍',reg.name,reg.code,fids,ch,`reg-${reg.id}`);
+    };
+    const cntHtml = (cnt) => {
+      const fids = scopeFacsUnder('country', cnt.id);
+      const ch   = org.regions.filter(r=>r.countryId===cnt.id).map(regHtml).join('');
+      return nodeHtml(0,'🌎',cnt.name,'',fids,ch,`cnt-${cnt.id}`);
+    };
+
+    treeEl.innerHTML = org.countries.map(cntHtml).join('');
+
+    treeEl.querySelectorAll('.stree-cb').forEach(cb => {
+      cb.indeterminate = cb.closest('.stree-row')?.classList.contains('stree-partial') || false;
+    });
+    treeEl.querySelectorAll('.stree-toggle:not(.stree-toggle-leaf)').forEach(tog => {
+      tog.onclick = e => {
+        e.stopPropagation();
+        const ch = document.getElementById(tog.dataset.child);
+        if(!ch) return;
+        const isOpen = ch.classList.contains('open');
+        ch.classList.toggle('open', !isOpen);
+        tog.classList.toggle('open', !isOpen);
+      };
+    });
+    treeEl.querySelectorAll('.stree-cb').forEach(cb => {
+      cb.onclick  = e => e.stopPropagation();
+      cb.onchange = () => {
+        const fids = cb.dataset.facIds.split(',').filter(Boolean);
+        const st   = scopeCheckState(fids);
+        if(st==='all') fids.forEach(id=>_scopePending.delete(id));
+        else           fids.forEach(id=>_scopePending.add(id));
+        buildScopeTree();
+        updateScopeFooter();
+      };
+    });
+    treeEl.querySelectorAll('.stree-row').forEach(row => {
+      row.onclick = e => {
+        if(e.target.classList.contains('stree-cb') || e.target.classList.contains('stree-toggle')) return;
+        const cb = row.querySelector('.stree-cb');
+        if(cb){ cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); }
+      };
+    });
+  };
+
+  const updateScopeFooter = () => {
+    const n     = _scopePending.size;
+    const total = org.facilities.length;
+    const el2   = document.getElementById('scopeFooterSummary');
+    if(el2) el2.textContent = n===0 ? 'No facilities selected'
+      : n===total ? 'All facilities'
+      : `${n} facilit${n===1?'y':'ies'} selected`;
+  };
+
+  const updateScopeButton = () => {
+    const btn = document.getElementById('scopeTriggerBtn');
+    if(!btn) return;
+    const fids = state.ui.selectedFacilityIds || [];
+    const { icon, text } = scopeButtonLabel(fids);
+    const iconEl  = btn.querySelector('#scopeBtnIcon');
+    const labelEl = btn.querySelector('#scopeBtnLabel');
+    if(iconEl)  iconEl.textContent  = icon;
+    if(labelEl) labelEl.textContent = text;
+  };
+
+  const buildScopeUI = () => {
+    if(!scopeWrap) return;
     if(!org.countries.length && !org.facilities.length) {
       scopeWrap.innerHTML = `<span style="font-size:11px;color:var(--muted)">— Set up facilities in ⚙ Settings —</span>`;
-    } else {
-      buildScopeUI();
+      return;
     }
-  }
+    scopeWrap.innerHTML = `
+      <button id="scopeTriggerBtn" class="scope-tree-btn"
+              onclick="document.getElementById('scopeTreePanel').classList.toggle('open');event.stopPropagation();">
+        <span id="scopeBtnIcon" style="font-size:12px">🌎</span>
+        <span id="scopeBtnLabel" style="flex:1;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;">Select scope</span>
+        <span style="font-size:8px;color:var(--muted);flex-shrink:0">▼</span>
+      </button>
+      <div id="scopeTreePanel" class="scope-tree-panel" onclick="event.stopPropagation()">
+        <div style="padding:9px 14px 7px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+          <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Select Scope</span>
+          <button id="scopeClearBtn" style="font-size:10px;color:var(--muted);border:none;background:none;cursor:pointer;padding:2px 6px;border-radius:4px;">✕ Clear all</button>
+        </div>
+        <div class="scope-tree-body" id="scopeTreeBody"></div>
+        <div style="padding:7px 14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+          <span id="scopeFooterSummary" style="font-size:10px;color:var(--muted)"></span>
+          <button id="scopeApplyBtn" style="padding:4px 14px;border-radius:5px;font-size:11px;font-weight:600;background:var(--accent);color:#fff;border:none;cursor:pointer;">Apply</button>
+        </div>
+      </div>`;
+
+    document.getElementById('scopeTriggerBtn').addEventListener('click', () => {
+      const panel = document.getElementById('scopeTreePanel');
+      if(panel.classList.contains('open')){
+        _scopePending = new Set(state.ui.selectedFacilityIds || []);
+        buildScopeTree();
+        updateScopeFooter();
+      }
+    });
+    document.getElementById('scopeApplyBtn').onclick = () => {
+      state.ui.selectedFacilityIds = [..._scopePending];
+      syncLegacyId(); persist();
+      updateScopeButton();
+      document.getElementById('scopeTreePanel').classList.remove('open');
+      render();
+    };
+    document.getElementById('scopeClearBtn').onclick = () => {
+      _scopePending = new Set();
+      buildScopeTree();
+      updateScopeFooter();
+    };
+    document.addEventListener('click', () => {
+      const panel = document.getElementById('scopeTreePanel');
+      if(panel) panel.classList.remove('open');
+    });
+
+    _scopePending = new Set(state.ui.selectedFacilityIds || []);
+    buildScopeTree();
+    updateScopeFooter();
+    updateScopeButton();
+  };
+
+  if(scopeWrap) buildScopeUI();
+
 
   // Mode badge
   const badge = el('modeBadge');

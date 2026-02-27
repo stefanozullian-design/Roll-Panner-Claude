@@ -211,9 +211,11 @@ function simulateFacility(state, s, ds, facId, dates) {
     // ── Step 1: Outbound shipments (demand) ──
     // Apply demand first so cement silo headroom calculation in FM allocation
     // correctly accounts for product that will leave today.
-    const finishedProds = s.materials.filter(m => m.category === Categories.FIN && (ds.facilityProducts || []).some(fp => fp.facilityId === facId && fp.productId === m.id) || s.getFacilityProducts(facId).some(fp => fp.id === m.id));
-    // Use all finished products that this facility has activated
-    const facFinished = s.getFacilityProducts(facId).filter(m => m.category === Categories.FIN);
+    // Use activatedProductIds (built once above) — never fall back to full catalog
+    // because that causes every product to appear on every facility in multi-facility view.
+    const facFinished = activatedProductIds.size > 0
+      ? state.catalog.filter(m => activatedProductIds.has(m.id) && m.category === Categories.FIN)
+      : s.getFacilityProducts(facId).filter(m => m.category === Categories.FIN);
 
     const shipByPid = new Map();
     facFinished.forEach(fp => {

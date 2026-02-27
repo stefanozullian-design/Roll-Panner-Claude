@@ -185,203 +185,258 @@ function initShell(){
     }
   };
 
+  // ── Single hierarchy tree selector ──
   const scopeWrap = el('scopeSelectorWrap') || (() => {
-    // Fallback: replace old facilitySelector select with a div
     const old = el('facilitySelector');
     if(old) {
       const div = document.createElement('div');
       div.id = 'scopeSelectorWrap';
-      div.style.cssText = 'display:inline-flex;align-items:center;gap:6px;';
+      div.style.cssText = 'position:relative;display:inline-block;';
       old.parentNode.replaceChild(div, old);
       return div;
     }
     return null;
   })();
 
-  const buildScopeUI = () => {
-    if(!scopeWrap) return;
-    const selIds = new Set(state.ui.selectedFacilityIds || []);
-
-    // Derive selected countries/regions/subregions from selected facility ids
-    const selectedFacIds    = [...selIds].filter(id => org.facilities.find(f=>f.id===id));
-    const selectedSubIds    = [...selIds].filter(id => org.subRegions.find(s=>s.id===id));
-    const selectedRegIds    = [...selIds].filter(id => org.regions.find(r=>r.id===id));
-    const selectedCntIds    = [...selIds].filter(id => org.countries.find(c=>c.id===id));
-
-    // Filter cascades based on what's selected above
-    const activeCntIds  = org.countries.map(c=>c.id);
-    const activeRegIds  = selectedCntIds.length
-      ? org.regions.filter(r=>selectedCntIds.includes(r.countryId)).map(r=>r.id)
-      : org.regions.map(r=>r.id);
-    const activeSubIds  = selectedRegIds.length
-      ? org.subRegions.filter(s=>selectedRegIds.includes(s.regionId)).map(s=>s.id)
-      : selectedCntIds.length
-        ? org.subRegions.filter(s=>activeRegIds.includes(s.regionId)).map(s=>s.id)
-        : org.subRegions.map(s=>s.id);
-    const activeFacIds  = selectedSubIds.length
-      ? org.facilities.filter(f=>selectedSubIds.includes(f.subRegionId)).map(f=>f.id)
-      : selectedRegIds.length
-        ? org.facilities.filter(f=>activeSubIds.includes(f.subRegionId)).map(f=>f.id)
-        : selectedCntIds.length
-          ? org.facilities.filter(f=>activeSubIds.includes(f.subRegionId)).map(f=>f.id)
-          : org.facilities.map(f=>f.id);
-
-    const mkDropdown = (id, placeholder, items, selectedSet) => {
-      if(!items.length) return `<div style="display:none"></div>`;
-      const allChecked = items.every(it=>selectedSet.has(it.id));
-      const selectAllRow = `<label style="display:flex;align-items:center;gap:6px;padding:5px 10px;cursor:pointer;white-space:nowrap;font-size:11px;font-weight:700;border-bottom:1px solid var(--border);color:var(--text)" data-scope-all="${id}">
-        <input type="checkbox" ${allChecked?'checked':''} data-scope-all-cb="${id}" style="accent-color:var(--accent);width:12px;height:12px">
-        Select All
-      </label>`;
-      const opts = items.map(it =>
-        `<label style="display:flex;align-items:center;gap:6px;padding:4px 10px;cursor:pointer;white-space:nowrap;font-size:11px;${selectedSet.has(it.id)?'color:var(--accent);background:rgba(99,179,237,0.08)':''}" data-scope-item="${it.id}">
-          <input type="checkbox" ${selectedSet.has(it.id)?'checked':''} data-scope-cb="${it.id}" style="accent-color:var(--accent);width:12px;height:12px">
-          ${esc(it.label)}
-        </label>`
-      ).join('');
-      const anySelected = items.some(it=>selectedSet.has(it.id));
-      const selCount = items.filter(it=>selectedSet.has(it.id)).length;
-      return `<div style="position:relative;display:inline-block">
-        <button class="scope-dd-btn" data-dd="${id}" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:11px;color:${anySelected?'var(--accent)':'var(--muted)'};cursor:pointer;white-space:nowrap;min-width:80px;display:flex;align-items:center;gap:4px">
-          ${placeholder}${anySelected?` <span style="background:var(--accent);color:#000;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700">${selCount}</span>`:''}
-          <span style="font-size:8px;margin-left:2px">▼</span>
-        </button>
-        <div class="scope-dd-menu" id="dd-${id}" style="display:none;position:absolute;top:100%;left:0;z-index:200;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:4px 0;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,0.4);max-height:280px;overflow-y:auto;margin-top:2px">
-          ${selectAllRow}${opts}
-        </div>
-      </div>`;
-    };
-
-    const cntItems  = org.countries.map(c=>({id:c.id, label:`🌎 ${c.name}`}));
-    const regItems  = org.regions.filter(r=>activeRegIds.includes(r.id)).map(r=>({id:r.id, label:`📍 ${r.code} — ${r.name}`}));
-    const subItems  = org.subRegions.filter(s=>activeSubIds.includes(s.id)).map(s=>({id:s.id, label:`▸ ${s.code} — ${s.name}`}));
-    const facItems  = org.facilities.filter(f=>activeFacIds.includes(f.id)).map(f=>({id:f.id, label:`🏭 ${f.code} — ${f.name}`}));
-
-    scopeWrap.innerHTML = `
-      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        ${mkDropdown('cnt', 'Country', cntItems, new Set(selectedCntIds))}
-        ${mkDropdown('reg', 'Region', regItems, new Set(selectedRegIds))}
-        ${mkDropdown('sub', 'Sub-Region', subItems, new Set(selectedSubIds))}
-        ${mkDropdown('fac', 'Facility', facItems, new Set(selectedFacIds))}
-        ${selIds.size ? `<button id="scopeClearBtn" style="background:transparent;border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--muted);cursor:pointer">✕ Clear</button>` : ''}
-        <span style="font-size:10px;color:var(--muted);padding:0 4px">${selIds.size ? `${selIds.size} selected` : 'Select scope'}</span>
-      </div>`;
-
-    // Track if selection changed while dropdown was open
-    let _scopeChanged = false;
-
-    const closeAllMenus = () => {
-      scopeWrap.querySelectorAll('.scope-dd-menu').forEach(m => {
-        if(m.style.display !== 'none'){
-          m.style.display = 'none';
-          if(_scopeChanged){
-            _scopeChanged = false;
-            syncLegacyId();
-            persist();
-            buildScopeUI();
-            render();
-          }
-        }
-      });
-    };
-
-    // Dropdown open/close — keep open while user clicks inside
-    scopeWrap.querySelectorAll('.scope-dd-btn').forEach(btn => {
-      btn.onclick = e => {
-        e.stopPropagation();
-        const ddId = 'dd-' + btn.dataset.dd;
-        const menu = document.getElementById(ddId);
-        const isOpen = menu.style.display !== 'none';
-        // Close other menus (and trigger render if they had changes)
-        scopeWrap.querySelectorAll('.scope-dd-menu').forEach(m => {
-          if(m.id !== ddId && m.style.display !== 'none'){
-            m.style.display = 'none';
-            if(_scopeChanged){
-              _scopeChanged = false;
-              syncLegacyId(); persist(); buildScopeUI(); render();
-            }
-          }
-        });
-        menu.style.display = isOpen ? 'none' : 'block';
-        if(isOpen && _scopeChanged){
-          _scopeChanged = false;
-          syncLegacyId(); persist(); buildScopeUI(); render();
-        }
-      };
-    });
-
-    // Prevent clicks inside dropdown from closing it
-    scopeWrap.querySelectorAll('.scope-dd-menu').forEach(menu => {
-      menu.addEventListener('click', e => e.stopPropagation());
-    });
-
-    // Checkbox change — just update state, don't render yet
-    scopeWrap.querySelectorAll('[data-scope-cb]').forEach(cb => {
-      cb.onchange = () => {
-        const id = cb.dataset.scopeCb;
-        const ids = new Set(state.ui.selectedFacilityIds || []);
-        if(cb.checked) ids.add(id); else ids.delete(id);
-        state.ui.selectedFacilityIds = [...ids];
-        _scopeChanged = true;
-        // Update visual state of this checkbox's label without full rebuild
-        const label = cb.closest('label');
-        if(label){
-          label.style.color = cb.checked ? 'var(--accent)' : '';
-          label.style.background = cb.checked ? 'rgba(99,179,237,0.08)' : '';
-        }
-        // Update Select All checkbox for this group
-        const menu = cb.closest('.scope-dd-menu');
-        if(menu){
-          const allCbs = [...menu.querySelectorAll('[data-scope-cb]')];
-          const allCheckedNow = allCbs.every(c=>c.checked);
-          const allCb = menu.querySelector('[data-scope-all-cb]');
-          if(allCb) allCb.checked = allCheckedNow;
-        }
-      };
-    });
-
-    // Select All checkbox
-    scopeWrap.querySelectorAll('[data-scope-all-cb]').forEach(allCb => {
-      allCb.onchange = () => {
-        const menu = allCb.closest('.scope-dd-menu');
-        if(!menu) return;
-        const cbs = [...menu.querySelectorAll('[data-scope-cb]')];
-        const ids = new Set(state.ui.selectedFacilityIds || []);
-        cbs.forEach(cb => {
-          cb.checked = allCb.checked;
-          const label = cb.closest('label');
-          if(label){
-            label.style.color = allCb.checked ? 'var(--accent)' : '';
-            label.style.background = allCb.checked ? 'rgba(99,179,237,0.08)' : '';
-          }
-          if(allCb.checked) ids.add(cb.dataset.scopeCb);
-          else ids.delete(cb.dataset.scopeCb);
-        });
-        state.ui.selectedFacilityIds = [...ids];
-        _scopeChanged = true;
-      };
-    });
-
-    // Clear button
-    scopeWrap.querySelector('#scopeClearBtn')?.addEventListener('click', e => {
-      e.stopPropagation();
-      state.ui.selectedFacilityIds = [];
-      _scopeChanged = false;
-      syncLegacyId();
-      persist(); buildScopeUI(); render();
-    });
-
-    // Close dropdowns on outside click — triggers render if changed
-    document.addEventListener('click', closeAllMenus, { once: true });
+  // Returns facility ids implied by the current selectedFacilityIds list
+  // (the list stores facility ids only — parent selections are resolved at filter time)
+  const scopeFacsUnder = (type, id) => {
+    if(type==='country'){
+      const rids = org.regions.filter(r=>r.countryId===id).map(r=>r.id);
+      const sids = org.subRegions.filter(s=>rids.includes(s.regionId)).map(s=>s.id);
+      return org.facilities.filter(f=>sids.includes(f.subRegionId)).map(f=>f.id);
+    }
+    if(type==='region'){
+      const sids = org.subRegions.filter(s=>s.regionId===id).map(s=>s.id);
+      return org.facilities.filter(f=>sids.includes(f.subRegionId)).map(f=>f.id);
+    }
+    if(type==='sub'){
+      return org.facilities.filter(f=>f.subRegionId===id).map(f=>f.id);
+    }
+    return [id]; // facility
   };
 
-  if(scopeWrap) {
+  // Compute label for the closed button based on selected facility ids
+  const scopeButtonLabel = (facIds) => {
+    const n = facIds.length;
+    const total = org.facilities.length;
+    if(!n)     return { icon:'🌎', text:'Select scope' };
+    if(n===total) return { icon:'🌎', text:'All facilities' };
+    if(n===1){
+      const fac = org.facilities.find(f=>f.id===facIds[0]);
+      return fac ? { icon:'🏭', text:`${fac.code} — ${fac.name}` } : { icon:'🏭', text:'1 facility' };
+    }
+    // Exact sub-region match?
+    for(const sub of org.subRegions){
+      const ids = scopeFacsUnder('sub', sub.id);
+      if(ids.length && ids.length===n && ids.every(id=>facIds.includes(id)))
+        return { icon:'▸', text:`${sub.code} · ${n} facilit${n===1?'y':'ies'}` };
+    }
+    // Exact region match?
+    for(const reg of org.regions){
+      const ids = scopeFacsUnder('region', reg.id);
+      if(ids.length && ids.length===n && ids.every(id=>facIds.includes(id)))
+        return { icon:'📍', text:`${reg.code} · ${n} facilit${n===1?'y':'ies'}` };
+    }
+    // Exact country match?
+    for(const cnt of org.countries){
+      const ids = scopeFacsUnder('country', cnt.id);
+      if(ids.length && ids.length===n && ids.every(id=>facIds.includes(id)))
+        return { icon:'🌎', text:`${cnt.name} · ${n} facilit${n===1?'y':'ies'}` };
+    }
+    // Mixed: show codes
+    const codes = facIds.map(id=>org.facilities.find(f=>f.id===id)?.code).filter(Boolean);
+    const label = codes.length<=3 ? codes.join(' · ') : `${codes.slice(0,2).join(' · ')} · +${codes.length-2} more`;
+    return { icon:'🏭', text:label };
+  };
+
+  // pending = facility ids being edited inside the open panel (not yet applied)
+  let _scopePending = new Set(state.ui.selectedFacilityIds || []);
+
+  // Check state of a group of facility ids against pending
+  const scopeCheckState = (facIds) => {
+    const n = facIds.filter(id=>_scopePending.has(id)).length;
+    if(n===0) return 'none';
+    if(n===facIds.length) return 'all';
+    return 'partial';
+  };
+
+  // Rebuild just the tree content inside the open panel
+  const buildScopeTree = () => {
+    const treeEl = document.getElementById('scopeTreeBody');
+    if(!treeEl) return;
+
+    const nodeHtml = (level, icon, name, code, facIds, childrenHtml, nodeId) => {
+      const st = scopeCheckState(facIds);
+      const hasChildren = !!childrenHtml;
+      const togId = `stog-${nodeId}`;
+      const childId = `sch-${nodeId}`;
+      // Start expanded by default
+      return `
+        <div class="stree-node" style="padding-left:${level*14}px">
+          <div class="stree-row ${st==='all'?'stree-checked':st==='partial'?'stree-partial':''}"
+               data-fac-ids="${facIds.join(',')}" data-node-state="${st}">
+            <span class="stree-toggle ${hasChildren?'':'stree-toggle-leaf'}" id="${togId}"
+                  data-child="${childId}" style="${hasChildren?'':'visibility:hidden'}">▶</span>
+            <input type="checkbox" class="stree-cb"
+                   ${st==='all'?'checked':''}
+                   data-fac-ids="${facIds.join(',')}"
+                   style="accent-color:var(--accent);width:12px;height:12px;flex-shrink:0;cursor:pointer;">
+            <span style="font-size:11px;flex-shrink:0">${icon}</span>
+            <span class="stree-name">${esc(name)}</span>
+            ${code?`<span class="stree-code">${esc(code)}</span>`:''}
+          </div>
+          ${hasChildren?`<div class="stree-children open" id="${childId}">${childrenHtml}</div>`:''}
+        </div>`;
+    };
+
+    const facHtml = (fac) =>
+      nodeHtml(3,'🏭',fac.name,fac.code,[fac.id],'',`fac-${fac.id}`);
+
+    const subHtml = (sub) => {
+      const fids = scopeFacsUnder('sub', sub.id);
+      const ch = org.facilities.filter(f=>f.subRegionId===sub.id).map(facHtml).join('');
+      return nodeHtml(2,'▸',sub.name,sub.code,fids,ch,`sub-${sub.id}`);
+    };
+
+    const regHtml = (reg) => {
+      const fids = scopeFacsUnder('region', reg.id);
+      const ch = org.subRegions.filter(s=>s.regionId===reg.id).map(subHtml).join('');
+      return nodeHtml(1,'📍',reg.name,reg.code,fids,ch,`reg-${reg.id}`);
+    };
+
+    const cntHtml = (cnt) => {
+      const fids = scopeFacsUnder('country', cnt.id);
+      const ch = org.regions.filter(r=>r.countryId===cnt.id).map(regHtml).join('');
+      return nodeHtml(0,'🌎',cnt.name,'',fids,ch,`cnt-${cnt.id}`);
+    };
+
+    treeEl.innerHTML = org.countries.map(cntHtml).join('');
+
+    // Fix indeterminate checkboxes
+    treeEl.querySelectorAll('.stree-cb').forEach(cb => {
+      const row = cb.closest('.stree-row');
+      cb.indeterminate = row?.classList.contains('stree-partial') || false;
+    });
+
+    // Toggle expand/collapse of children
+    treeEl.querySelectorAll('.stree-toggle:not(.stree-toggle-leaf)').forEach(tog => {
+      tog.onclick = e => {
+        e.stopPropagation();
+        const ch = document.getElementById(tog.dataset.child);
+        if(!ch) return;
+        const isOpen = ch.classList.contains('open');
+        ch.classList.toggle('open', !isOpen);
+        tog.classList.toggle('open', !isOpen);
+      };
+    });
+
+    // Checkbox click — toggle all facility ids for this node
+    treeEl.querySelectorAll('.stree-cb').forEach(cb => {
+      cb.onclick = e => e.stopPropagation();
+      cb.onchange = () => {
+        const fids = cb.dataset.facIds.split(',').filter(Boolean);
+        const st = scopeCheckState(fids);
+        if(st === 'all') fids.forEach(id => _scopePending.delete(id));
+        else             fids.forEach(id => _scopePending.add(id));
+        buildScopeTree(); // rebuild to update parent states
+        updateScopeFooter();
+      };
+    });
+
+    // Row click (not on checkbox or toggle) also toggles
+    treeEl.querySelectorAll('.stree-row').forEach(row => {
+      row.onclick = e => {
+        if(e.target.classList.contains('stree-cb') || e.target.classList.contains('stree-toggle')) return;
+        const cb = row.querySelector('.stree-cb');
+        if(cb){ cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); }
+      };
+    });
+  };
+
+  const updateScopeFooter = () => {
+    const n = _scopePending.size;
+    const total = org.facilities.length;
+    const el2 = document.getElementById('scopeFooterSummary');
+    if(el2) el2.textContent = n===0 ? 'No facilities selected' : n===total ? 'All facilities' : `${n} facilit${n===1?'y':'ies'} selected`;
+  };
+
+  const updateScopeButton = () => {
+    const btn = document.getElementById('scopeTriggerBtn');
+    if(!btn) return;
+    const fids = state.ui.selectedFacilityIds || [];
+    const { icon, text } = scopeButtonLabel(fids);
+    const iconEl = btn.querySelector('#scopeBtnIcon');
+    const labelEl = btn.querySelector('#scopeBtnLabel');
+    if(iconEl) iconEl.textContent = icon;
+    if(labelEl) labelEl.textContent = text;
+  };
+
+  const buildScopeUI = () => {
+    if(!scopeWrap) return;
     if(!org.countries.length && !org.facilities.length) {
       scopeWrap.innerHTML = `<span style="font-size:11px;color:var(--muted)">— Set up facilities in ⚙ Settings —</span>`;
-    } else {
-      buildScopeUI();
+      return;
     }
-  }
+
+    scopeWrap.innerHTML = `
+      <button id="scopeTriggerBtn" class="scope-tree-btn" onclick="document.getElementById('scopeTreePanel').classList.toggle('open');event.stopPropagation();">
+        <span id="scopeBtnIcon" style="font-size:12px">🌎</span>
+        <span id="scopeBtnLabel" style="flex:1;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;">Select scope</span>
+        <span style="font-size:8px;color:var(--muted);flex-shrink:0">▼</span>
+      </button>
+      <div id="scopeTreePanel" class="scope-tree-panel" onclick="event.stopPropagation()">
+        <div style="padding:9px 14px 7px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+          <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Select Scope</span>
+          <button id="scopeClearBtn" style="font-size:10px;color:var(--muted);border:none;background:none;cursor:pointer;padding:2px 6px;border-radius:4px;">✕ Clear all</button>
+        </div>
+        <div class="scope-tree-body" id="scopeTreeBody"></div>
+        <div style="padding:7px 14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+          <span id="scopeFooterSummary" style="font-size:10px;color:var(--muted)"></span>
+          <button id="scopeApplyBtn" style="padding:4px 14px;border-radius:5px;font-size:11px;font-weight:600;background:var(--accent);color:#fff;border:none;cursor:pointer;">Apply</button>
+        </div>
+      </div>`;
+
+    // Sync pending with current state each time panel opens
+    document.getElementById('scopeTriggerBtn').addEventListener('click', () => {
+      const panel = document.getElementById('scopeTreePanel');
+      if(panel.classList.contains('open')){
+        _scopePending = new Set(state.ui.selectedFacilityIds || []);
+        buildScopeTree();
+        updateScopeFooter();
+      }
+    });
+
+    // Apply
+    document.getElementById('scopeApplyBtn').onclick = () => {
+      state.ui.selectedFacilityIds = [..._scopePending];
+      syncLegacyId(); persist();
+      updateScopeButton();
+      document.getElementById('scopeTreePanel').classList.remove('open');
+      render();
+    };
+
+    // Clear all
+    document.getElementById('scopeClearBtn').onclick = () => {
+      _scopePending = new Set();
+      buildScopeTree();
+      updateScopeFooter();
+    };
+
+    // Close on outside click
+    document.addEventListener('click', () => {
+      const panel = document.getElementById('scopeTreePanel');
+      if(panel) panel.classList.remove('open');
+    });
+
+    // Initial build
+    _scopePending = new Set(state.ui.selectedFacilityIds || []);
+    buildScopeTree();
+    updateScopeFooter();
+    updateScopeButton();
+  };
+
+  if(scopeWrap) buildScopeUI();
 
   // Mode badge
   const badge = el('modeBadge');
@@ -520,9 +575,8 @@ function renderPlan(){
   const _alertKey = 'planAlertStripCollapsed';
   const _alertCollapsed = localStorage.getItem(_alertKey) === '1';
   const totalAlertCount = stockouts.length+overflows.length+warnings.length;
-  const _alertHidden = localStorage.getItem('planAlertStripHidden') === '1';
   const alertStripHTML = totalAlertCount>0
-    ? `<div id="alertStrip" style="margin-bottom:16px;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(245,158,11,0.05));border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:10px 16px;${_alertHidden?'display:none;':''}" >
+    ? `<div id="alertStrip" style="margin-bottom:16px;background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(245,158,11,0.05));border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:10px 16px;">
         <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none" id="alertStripToggle">
           <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--danger);">
             ⚡ Action Required
@@ -536,10 +590,6 @@ function renderPlan(){
           <div style="font-size:10px;color:var(--muted);margin-bottom:6px">· click any alert to jump to that date</div>
           <div style="display:flex;flex-wrap:wrap;gap:6px;">${alertChips}</div>
         </div>
-      </div>
-      <div id="alertStripReveal" style="margin-bottom:16px;display:${_alertHidden?'flex':'none'};align-items:center;gap:8px;padding:6px 12px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:8px;cursor:pointer;" title="Show alerts">
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:var(--danger);text-transform:uppercase;letter-spacing:.1em;">⚡ ${totalAlertCount} alert${totalAlertCount!==1?'s':''}</span>
-        <span style="font-size:10px;color:var(--muted)">— click to show</span>
       </div>`
     : `<div style="margin-bottom:16px;padding:10px 14px;background:var(--ok-bg);border:1px solid rgba(34,197,94,0.3);border-radius:8px;font-size:12px;color:#86efac;">✅ <strong>All clear</strong> — No stockouts or capacity issues in the planning horizon.</div>`;
 
@@ -783,16 +833,13 @@ function renderPlan(){
   const tableRows = unifiedRows.map(r => {
     if(r._type==='section-header'){
       return `<tr class="plan-section-collapse" data-sec="${r._secId}" style="cursor:pointer;user-select:none;">
-        <td class="row-header" style="position:sticky;left:0;z-index:3;background:#0a0d14;border:1px solid var(--border);padding:5px 10px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);white-space:nowrap;">
+        <td colspan="${1+plan.dates.length}" style="background:#0a0d14;border:1px solid var(--border);padding:5px 10px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);">
           <span class="collapse-icon" data-sec="${r._secId}" style="margin-right:6px;display:inline-block;transition:transform .15s;">▶</span>${esc(r.label)}
-        </td>
-        <td colspan="9999" style="background:#0a0d14;border:1px solid var(--border);border-left:none;padding:0;"></td>
-        </tr>`;
+        </td></tr>`;
     }
     if(r._type==='group-label'){
       return `<tr class="sec-child sec-${r._secId}" style="display:none;">
-        <td class="row-header" style="position:sticky;left:0;z-index:3;background:rgba(10,13,20,0.97);border:1px solid var(--border);padding:4px 10px 4px 22px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);white-space:nowrap;">${esc(r.label)}</td>
-        <td colspan="9999" style="background:rgba(255,255,255,0.015);border:1px solid var(--border);border-left:none;padding:0;"></td>
+        <td colspan="${1+plan.dates.length}" style="background:rgba(255,255,255,0.015);border:1px solid var(--border);padding:4px 10px 4px 22px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">${esc(r.label)}</td>
       </tr>`;
     }
     if(r._type==='subtotal-header'){
@@ -810,7 +857,7 @@ function renderPlan(){
   ${kpiHTML}
   ${alertStripHTML}
   <div class="card" style="margin-bottom:16px">
-    <div class="card-header sticky-table-header" id="planCardHeader">
+    <div class="card-header">
       <div>
         <div class="card-title">📊 Production Plan — 2025–2027</div>
         <div class="card-sub text-muted" style="font-size:11px">3-year view · All months collapsed by default · click month header to expand · ▶ click rows to expand · ✓ = actual · ⚠ = constrained · pink cols = weekends</div>
@@ -823,17 +870,14 @@ function renderPlan(){
     </div>
     <div class="card-body" style="padding:0">
       ${s.equipment.length===0?'<div style="padding:40px;text-align:center;color:var(--muted)">No equipment configured. Set up your Process Flow first.</div>':''}
-      <div class="sticky-scroll-wrap" id="planScrollWrap">
-        <div class="phantom-scrollbar" id="planPhantomBar"><div class="phantom-inner" id="planPhantomInner"></div></div>
-        <div class="table-scroll" id="planTableScroll" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 220px)">
-          <table class="data-table plan-table" id="planTable" style="min-width:max-content;width:100%">
-            <thead><tr>
-              <th class="row-header" style="min-width:160px;position:sticky;left:0;background:#0a0d14;z-index:5;">Row</th>
-              ${dateHeaders}
-            </tr></thead>
-            <tbody>${tableRows}</tbody>
-          </table>
-        </div>
+      <div class="table-scroll" id="planTableScroll" style="overflow-x:auto;overflow-y:auto">
+        <table class="data-table plan-table" id="planTable" style="min-width:max-content;width:100%">
+          <thead><tr>
+            <th class="row-header" style="min-width:160px;position:sticky;left:0;background:#0a0d14;z-index:5;">Row</th>
+            ${dateHeaders}
+          </tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -885,20 +929,6 @@ function renderPlan(){
 
   root.querySelector('#openCampaigns').onclick = () => openCampaignDialog();
   root.querySelector('#openActuals').onclick = () => openDailyActualsDialog();
-
-  // Phantom scrollbar sync — plan
-  (function syncPlanPhantom(){
-    const wrap    = document.getElementById('planScrollWrap');
-    const scroll  = document.getElementById('planTableScroll');
-    const phantom = document.getElementById('planPhantomBar');
-    const inner   = document.getElementById('planPhantomInner');
-    if(!scroll || !phantom || !inner) return;
-    const sync = () => { inner.style.width = scroll.scrollWidth + 'px'; };
-    sync();
-    new ResizeObserver(sync).observe(scroll);
-    phantom.addEventListener('scroll', () => { scroll.scrollLeft = phantom.scrollLeft; });
-    scroll.addEventListener('scroll',  () => { phantom.scrollLeft = scroll.scrollLeft; });
-  })();
   root.querySelector('#jumpTodayPlan').onclick = () => {
     const scroll = document.getElementById('planTableScroll');
     const table  = document.getElementById('planTable');
@@ -935,41 +965,13 @@ function renderPlan(){
   // Alert strip collapse toggle
   const alertToggle = root.querySelector('#alertStripToggle');
   if(alertToggle){
-    alertToggle.onclick = (e) => {
-      // Right-click or click on the caret-area → hide entire strip
+    alertToggle.onclick = () => {
       const body  = root.querySelector('#alertStripBody');
       const caret = root.querySelector('#alertStripCaret');
       const isNowHidden = body.style.display !== 'none';
       body.style.display = isNowHidden ? 'none' : 'block';
       caret.style.transform = isNowHidden ? 'rotate(-90deg)' : 'rotate(0deg)';
       localStorage.setItem('planAlertStripCollapsed', isNowHidden ? '1' : '0');
-    };
-    // The caret itself — long-press / right-click area hides whole strip
-    // Instead: add a small hide button on the right of the header bar
-    const caretEl = root.querySelector('#alertStripCaret');
-    if(caretEl){
-      // Wrap caret in a flex row with a hide button
-      caretEl.insertAdjacentHTML('afterend',
-        '<button id="alertStripHideBtn" title="Hide alert section" style="margin-left:10px;background:none;border:1px solid rgba(239,68,68,0.25);border-radius:4px;color:var(--muted);font-size:10px;cursor:pointer;padding:1px 7px;line-height:1.6;" onclick="event.stopPropagation()">✕ hide</button>'
-      );
-      root.querySelector('#alertStripHideBtn').onclick = (e) => {
-        e.stopPropagation();
-        const strip  = root.querySelector('#alertStrip');
-        const reveal = root.querySelector('#alertStripReveal');
-        if(strip)  strip.style.display  = 'none';
-        if(reveal) reveal.style.display = 'flex';
-        localStorage.setItem('planAlertStripHidden', '1');
-      };
-    }
-  }
-  // Reveal pill click → show strip again
-  const revealPill = root.querySelector('#alertStripReveal');
-  if(revealPill){
-    revealPill.onclick = () => {
-      const strip  = root.querySelector('#alertStrip');
-      if(strip)  strip.style.display  = '';
-      revealPill.style.display = 'none';
-      localStorage.setItem('planAlertStripHidden', '0');
     };
   }
 
@@ -1697,7 +1699,7 @@ function renderDemand(mode='total'){
 
   root.innerHTML = `
   <div class="card">
-    <div class="card-header sticky-table-header" id="demandCardHeader">
+    <div class="card-header">
       <div>
         <div class="card-title">📊 Demand Plan — Total Shipments</div>
         <div class="card-sub text-muted" style="font-size:11px">All facilities · Click facility row to expand · 🟢 Green = confirmed actual · White = forecast · Pink = weekends</div>
@@ -1709,17 +1711,14 @@ function renderDemand(mode='total'){
       </div>
     </div>
     <div class="card-body" style="padding:0">
-      <div class="sticky-scroll-wrap" id="demandScrollWrap">
-        <div class="phantom-scrollbar" id="demandPhantomBar"><div class="phantom-inner" id="demandPhantomInner"></div></div>
-        <div class="table-scroll" id="demandTableScroll" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 220px)">
-          <table class="data-table plan-table" id="${demandTableId}" style="min-width:max-content;width:100%">
-            <thead><tr>
-              <th class="row-header" style="min-width:200px;position:sticky;left:0;background:#0a0d14;z-index:5;">Facility / Product</th>
-              ${dateHeaders}
-            </tr></thead>
-            <tbody>${bodyRows}</tbody>
-          </table>
-        </div>
+      <div class="table-scroll" id="demandTableScroll" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 180px)">
+        <table class="data-table plan-table" id="${demandTableId}" style="min-width:max-content;width:100%">
+          <thead><tr>
+            <th class="row-header" style="min-width:200px;position:sticky;left:0;background:#0a0d14;z-index:5;">Facility / Product</th>
+            ${dateHeaders}
+          </tr></thead>
+          <tbody>${bodyRows}</tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -1762,19 +1761,6 @@ function renderDemand(mode='total'){
   });
 
   root.querySelector('#openForecastTool').onclick = () => openForecastToolDialog();
-
-  // Phantom scrollbar sync — demand
-  (function syncDemandPhantom(){
-    const scroll  = document.getElementById('demandTableScroll');
-    const phantom = document.getElementById('demandPhantomBar');
-    const inner   = document.getElementById('demandPhantomInner');
-    if(!scroll || !phantom || !inner) return;
-    const sync = () => { inner.style.width = scroll.scrollWidth + 'px'; };
-    sync();
-    new ResizeObserver(sync).observe(scroll);
-    phantom.addEventListener('scroll', () => { scroll.scrollLeft = phantom.scrollLeft; });
-    scroll.addEventListener('scroll',  () => { phantom.scrollLeft = scroll.scrollLeft; });
-  })();
   root.querySelector('#jumpTodayDemand').onclick = () => {
     const scroll = document.getElementById('demandTableScroll');
     const table  = document.getElementById('demand-table-total');

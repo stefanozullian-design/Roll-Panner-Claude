@@ -892,7 +892,7 @@ function renderPlan(){
     <div class="card-header sticky-table-header" id="planCardHeader">
       <div>
         <div class="card-title">📊 Production Plan — 2025–2027</div>
-        <div class="card-sub text-muted" style="font-size:11px">3-year view · All months collapsed by default · click month header to expand · ▶ click rows to expand · ✓ = actual · ⚠ = constrained · pink cols = weekends</div>
+   
       </div>
       <div class="flex gap-2">
         <button class="btn" id="jumpTodayPlan">📅 Today</button>

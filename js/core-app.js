@@ -496,33 +496,72 @@ function renderPlan(){
   let firstStockout = stockouts.length ? stockouts.reduce((min,a)=>a.date<min?a.date:min, stockouts[0].date) : null;
   const daysUntilStockout = firstStockout ? Math.max(0, Math.round((new Date(firstStockout)-new Date(todayStr))/86400000)) : null;
 
-  const kpiHTML = `<div class="kpi-row">
-    <div class="kpi-card ${stockouts.length?'kpi-danger':'kpi-ok'}">
-      <div class="kpi-label">🚨 Stockout Alerts</div>
-      <div class="kpi-value" style="color:${stockouts.length?'var(--danger)':'var(--ok)'}">${stockouts.length}</div>
-      <div class="kpi-sub">${stockouts.length?'in 2025-2027 horizon':'None detected ✓'}</div>
-    </div>
-    ${daysUntilStockout!==null?`<div class="kpi-card kpi-danger">
-      <div class="kpi-label">⏱ First Stockout</div>
-      <div class="kpi-value" style="color:var(--warn)">${daysUntilStockout}d</div>
-      <div class="kpi-sub">${firstStockout?.slice(5)} · ${stockouts[0]?.storageName||''}</div>
-    </div>`:''}
-    <div class="kpi-card ${overflows.length?'kpi-warn':'kpi-neutral'}">
-      <div class="kpi-label">⚠ Capacity Breaches</div>
-      <div class="kpi-value" style="color:${overflows.length?'var(--warn)':'var(--muted)'}">${overflows.length}</div>
-      <div class="kpi-sub">Storage overflow events</div>
-    </div>
-    <div class="kpi-card kpi-neutral">
-      <div class="kpi-label">📦 Finished Products</div>
-      <div class="kpi-value">${s.finishedProducts.length}</div>
-      <div class="kpi-sub">${s.finishedProducts.map(p=>p.code||p.name.slice(0,8)).join(', ')||'—'}</div>
-    </div>
-    <div class="kpi-card kpi-neutral">
-      <div class="kpi-label">🏭 Equipment</div>
-      <div class="kpi-value">${s.equipment.length}</div>
-      <div class="kpi-sub">${s.equipment.filter(e=>e.type==='kiln').length} kilns · ${s.equipment.filter(e=>e.type==='finish_mill').length} mills</div>
-    </div>
-  </div>`;
+  // ── KPI Panel — two-state: expanded cards / collapsed slim bar ──
+  const _kpiKey = 'kpiPanelOpen';
+  const _kpiOpen = localStorage.getItem(_kpiKey) !== '0'; // default open
+
+  // Product pills: short name + neon color per product
+  const prodPillColor = pid => {
+    const base = ['#3b82f6','#a78bfa','#22c55e','#f59e0b','#ec4899','#06b6d4','#f97316','#84cc16'];
+    let h=0; (pid||'').split('').forEach(c=>h=(h*31+c.charCodeAt(0))>>>0);
+    return base[h%base.length];
+  };
+  const prodPills = s.finishedProducts.map(p => {
+    const col = prodPillColor(p.id);
+    const short = p.name.length > 14 ? p.name.slice(0,13).trim()+'…' : p.name;
+    return `<span style="display:inline-flex;align-items:center;padding:2px 7px;border-radius:4px;border:1px solid ${col}44;background:${col}18;color:${col};font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;letter-spacing:.04em;white-space:nowrap">${esc(short)}</span>`;
+  }).join('');
+
+  // Slim bar (collapsed state)
+  const kpiSlim = `
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:${stockouts.length?'var(--danger)':'var(--ok)'}">
+        🚨 ${stockouts.length} stockout${stockouts.length!==1?'s':''}
+      </span>
+      ${daysUntilStockout!==null?`<span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--warn)">⏱ ${daysUntilStockout}d to first</span>`:''}
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${overflows.length?'var(--warn)':'var(--muted)'}">⚠ ${overflows.length} overflow${overflows.length!==1?'s':''}</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted)">🏭 ${s.equipment.filter(e=>e.type==='kiln').length}k · ${s.equipment.filter(e=>e.type==='finish_mill').length}fm</span>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">${prodPills}</div>
+    </div>`;
+
+  // Full expanded cards
+  const kpiExpanded = `
+    <div class="kpi-row" style="margin-bottom:0">
+      <div class="kpi-card ${stockouts.length?'kpi-danger':'kpi-ok'}">
+        <div class="kpi-label">🚨 Stockout Alerts</div>
+        <div class="kpi-value" style="color:${stockouts.length?'var(--danger)':'var(--ok)'}">${stockouts.length}</div>
+        <div class="kpi-sub">${stockouts.length?'in 2025-2027 horizon':'None detected ✓'}</div>
+      </div>
+      ${daysUntilStockout!==null?`<div class="kpi-card kpi-danger">
+        <div class="kpi-label">⏱ First Stockout</div>
+        <div class="kpi-value" style="color:var(--warn)">${daysUntilStockout}d</div>
+        <div class="kpi-sub">${firstStockout?.slice(5)} · ${stockouts[0]?.storageName||''}</div>
+      </div>`:''}
+      <div class="kpi-card ${overflows.length?'kpi-warn':'kpi-neutral'}">
+        <div class="kpi-label">⚠ Capacity Breaches</div>
+        <div class="kpi-value" style="color:${overflows.length?'var(--warn)':'var(--muted)'}">${overflows.length}</div>
+        <div class="kpi-sub">Storage overflow events</div>
+      </div>
+      <div class="kpi-card kpi-neutral" style="flex:2;min-width:220px">
+        <div class="kpi-label" style="margin-bottom:6px">📦 Finished Products <span style="font-weight:400;color:var(--muted)">(${s.finishedProducts.length})</span></div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap">${prodPills}</div>
+      </div>
+      <div class="kpi-card kpi-neutral">
+        <div class="kpi-label">🏭 Equipment</div>
+        <div class="kpi-value">${s.equipment.length}</div>
+        <div class="kpi-sub">${s.equipment.filter(e=>e.type==='kiln').length} kilns · ${s.equipment.filter(e=>e.type==='finish_mill').length} mills</div>
+      </div>
+    </div>`;
+
+  const kpiHTML = `
+    <div id="kpiPanel" style="margin-bottom:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+      <div id="kpiToggleBar" style="display:flex;align-items:center;justify-content:space-between;padding:6px 14px;cursor:pointer;user-select:none;border-bottom:${_kpiOpen?'1px solid var(--border)':'none'}">
+        <div id="kpiSlimContent" style="display:${_kpiOpen?'none':'flex'};align-items:center;gap:8px;flex:1">${kpiSlim}</div>
+        <div style="display:${_kpiOpen?'block':'none'};font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)" id="kpiExpandedLabel">Production Intelligence</div>
+        <span id="kpiCaret" style="font-size:10px;color:var(--muted);transition:transform .2s;display:inline-block;transform:${_kpiOpen?'rotate(0deg)':'rotate(-90deg)'}">▼</span>
+      </div>
+      <div id="kpiBody" style="display:${_kpiOpen?'block':'none'};padding:12px 14px">${kpiExpanded}</div>
+    </div>`;
 
   // Group consecutive alerts by storage+severity into date ranges
   const groupAlerts = (alerts) => {
@@ -972,6 +1011,26 @@ function renderPlan(){
   });
 
   // Alert strip collapse toggle + hide/reveal
+  // ── KPI panel toggle ──
+  const kpiToggleBar = root.querySelector('#kpiToggleBar');
+  if(kpiToggleBar){
+    kpiToggleBar.onclick = () => {
+      const body  = root.querySelector('#kpiBody');
+      const caret = root.querySelector('#kpiCaret');
+      const slim  = root.querySelector('#kpiSlimContent');
+      const label = root.querySelector('#kpiExpandedLabel');
+      const bar   = root.querySelector('#kpiToggleBar');
+      if(!body) return;
+      const nowOpen = body.style.display === 'none';
+      body.style.display    = nowOpen ? 'block' : 'none';
+      slim.style.display    = nowOpen ? 'none'  : 'flex';
+      label.style.display   = nowOpen ? 'block' : 'none';
+      caret.style.transform = nowOpen ? 'rotate(0deg)' : 'rotate(-90deg)';
+      bar.style.borderBottom = nowOpen ? '1px solid var(--border)' : 'none';
+      localStorage.setItem('kpiPanelOpen', nowOpen ? '1' : '0');
+    };
+  }
+
   const alertToggle = root.querySelector('#alertStripToggle');
   if(alertToggle){
     alertToggle.onclick = () => {
@@ -1553,9 +1612,8 @@ function renderFlow(){
         <form id="stForm" class="form-grid" style="grid-template-columns:1fr 1fr;margin-bottom:16px">
           <input type="hidden" name="id">
           <div><label class="form-label">Name *</label><input class="form-input" name="name" placeholder="e.g. Clinker Silo 1" required></div>
-          <div><label class="form-label">Facility *</label><select class="form-input" name="facilityId" id="stFacilitySelect" required><option value="">— select facility —</option>${state.org.facilities.map(f=>`<option value="${f.id}">${esc(f.code ? f.code+' — '+f.name : f.name)}</option>`).join('')}</select></div>
           <div><label class="form-label">Category Hint</label><input class="form-input" name="categoryHint" placeholder="CLINKER / CEMENT"></div>
-          <div><label class="form-label">Allowed Product</label><select class="form-input" name="allowedProductId" id="stProductSelect"><option value="">None</option>${state.catalog.filter(m=>m.category==='FINISHED_PRODUCT'||m.category==='INTERMEDIATE_PRODUCT').map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select></div>
+          <div><label class="form-label">Allowed Product</label><select class="form-input" name="allowedProductId"><option value="">None</option>${s.materials.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select></div>
           <div><label class="form-label">Max Capacity (STn)</label><input class="form-input" type="number" step="1" name="maxCapacityStn" placeholder="0"></div>
           <div style="grid-column:1/-1;display:flex;gap:8px">
             <button type="submit" id="saveStBtn" class="btn btn-primary">Save</button>
@@ -1563,15 +1621,14 @@ function renderFlow(){
           </div>
         </form>
         <div class="table-scroll" style="max-height:480px;border-radius:8px;overflow-y:auto !important;border:1px solid var(--border)">
-          <table class="data-table"><thead><tr><th>Facility</th><th>Name</th><th>Hint</th><th>Product</th><th>Max Cap</th><th>Actions</th></tr></thead>
-          <tbody>${s.dataset.storages.map(st=>{ const fac=state.org.facilities.find(f=>f.id===st.facilityId); return`<tr>
-            <td style="font-size:10px;color:var(--muted)">${esc(fac?.code||st.facilityId||'—')}</td>
+          <table class="data-table"><thead><tr><th>Name</th><th>Hint</th><th>Product</th><th>Max Cap</th><th>Actions</th></tr></thead>
+          <tbody>${s.storages.map(st=>`<tr>
             <td>${esc(st.name)}</td>
             <td><span class="pill pill-gray" style="font-size:10px">${esc(st.categoryHint||'—')}</span></td>
             <td>${(st.allowedProductIds||[]).map(pid=>esc(s.getMaterial(pid)?.name||pid)).join(', ')||'—'}</td>
             <td class="num">${st.maxCapacityStn?fmt0(st.maxCapacityStn):'—'}</td>
             <td><div class="row-actions"><button class="action-btn" data-edit-st="${st.id}">Edit</button><button class="action-btn del" data-del-st="${st.id}">Delete</button></div></td>
-          </tr>`; }).join('')||'<tr><td colspan="6" class="text-muted" style="text-align:center;padding:20px">No storages</td></tr>'}</tbody></table>
+          </tr>`).join('')||'<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">No storages</td></tr>'}</tbody></table>
         </div>
       </div>
     </div>
@@ -1580,7 +1637,7 @@ function renderFlow(){
   // Wire flow forms
   const rer = ()=>{ persist(); renderFlow(); renderPlan(); renderDemand(); renderData(); };
   const clearEq=()=>{ root.querySelector('#eqForm').reset(); root.querySelector('#eqForm [name=id]').value=''; root.querySelector('#saveEqBtn').textContent='Save'; root.querySelector('#cancelEqEdit').classList.add('hidden'); };
-  const clearSt=()=>{ root.querySelector('#stForm').reset(); root.querySelector('#stForm [name=id]').value=''; root.querySelector('#stForm [name=facilityId]').value=''; root.querySelector('#saveStBtn').textContent='Save'; root.querySelector('#cancelStEdit').classList.add('hidden'); };
+  const clearSt=()=>{ root.querySelector('#stForm').reset(); root.querySelector('#stForm [name=id]').value=''; root.querySelector('#saveStBtn').textContent='Save'; root.querySelector('#cancelStEdit').classList.add('hidden'); };
   const clearCap=()=>{ root.querySelector('#capForm').reset(); root.querySelector('[name=editingCapId]').value=''; root.querySelector('#saveCapBtn').textContent='Save Capability'; root.querySelector('#cancelCapEdit').classList.add('hidden'); };
   root.querySelector('#cancelEqEdit').onclick=clearEq;
   root.querySelector('#cancelStEdit').onclick=clearSt;
@@ -1596,19 +1653,7 @@ function renderFlow(){
     facActions.deleteEquipment(eqId);
     rer();
   });
-  root.querySelectorAll('[data-edit-st]').forEach(btn=>btn.onclick=()=>{
-    const row=s.dataset.storages.find(x=>x.id===btn.dataset.editSt); if(!row) return;
-    const f=root.querySelector('#stForm');
-    f.querySelector('[name=id]').value=row.id;
-    f.querySelector('[name=name]').value=row.name;
-    f.querySelector('[name=facilityId]').value=row.facilityId||'';
-    f.querySelector('[name=categoryHint]').value=row.categoryHint||'';
-    f.querySelector('[name=allowedProductId]').value=(row.allowedProductIds||[])[0]||'';
-    f.querySelector('[name=maxCapacityStn]').value=row.maxCapacityStn||'';
-    root.querySelector('#saveStBtn').textContent='Update';
-    root.querySelector('#cancelStEdit').classList.remove('hidden');
-    f.scrollIntoView({behavior:'smooth',block:'nearest'});
-  });
+  root.querySelectorAll('[data-edit-st]').forEach(btn=>btn.onclick=()=>{ const row=s.storages.find(x=>x.id===btn.dataset.editSt); if(!row) return; const f=root.querySelector('#stForm'); f.querySelector('[name=id]').value=row.id; f.querySelector('[name=name]').value=row.name; f.querySelector('[name=categoryHint]').value=row.categoryHint||''; f.querySelector('[name=allowedProductId]').value=(row.allowedProductIds||[])[0]||''; f.querySelector('[name=maxCapacityStn]').value=row.maxCapacityStn||''; root.querySelector('#saveStBtn').textContent='Update'; root.querySelector('#cancelStEdit').classList.remove('hidden'); });
   root.querySelectorAll('[data-del-st]').forEach(btn=>btn.onclick=()=>{
     if(!confirm('Delete storage and related inventory actuals?')) return;
     const stId = btn.dataset.delSt;
@@ -1630,22 +1675,7 @@ function renderFlow(){
     rer();
   });
   root.querySelector('#eqForm').onsubmit=e=>{ e.preventDefault(); a.upsertEquipment(Object.fromEntries(new FormData(e.target).entries())); clearEq(); rer(); showToast('Equipment saved ✓'); };
-  root.querySelector('#stForm').onsubmit=e=>{
-    e.preventDefault();
-    const fd=new FormData(e.target);
-    const facId=fd.get('facilityId');
-    if(!facId){ showToast('Please select a facility','err'); return; }
-    // Override scope to the chosen facility so upsertStorage uses the right primaryFacId
-    const facActions=actions({...state, ui:{...state.ui, selectedFacilityId:facId, selectedFacilityIds:[facId]}});
-    facActions.upsertStorage({
-      id:fd.get('id')||'',
-      name:fd.get('name'),
-      categoryHint:fd.get('categoryHint'),
-      allowedProductIds:fd.get('allowedProductId')?[fd.get('allowedProductId')]:[],
-      maxCapacityStn:fd.get('maxCapacityStn')
-    });
-    clearSt(); rer(); showToast('Storage saved ✓');
-  };
+  root.querySelector('#stForm').onsubmit=e=>{ e.preventDefault(); const fd=new FormData(e.target); a.upsertStorage({id:fd.get('id')||'',name:fd.get('name'),categoryHint:fd.get('categoryHint'),allowedProductIds:fd.get('allowedProductId')?[fd.get('allowedProductId')]:[], maxCapacityStn:fd.get('maxCapacityStn')}); clearSt(); rer(); showToast('Storage saved ✓'); };
   root.querySelector('#capForm').onsubmit=e=>{ e.preventDefault(); const fd=new FormData(e.target); a.upsertCapability({equipmentId:fd.get('equipmentId'),productId:fd.get('productId'),maxRateStpd:fd.get('maxRateStpd'),electricKwhPerStn:fd.get('electricKwhPerStn'),thermalMMBTUPerStn:'0'}); clearCap(); rer(); showToast('Capability saved ✓'); };
 }
 

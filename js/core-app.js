@@ -620,30 +620,44 @@ function renderPlan(){
     { id:'bod',  title:'INV.-BOD (STn)', rows: plan.inventoryBODRows  },
     { id:'prod', title:'PROD. (STn/day)',      rows: filterProductionRows(plan.productionRows) },
     { id:'out',  title:'SHIP. (STn)', rows: (() => {
-      // Collect customer shipment rows from simEngine — each row now carries _facilityId
+      // Rebuild outflow rows grouped by facility, only customer shipments
+      // Collect all shipment rows from simEngine output
       const allShipRows = [];
       let inCustShip = false;
       for(const r of (plan.outflowRows||[])){
-        if(r.kind==='group')     inCustShip = /CUSTOMER SHIP/i.test(r.label||'');
+        if(r.kind==='group')      inCustShip = /CUSTOMER SHIP/i.test(r.label||'');
         else if(r.kind==='subtotal') inCustShip = false;
         else if(r.kind==='row' && inCustShip) allShipRows.push(r);
       }
 
-      // Group by facility using _facilityId set by simEngine — no name matching needed
-      const facIds = plan.facilityIds || ((state.ui.selectedFacilityIds||[]).length
-        ? state.ui.selectedFacilityIds
-        : state.org.facilities.map(f=>f.id));
+      // Group by facility: for each selected facility that has finished products,
+      // emit a facility group header then its product rows
+      const facIds = (state.ui.selectedFacilityIds||[]).length ? state.ui.selectedFacilityIds : state.org.facilities.map(f=>f.id);
       const rows = [];
       facIds.forEach(facId => {
         const fac = state.org.facilities.find(f=>f.id===facId);
         if(!fac) return;
-        const facRows = allShipRows.filter(r => r._facilityId === facId);
-        if(!facRows.length) return;
+        const facProdIds = new Set(
+          (s.dataset.facilityProducts||[])
+            .filter(fp=>fp.facilityId===facId)
+            .map(fp=>fp.productId)
+        );
+        // match shipRows to this facility's products
+        // Match shipRows by productId (if present) or by material name lookup
+        const facRows = allShipRows.filter(r => {
+          if(r.productId) return facProdIds.has(r.productId);
+          // simEngine doesn't attach productId — match by material name
+          return [...facProdIds].some(pid => {
+            const mat = s.getMaterial(pid);
+            return mat && (r.label === mat.name || r.productLabel === mat.name);
+          });
+        });
+        if(!facRows.length) return; // skip facilities with no finished products
         rows.push({ kind:'group', label: fac.code ? `${fac.code} — ${fac.name}` : fac.name });
         facRows.forEach(r => rows.push(r));
       });
 
-      // Fallback: flat list if no _facilityId tags (shouldn't happen)
+      // Fallback: if grouping found nothing, show flat list
       if(!rows.length) allShipRows.forEach(r => rows.push(r));
       return rows;
     })() },
@@ -1539,8 +1553,9 @@ function renderFlow(){
         <form id="stForm" class="form-grid" style="grid-template-columns:1fr 1fr;margin-bottom:16px">
           <input type="hidden" name="id">
           <div><label class="form-label">Name *</label><input class="form-input" name="name" placeholder="e.g. Clinker Silo 1" required></div>
+          <div><label class="form-label">Facility *</label><select class="form-input" name="facilityId" id="stFacilitySelect" required><option value="">— select facility —</option>${state.org.facilities.map(f=>`<option value="${f.id}">${esc(f.code ? f.code+' — '+f.name : f.name)}</option>`).join('')}</select></div>
           <div><label class="form-label">Category Hint</label><input class="form-input" name="categoryHint" placeholder="CLINKER / CEMENT"></div>
-          <div><label class="form-label">Allowed Product</label><select class="form-input" name="allowedProductId"><option value="">None</option>${s.materials.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select></div>
+          <div><label class="form-label">Allowed Product</label><select class="form-input" name="allowedProductId" id="stProductSelect"><option value="">None</option>${state.catalog.filter(m=>m.category==='FINISHED_PRODUCT'||m.category==='INTERMEDIATE_PRODUCT').map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select></div>
           <div><label class="form-label">Max Capacity (STn)</label><input class="form-input" type="number" step="1" name="maxCapacityStn" placeholder="0"></div>
           <div style="grid-column:1/-1;display:flex;gap:8px">
             <button type="submit" id="saveStBtn" class="btn btn-primary">Save</button>
@@ -1548,14 +1563,15 @@ function renderFlow(){
           </div>
         </form>
         <div class="table-scroll" style="max-height:480px;border-radius:8px;overflow-y:auto !important;border:1px solid var(--border)">
-          <table class="data-table"><thead><tr><th>Name</th><th>Hint</th><th>Product</th><th>Max Cap</th><th>Actions</th></tr></thead>
-          <tbody>${s.storages.map(st=>`<tr>
+          <table class="data-table"><thead><tr><th>Facility</th><th>Name</th><th>Hint</th><th>Product</th><th>Max Cap</th><th>Actions</th></tr></thead>
+          <tbody>${s.dataset.storages.map(st=>{ const fac=state.org.facilities.find(f=>f.id===st.facilityId); return`<tr>
+            <td style="font-size:10px;color:var(--muted)">${esc(fac?.code||st.facilityId||'—')}</td>
             <td>${esc(st.name)}</td>
             <td><span class="pill pill-gray" style="font-size:10px">${esc(st.categoryHint||'—')}</span></td>
             <td>${(st.allowedProductIds||[]).map(pid=>esc(s.getMaterial(pid)?.name||pid)).join(', ')||'—'}</td>
             <td class="num">${st.maxCapacityStn?fmt0(st.maxCapacityStn):'—'}</td>
             <td><div class="row-actions"><button class="action-btn" data-edit-st="${st.id}">Edit</button><button class="action-btn del" data-del-st="${st.id}">Delete</button></div></td>
-          </tr>`).join('')||'<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">No storages</td></tr>'}</tbody></table>
+          </tr>`; }).join('')||'<tr><td colspan="6" class="text-muted" style="text-align:center;padding:20px">No storages</td></tr>'}</tbody></table>
         </div>
       </div>
     </div>
@@ -1564,7 +1580,7 @@ function renderFlow(){
   // Wire flow forms
   const rer = ()=>{ persist(); renderFlow(); renderPlan(); renderDemand(); renderData(); };
   const clearEq=()=>{ root.querySelector('#eqForm').reset(); root.querySelector('#eqForm [name=id]').value=''; root.querySelector('#saveEqBtn').textContent='Save'; root.querySelector('#cancelEqEdit').classList.add('hidden'); };
-  const clearSt=()=>{ root.querySelector('#stForm').reset(); root.querySelector('#stForm [name=id]').value=''; root.querySelector('#saveStBtn').textContent='Save'; root.querySelector('#cancelStEdit').classList.add('hidden'); };
+  const clearSt=()=>{ root.querySelector('#stForm').reset(); root.querySelector('#stForm [name=id]').value=''; root.querySelector('#stForm [name=facilityId]').value=''; root.querySelector('#saveStBtn').textContent='Save'; root.querySelector('#cancelStEdit').classList.add('hidden'); };
   const clearCap=()=>{ root.querySelector('#capForm').reset(); root.querySelector('[name=editingCapId]').value=''; root.querySelector('#saveCapBtn').textContent='Save Capability'; root.querySelector('#cancelCapEdit').classList.add('hidden'); };
   root.querySelector('#cancelEqEdit').onclick=clearEq;
   root.querySelector('#cancelStEdit').onclick=clearSt;
@@ -1580,7 +1596,19 @@ function renderFlow(){
     facActions.deleteEquipment(eqId);
     rer();
   });
-  root.querySelectorAll('[data-edit-st]').forEach(btn=>btn.onclick=()=>{ const row=s.storages.find(x=>x.id===btn.dataset.editSt); if(!row) return; const f=root.querySelector('#stForm'); f.querySelector('[name=id]').value=row.id; f.querySelector('[name=name]').value=row.name; f.querySelector('[name=categoryHint]').value=row.categoryHint||''; f.querySelector('[name=allowedProductId]').value=(row.allowedProductIds||[])[0]||''; f.querySelector('[name=maxCapacityStn]').value=row.maxCapacityStn||''; root.querySelector('#saveStBtn').textContent='Update'; root.querySelector('#cancelStEdit').classList.remove('hidden'); });
+  root.querySelectorAll('[data-edit-st]').forEach(btn=>btn.onclick=()=>{
+    const row=s.dataset.storages.find(x=>x.id===btn.dataset.editSt); if(!row) return;
+    const f=root.querySelector('#stForm');
+    f.querySelector('[name=id]').value=row.id;
+    f.querySelector('[name=name]').value=row.name;
+    f.querySelector('[name=facilityId]').value=row.facilityId||'';
+    f.querySelector('[name=categoryHint]').value=row.categoryHint||'';
+    f.querySelector('[name=allowedProductId]').value=(row.allowedProductIds||[])[0]||'';
+    f.querySelector('[name=maxCapacityStn]').value=row.maxCapacityStn||'';
+    root.querySelector('#saveStBtn').textContent='Update';
+    root.querySelector('#cancelStEdit').classList.remove('hidden');
+    f.scrollIntoView({behavior:'smooth',block:'nearest'});
+  });
   root.querySelectorAll('[data-del-st]').forEach(btn=>btn.onclick=()=>{
     if(!confirm('Delete storage and related inventory actuals?')) return;
     const stId = btn.dataset.delSt;
@@ -1602,7 +1630,22 @@ function renderFlow(){
     rer();
   });
   root.querySelector('#eqForm').onsubmit=e=>{ e.preventDefault(); a.upsertEquipment(Object.fromEntries(new FormData(e.target).entries())); clearEq(); rer(); showToast('Equipment saved ✓'); };
-  root.querySelector('#stForm').onsubmit=e=>{ e.preventDefault(); const fd=new FormData(e.target); a.upsertStorage({id:fd.get('id')||'',name:fd.get('name'),categoryHint:fd.get('categoryHint'),allowedProductIds:fd.get('allowedProductId')?[fd.get('allowedProductId')]:[], maxCapacityStn:fd.get('maxCapacityStn')}); clearSt(); rer(); showToast('Storage saved ✓'); };
+  root.querySelector('#stForm').onsubmit=e=>{
+    e.preventDefault();
+    const fd=new FormData(e.target);
+    const facId=fd.get('facilityId');
+    if(!facId){ showToast('Please select a facility','err'); return; }
+    // Override scope to the chosen facility so upsertStorage uses the right primaryFacId
+    const facActions=actions({...state, ui:{...state.ui, selectedFacilityId:facId, selectedFacilityIds:[facId]}});
+    facActions.upsertStorage({
+      id:fd.get('id')||'',
+      name:fd.get('name'),
+      categoryHint:fd.get('categoryHint'),
+      allowedProductIds:fd.get('allowedProductId')?[fd.get('allowedProductId')]:[],
+      maxCapacityStn:fd.get('maxCapacityStn')
+    });
+    clearSt(); rer(); showToast('Storage saved ✓');
+  };
   root.querySelector('#capForm').onsubmit=e=>{ e.preventDefault(); const fd=new FormData(e.target); a.upsertCapability({equipmentId:fd.get('equipmentId'),productId:fd.get('productId'),maxRateStpd:fd.get('maxRateStpd'),electricKwhPerStn:fd.get('electricKwhPerStn'),thermalMMBTUPerStn:'0'}); clearCap(); rer(); showToast('Capability saved ✓'); };
 }
 

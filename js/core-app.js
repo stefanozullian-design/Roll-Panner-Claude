@@ -630,98 +630,8 @@ function renderPlan(){
   const isWeekendDate = d => [0,6].includes(new Date(d+'T00:00:00').getDay());
   const wkdColStyle = 'background:rgba(239,68,68,0.06);border-left:1px solid rgba(239,68,68,0.3);';
 
-  // Build unified row list from all 4 sections
-  // Filter production rows: skip subtotal+children if no equipment rows exist for that group
-  const filterProductionRows = (rows) => {
-    const out = [];
-    let i = 0;
-    while(i < rows.length){
-      const r = rows[i];
-      if(r.kind === 'subtotal'){
-        const children = [];
-        let j = i + 1;
-        while(j < rows.length && rows[j].kind === 'row') { children.push(rows[j]); j++; }
-        const hasEquipment = children.some(c => c.rowType === 'equipment');
-        if(hasEquipment){
-          out.push(r);
-          children.forEach(c => out.push(c));
-        }
-        i = j;
-      } else {
-        out.push(r);
-        i++;
-      }
-    }
-    return out;
-  };
-
-  const SECTIONS = [
-    { id:'bod',  title:'INV.-BOD (STn)', rows: plan.inventoryBODRows  },
-    { id:'prod', title:'PROD. (STn/day)',      rows: filterProductionRows(plan.productionRows) },
-    { id:'out',  title:'SHIP. (STn)', rows: (() => {
-      // Rebuild outflow rows grouped by facility, only customer shipments
-      // Collect all shipment rows from simEngine output
-      const allShipRows = [];
-      let inCustShip = false;
-      for(const r of (plan.outflowRows||[])){
-        if(r.kind==='group')      inCustShip = /CUSTOMER SHIP/i.test(r.label||'');
-        else if(r.kind==='subtotal') inCustShip = false;
-        else if(r.kind==='row' && inCustShip) allShipRows.push(r);
-      }
-
-      // Group by facility: for each selected facility that has finished products,
-      // emit a facility group header then its product rows
-      const facIds = (state.ui.selectedFacilityIds||[]).length ? state.ui.selectedFacilityIds : state.org.facilities.map(f=>f.id);
-      const rows = [];
-      facIds.forEach(facId => {
-        const fac = state.org.facilities.find(f=>f.id===facId);
-        if(!fac) return;
-        const facProdIds = new Set(
-          (s.dataset.facilityProducts||[])
-            .filter(fp=>fp.facilityId===facId)
-            .map(fp=>fp.productId)
-        );
-        // match shipRows to this facility's products
-        // Match shipRows by productId (if present) or by material name lookup
-        const facRows = allShipRows.filter(r => {
-          if(r.productId) return facProdIds.has(r.productId);
-          // simEngine doesn't attach productId — match by material name
-          return [...facProdIds].some(pid => {
-            const mat = s.getMaterial(pid);
-            return mat && (r.label === mat.name || r.productLabel === mat.name);
-          });
-        });
-        if(!facRows.length) return; // skip facilities with no finished products
-        rows.push({ kind:'group', label: fac.code ? `${fac.code} — ${fac.name}` : fac.name });
-        facRows.forEach(r => rows.push(r));
-      });
-
-      // Fallback: if grouping found nothing, show flat list
-      if(!rows.length) allShipRows.forEach(r => rows.push(r));
-      return rows;
-    })() },
-    { id:'eod',  title:'INV.-EOD (STn)',               rows: plan.inventoryEODRows   },
-  ];
-  const unifiedRows = [];
-  let subCounter = 0;
-  SECTIONS.forEach(sec => {
-    unifiedRows.push({ _type:'section-header', _secId:sec.id, label:sec.title });
-    let currentSubId = null;
-    sec.rows.forEach(r => {
-      if(r.kind==='group'){
-        unifiedRows.push({ _type:'group-label', _secId:sec.id, label:r.label });
-        currentSubId = null;
-        return;
-      }
-      if(r.kind==='subtotal'){
-        const subId = `sub_${subCounter++}`;
-        currentSubId = subId;
-        unifiedRows.push({ ...r, _type:'subtotal-header', _secId:sec.id, _subId:subId });
-        return;
-      }
-      unifiedRows.push({ ...r, _type:'child', _secId:sec.id, _subId:currentSubId });
-    });
-  });
+  // ── Unified rows come directly from simEngine (facility-first structure) ──
+  const unifiedRows = plan.unifiedRows || [];
 
   // Month-grouped date headers
   const dateHeaders = months.map(mon => {
@@ -858,31 +768,72 @@ function renderPlan(){
     return `<td class="num" style="${baseSty}font-size:10px;${isSubtotal?'font-weight:700;':'color:var(--muted);'}">${v?fmt0(v):''}</td>`;
   }).join('');
 
-  // Build HTML rows
+  // Build HTML rows — facility-first structure
+  // Facility-header collapse state: each facility block collapses independently
+  const facOpenId = fid => `fac_${fid}`;
+  const famOpenId = (fid, fam) => `fam_${fid}_${fam}`;
+
   const tableRows = unifiedRows.map(r => {
-    if(r._type==='section-header'){
-      return `<tr class="plan-section-collapse" data-sec="${r._secId}" style="cursor:pointer;user-select:none;">
-        <td class="row-header" style="position:sticky;left:0;z-index:3;background:#0a0d14;border:1px solid var(--border);padding:5px 10px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);white-space:nowrap;">
-          <span class="collapse-icon" data-sec="${r._secId}" style="margin-right:6px;display:inline-block;transition:transform .15s;">▶</span>${esc(r.label)}
+
+    // ── Facility header — top-level collapsible block ──
+    if(r._type==='facility-header'){
+      const facId  = r._facilityId;
+      const togId  = facOpenId(facId);
+      const typeBadge = {cement_plant:'🏭 Plant', grinding:'⚙ Grinding', terminal:'🚢 Terminal'}[r.facType||'terminal'] || '🚢 Terminal';
+      return `<tr class="plan-fac-header" data-fac="${facId}" style="cursor:pointer;user-select:none;">
+        <td class="row-header" style="position:sticky;left:0;z-index:4;background:#070a10;border:2px solid rgba(99,179,237,0.4);padding:6px 12px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#93c5fd;white-space:nowrap;">
+          <span class="fac-icon" data-fac="${facId}" style="margin-right:6px;display:inline-block;transition:transform .15s;">▼</span>${esc(r.label)}
+          <span style="margin-left:10px;font-size:9px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0">${typeBadge}</span>
         </td>
-        <td colspan="9999" style="background:#0a0d14;border:1px solid var(--border);border-left:none;padding:0;"></td>
-        </tr>`;
-    }
-    if(r._type==='group-label'){
-      return `<tr class="sec-child sec-${r._secId}" style="display:none;">
-        <td class="row-header" style="position:sticky;left:0;z-index:3;background:rgba(10,13,20,0.97);border:1px solid var(--border);padding:4px 10px 4px 22px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);white-space:nowrap;">${esc(r.label)}</td>
-        <td colspan="9999" style="background:rgba(255,255,255,0.015);border:1px solid var(--border);border-left:none;padding:0;"></td>
+        <td colspan="9999" style="background:#070a10;border:2px solid rgba(99,179,237,0.4);border-left:none;padding:0;"></td>
       </tr>`;
     }
+
+    // ── Family header — second-level collapsible (CLINKER / CEMENT / etc.) ──
+    if(r._type==='family-header'){
+      const facId = r._facilityId;
+      const fam   = r._family || r.label;
+      const famColors = { CLINKER:'rgba(245,158,11,0.15)', CEMENT:'rgba(99,179,237,0.1)', SCM:'rgba(34,197,94,0.1)' };
+      const famTextColors = { CLINKER:'#fcd34d', CEMENT:'#93c5fd', SCM:'#86efac' };
+      const bg  = famColors[fam]  || 'rgba(255,255,255,0.05)';
+      const col = famTextColors[fam] || 'var(--muted)';
+      return `<tr class="plan-fam-header fac-child fac-${facId}" data-fam="${famOpenId(facId,fam)}" data-fac="${facId}" style="cursor:pointer;user-select:none;">
+        <td class="row-header" style="position:sticky;left:0;z-index:3;background:${bg};border:1px solid var(--border);padding:5px 10px 5px 22px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:${col};white-space:nowrap;">
+          <span class="fam-icon" data-famid="${famOpenId(facId,fam)}" style="margin-right:6px;display:inline-block;transition:transform .15s;">▼</span>${esc(r.label)}
+        </td>
+        <td colspan="9999" style="background:${bg};border:1px solid var(--border);border-left:none;padding:0;"></td>
+      </tr>`;
+    }
+
+    // ── Subtotal row (BOD, Production, Demand, CLK Consumed, Unloading) ──
     if(r._type==='subtotal-header'){
-      return `<tr class="plan-sub-collapse sec-child sec-${r._secId}" data-sub="${r._subId}" style="cursor:pointer;user-select:none;display:none;">
-        <td class="row-header" style="position:sticky;left:0;z-index:3;background:rgba(15,20,30,0.97);font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text);padding-left:14px;" title="${esc(r.productLabel||r.label)}">
-          <span class="collapse-icon sub-icon" data-sub="${r._subId}" style="margin-right:5px;display:inline-block;transition:transform .15s;font-size:9px;">▶</span>${esc(r.label)}
+      const facId  = r._facilityId || '';
+      const famId  = r._famId || '';
+      const isPlaceholder = r._placeholder;
+      const labelStyle = isPlaceholder ? 'color:var(--muted);font-style:italic;' : '';
+      return `<tr class="plan-sub-collapse fac-child fac-${facId}" data-sub="${r._subId}" data-fac="${facId}" style="cursor:pointer;user-select:none;">
+        <td class="row-header" style="position:sticky;left:0;z-index:3;background:rgba(15,20,30,0.97);font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text);padding-left:28px;${labelStyle}" title="${esc(r.productLabel||r.label)}">
+          <span class="collapse-icon sub-icon" data-sub="${r._subId}" style="margin-right:5px;display:inline-block;transition:transform .15s;font-size:9px;">▶</span>${esc(r.label)}${isPlaceholder?' <span style="font-size:8px;color:var(--muted)">(pending logistics)</span>':''}
         </td>${renderAllCells(r)}</tr>`;
     }
-    return `<tr class="sec-child sec-${r._secId}${r._subId?' sub-child sub-'+r._subId:''}" style="display:none;">
-      <td class="row-header" style="position:sticky;left:0;z-index:3;background:rgba(10,13,20,0.97);font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--text);padding-left:${r._subId?'26px':'14px'};" title="${esc(r.productLabel||r.label)}">${esc(r.label)}</td>
-      ${renderAllCells(r)}</tr>`;
+
+    // ── Child data row ──
+    if(r._type==='child'){
+      const facId = r._facilityId || '';
+      return `<tr class="fac-child fac-${facId}${r._subId?' sub-child sub-'+r._subId:''}" style="display:none;">
+        <td class="row-header" style="position:sticky;left:0;z-index:3;background:rgba(10,13,20,0.97);font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--text);padding-left:${r._subId?'40px':'28px'};" title="${esc(r.productLabel||r.label)}">${esc(r.label)}</td>
+        ${renderAllCells(r)}</tr>`;
+    }
+
+    // ── Placeholder (no data) ──
+    if(r._type==='placeholder'){
+      const facId = r._facilityId || '';
+      return `<tr class="fac-child fac-${facId}">
+        <td class="row-header" colspan="9999" style="position:sticky;left:0;z-index:2;background:rgba(10,13,20,0.97);font-size:10px;color:var(--muted);padding-left:40px;font-style:italic">${esc(r.label)}</td>
+      </tr>`;
+    }
+
+    return '';
   }).join('');
 
   root.innerHTML = `
@@ -923,15 +874,23 @@ function renderPlan(){
   // Apply month collapse CSS after DOM is ready
   applyCollapseStyle('planTable', collapsed);
 
-  // Delegated collapse handler on tbody
-  const secOpenState = {};
-  const subOpenState = {};
-  const tbody = root.querySelector('.plan-table tbody');
-  tbody.addEventListener('click', e => {
-    const subRow = e.target.closest('.plan-sub-collapse');
-    const secRow = e.target.closest('.plan-section-collapse');
+  // ── Collapse/expand: facility → family → subtotal ──
+  const facOpenState = {};  // facId → bool (open)
+  const famOpenState = {};  // famId → bool (open)
+  const subOpenState = {};  // subId → bool (open)
 
-    if(subRow){
+  const tbody = root.querySelector('.plan-table tbody');
+
+  // All facility rows start expanded, subtotals collapsed
+  root.querySelectorAll('.plan-fac-header').forEach(tr => {
+    const facId = tr.dataset.fac;
+    facOpenState[facId] = true; // expanded by default
+  });
+
+  tbody.addEventListener('click', e => {
+    // ── Subtotal row click → toggle children ──
+    const subRow = e.target.closest('.plan-sub-collapse');
+    if(subRow && !e.target.closest('.plan-fam-header') && !e.target.closest('.plan-fac-header')){
       e.stopPropagation();
       const subId = subRow.dataset.sub;
       subOpenState[subId] = !subOpenState[subId];
@@ -941,22 +900,58 @@ function renderPlan(){
       root.querySelectorAll('.sub-child.sub-' + subId).forEach(row => { row.style.display = open ? '' : 'none'; });
       return;
     }
-    if(secRow){
-      const secId = secRow.dataset.sec;
-      secOpenState[secId] = !secOpenState[secId];
-      const open = secOpenState[secId];
-      const icon = secRow.querySelector('.collapse-icon[data-sec="' + secId + '"]');
-      if(icon) icon.style.transform = open ? 'rotate(90deg)' : '';
-      root.querySelectorAll('.sec-child.sec-' + secId).forEach(row => {
-        const isSub = row.classList.contains('plan-sub-collapse');
-        const isSubChild = row.classList.contains('sub-child');
-        if(isSubChild) return;
+
+    // ── Family header click → toggle family rows ──
+    const famRow = e.target.closest('.plan-fam-header');
+    if(famRow && !e.target.closest('.plan-fac-header')){
+      e.stopPropagation();
+      const famId  = famRow.dataset.fam;
+      const facId  = famRow.dataset.fac;
+      famOpenState[famId] = !famOpenState[famId];
+      const open = famOpenState[famId];
+      const icon = famRow.querySelector('.fam-icon');
+      if(icon) icon.style.transform = open ? '' : 'rotate(-90deg)';
+      // Show/hide all fac-children that come after this family header up to next family/fac header
+      let inThisFam = false;
+      root.querySelectorAll(`.fac-child.fac-${facId}`).forEach(row => {
+        if(row === famRow){ inThisFam = true; return; }
+        if(row.classList.contains('plan-fam-header')){ inThisFam = false; return; }
+        if(!inThisFam) return;
         row.style.display = open ? '' : 'none';
-        if(!open && isSub){
+        if(!open && row.classList.contains('plan-sub-collapse')){
           const subId = row.dataset.sub;
           subOpenState[subId] = false;
           root.querySelectorAll('.sub-child.sub-' + subId).forEach(c => { c.style.display = 'none'; });
           const si = row.querySelector('.sub-icon'); if(si) si.style.transform = '';
+        }
+      });
+      return;
+    }
+
+    // ── Facility header click → toggle entire facility block ──
+    const facRow = e.target.closest('.plan-fac-header');
+    if(facRow){
+      const facId = facRow.dataset.fac;
+      facOpenState[facId] = !facOpenState[facId];
+      const open = facOpenState[facId];
+      const icon = facRow.querySelector('.fac-icon');
+      if(icon) icon.style.transform = open ? '' : 'rotate(-90deg)';
+      root.querySelectorAll(`.fac-child.fac-${facId}`).forEach(row => {
+        row.style.display = open ? '' : 'none';
+        if(!open){
+          // Collapse all sub-children within
+          if(row.classList.contains('plan-sub-collapse')){
+            const subId = row.dataset.sub;
+            subOpenState[subId] = false;
+            root.querySelectorAll('.sub-child.sub-' + subId).forEach(c => { c.style.display = 'none'; });
+            const si = row.querySelector('.sub-icon'); if(si) si.style.transform = '';
+          }
+          // Reset fam state
+          if(row.classList.contains('plan-fam-header')){
+            const fId = row.dataset.fam;
+            famOpenState[fId] = false;
+            const fi = row.querySelector('.fam-icon'); if(fi) fi.style.transform = 'rotate(-90deg)';
+          }
         }
       });
     }
@@ -986,11 +981,12 @@ function renderPlan(){
     const ym = todayStr.slice(0,7);
     const cur = loadCollapsedMonths();
     if(cur.has(ym)){ cur.delete(ym); saveCollapsedMonths(cur); applyCollapseStyle('planTable', cur); }
-    // Expand all sections so today column is visible
-    table.querySelectorAll('.plan-section-collapse').forEach(tr => {
-      const sec = tr.dataset.sec;
-      tr.querySelectorAll('.collapse-icon').forEach(i=>{ i.style.transform='rotate(90deg)'; });
-      table.querySelectorAll(`.sec-child.sec-${sec}`).forEach(r=>r.style.display='');
+    // Expand all facility blocks so today column is visible
+    table.querySelectorAll('.plan-fac-header').forEach(tr => {
+      const facId = tr.dataset.fac;
+      const icon = tr.querySelector('.fac-icon');
+      if(icon) icon.style.transform = '';
+      table.querySelectorAll(`.fac-child.fac-${facId}`).forEach(r => { r.style.display = ''; });
     });
     // Find and scroll to today's th using getBoundingClientRect for accurate offset
     let th = null;
@@ -2743,6 +2739,14 @@ function openSettingsDialog(){
             <button class="btn" id="sfCancel" style="height:36px">Cancel</button>
           </div>
         </div>
+        ${type==='facility'?`<div style="margin-top:8px">
+          <label class="form-label">Facility Type</label>
+          <select class="form-input" id="sfFacType" style="max-width:280px">
+            <option value="cement_plant"${(existing?.facilityType||'terminal')==='cement_plant'?' selected':''}>Cement Plant — produces clinker &amp; grinds</option>
+            <option value="grinding"${(existing?.facilityType||'')==='grinding'?' selected':''}>Grinding Facility — receives clinker &amp; grinds</option>
+            <option value="terminal"${(existing?.facilityType||'terminal')==='terminal'?' selected':''}>Terminal — receives &amp; distributes finished product</option>
+          </select>
+        </div>`:''}
       </div>`;
 
     const q = id => formEl.querySelector('#'+id);
@@ -2757,13 +2761,13 @@ function openSettingsDialog(){
         if(type==='country')   a.updateCountry({id:editId, name, code});
         if(type==='region')    a.updateRegion({id:editId, name, code});
         if(type==='subregion') a.updateSubRegion({id:editId, name, code});
-        if(type==='facility')  a.updateFacility({id:editId, name, code});
+        if(type==='facility')  a.updateFacility({id:editId, name, code, facilityType:q('sfFacType')?.value||'terminal'});
       } else {
         if(type==='country')   a.addCountry({name, code});
         if(type==='region')    a.addRegion({countryId:parentId, name, code});
         if(type==='subregion') a.addSubRegion({regionId:parentId, name, code});
         if(type==='facility'){
-          const facId = a.addFacility({subRegionId:parentId, name, code});
+          const facId = a.addFacility({subRegionId:parentId, name, code, facilityType:q('sfFacType')?.value||'terminal'});
           if(facId && !state.ui.selectedFacilityId) state.ui.selectedFacilityId = facId;
         }
       }

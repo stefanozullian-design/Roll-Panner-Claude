@@ -1152,40 +1152,18 @@ function renderProducts(){
           <input type="hidden" name="id">
           <input type="hidden" name="code">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
-            <div>
-              <label class="form-label">Producer *</label>
-              <select class="form-input" name="producerId" id="matProducer" required>
-                <option value="">— select producer —</option>
-                ${(state.producers||[]).map(p=>`<option value="${p.id}">[${p.code}] ${esc(p.label)}</option>`).join('')}
-                <option value="__add_new__" style="color:var(--accent);font-weight:600">＋ Add New Producer…</option>
+            <div style="grid-column:1/-1">
+              <label class="form-label">Category *</label>
+              <select class="form-input" name="category" id="matCategory">
+                <option value="${Categories.FIN}" selected>Finished Product</option>
+                <option value="${Categories.INT}">Intermediate Product</option>
+                <option value="${Categories.RAW}">Raw Material</option>
+                <option value="${Categories.FUEL}">Fuel</option>
               </select>
-            </div>
-            <div>
-              <label class="form-label">Family *</label>
-              <select class="form-input" name="familyId" id="matFamily" required>
-                <option value="">— select family —</option>
-                ${(state.productFamilies||[]).map(f=>`<option value="${f.id}">[${f.code}] ${esc(f.label)}</option>`).join('')}
-              </select>
-            </div>
-            <div>
-              <label class="form-label">Type</label>
-              <select class="form-input" name="typeId" id="matType">
-                <option value="">— select type —</option>
-              </select>
-            </div>
-            <div>
-              <label class="form-label">Sub-Type</label>
-              <select class="form-input" name="subTypeId" id="matSubType">
-                <option value="">— none —</option>
-              </select>
-            </div>
-            <div>
-              <label class="form-label">Packaging / Grade</label>
-              <input class="form-input" name="name" id="matName" placeholder="e.g. BULK, PACK, 42.5R" required>
             </div>
             <div style="grid-column:1/-1">
-              <label class="form-label" style="color:var(--muted);font-size:10px">Generated Name</label>
-              <div id="matNamePreview" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--accent);padding:6px 10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);min-height:28px"></div>
+              <label class="form-label">Name *</label>
+              <input class="form-input" name="name" placeholder="e.g. MIA / CEM / IL (11%) / BULK" required>
             </div>
             <div style="grid-column:1/-1">
               <label class="form-label">Material Number</label>
@@ -1233,7 +1211,7 @@ function renderProducts(){
           </div>
           <div class="table-scroll" style="max-height:260px;overflow-y:auto !important">
           <table class="data-table" id="prodDirectoryTable">
-            <thead><tr>${isSingleFac?'<th style="width:36px">Active</th>':''}<th>Name</th><th>Family</th><th>Type</th><th>Category</th><th>Actions</th></tr></thead>
+            <thead><tr>${isSingleFac?'<th style="width:36px">Active</th>':''}<th>Name</th><th>Category</th><th>Code</th><th>Actions</th></tr></thead>
             <tbody>
               ${s.regionCatalog.map(m=>{
                 const isActive = !isSingleFac || activatedIds.size===0 || activatedIds.has(m.id);
@@ -1241,17 +1219,14 @@ function renderProducts(){
                   const fps = s.dataset?.facilityProducts||[];
                   return fps.some(fp=>fp.facilityId===f.id && fp.productId===m.id);
                 }).map(f=>f.id).join(',');
-                const fam  = (state.productFamilies||[]).find(f=>f.id===m.familyId);
-                const typ  = (state.productTypes||[]).find(t=>t.id===m.typeId);
                 return '<tr data-category="' + esc(m.category||'') + '" data-facids="' + facIds + '" style="' + (!isActive?'opacity:0.45':'') + '">'
                   + (isSingleFac ? '<td style="text-align:center"><input type="checkbox" class="fac-product-toggle" data-product="' + m.id + '" ' + (isActive?'checked':'') + ' style="cursor:pointer;width:14px;height:14px;accent-color:var(--accent)"></td>' : '')
                   + '<td>' + esc(m.name) + '</td>'
-                  + '<td><span class="pill pill-blue" style="font-size:10px">' + esc(fam?.code||'—') + '</span></td>'
-                  + '<td style="font-size:11px;color:var(--muted)">' + esc(typ?.code||'—') + '</td>'
                   + '<td>' + catPill(m.category) + '</td>'
+                  + '<td><span class="text-mono" style="font-size:11px">' + esc(m.code||'') + '</span></td>'
                   + '<td><div class="row-actions"><button class="action-btn" data-edit-material="' + m.id + '">Edit</button><button class="action-btn del" data-del-material="' + m.id + '">Delete</button></div></td>'
                   + '</tr>';
-              }).join('')||'<tr><td colspan="6" class="text-muted" style="text-align:center;padding:20px">No materials in region catalog yet</td></tr>'}
+              }).join('')||'<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">No materials in region catalog yet</td></tr>'}
             </tbody>
           </table>
           </div>
@@ -1453,30 +1428,6 @@ function renderProducts(){
   };
 
   // Wire material form
-  // ── Producer modal — injected into body (fixed position, outside tab root) ──
-  if(!document.getElementById('addProducerModal')){
-    const modalEl = document.createElement('div');
-    modalEl.id = 'addProducerModal';
-    modalEl.style.cssText = 'display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);align-items:center;justify-content:center';
-    modalEl.innerHTML = `
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:320px;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:16px;color:var(--text)">＋ New Producer</div>
-        <div style="margin-bottom:12px">
-          <label class="form-label">Full Name *</label>
-          <input class="form-input" id="newProducerLabel" placeholder="e.g. MEDCEM, TAMUIN, Lafarge" style="width:100%">
-        </div>
-        <div style="margin-bottom:20px">
-          <label class="form-label">Code (3-5 letters) *</label>
-          <input class="form-input" id="newProducerCode" placeholder="e.g. MED, TAM, LAF" maxlength="5" style="width:100%;text-transform:uppercase">
-        </div>
-        <div style="display:flex;gap:8px;justify-content:flex-end">
-          <button id="cancelProducerModal" class="btn">Cancel</button>
-          <button id="saveProducerModal" class="btn btn-primary">Save Producer</button>
-        </div>
-      </div>`;
-    document.body.appendChild(modalEl);
-  }
-
   const clearMaterialForm = () => {
     const mf = root.querySelector('#materialForm');
     if(!mf) return;
@@ -1484,53 +1435,11 @@ function renderProducts(){
     mf.querySelector('[name=id]').value='';
     mf.querySelector('[name=code]').value='';
     mf.querySelector('[name=name]').value='';
-    mf.querySelector('[name=producerId]').value='';
-    mf.querySelector('[name=familyId]').value='';
-    // Reset cascaded selects
-    const tSel = mf.querySelector('#matType');
-    const sSel = mf.querySelector('#matSubType');
-    if(tSel) tSel.innerHTML='<option value="">— select type —</option>';
-    if(sSel) sSel.innerHTML='<option value="">— none —</option>';
-    const preview = root.querySelector('#matNamePreview');
-    if(preview) preview.textContent='—';
     root.querySelector('#saveMaterialBtn').textContent='Save';
     root.querySelector('#cancelMaterialEdit').classList.add('hidden');
   };
   root.querySelector('#clearMaterialEdit').onclick = clearMaterialForm;
   root.querySelector('#cancelMaterialEdit').onclick = clearMaterialForm;
-
-  // ── Producer dropdown — intercept "Add New" option ──
-  root.querySelector('#matProducer')?.addEventListener('change', e => {
-    if(e.target.value === '__add_new__'){
-      e.target.value = ''; // reset select
-      const modal = document.getElementById('addProducerModal');
-      if(modal){ modal.style.display='flex'; document.getElementById('newProducerLabel')?.focus(); }
-    }
-    updateNamePreview && updateNamePreview();
-  });
-
-  // ── Producer modal wiring ──
-  const closeProducerModal = () => {
-    const modal = document.getElementById('addProducerModal');
-    if(modal) modal.style.display='none';
-    const lbl = document.getElementById('newProducerLabel');
-    const cod = document.getElementById('newProducerCode');
-    if(lbl) lbl.value='';
-    if(cod) cod.value='';
-  };
-  document.getElementById('cancelProducerModal')?.addEventListener('click', closeProducerModal);
-  document.getElementById('saveProducerModal')?.addEventListener('click', () => {
-    const label = (document.getElementById('newProducerLabel')?.value||'').trim();
-    const code  = (document.getElementById('newProducerCode')?.value||'').trim().toUpperCase();
-    if(!label || !code){ showToast('Name and Code are required', 'err'); return; }
-    // Save via actions
-    const newP = actions(state).upsertProducer({ code, label, facilityId: null });
-    persist();
-    closeProducerModal();
-    // Re-render to pick up new producer in dropdown
-    renderProducts();
-    showToast(`Producer ${code} saved ✓`);
-  });
 
   // Reset facility product activations
   root.querySelector('#resetFacProducts')?.addEventListener('click', () => {
@@ -1561,89 +1470,31 @@ function renderProducts(){
     };
   });
 
-  // ── Cascading Family → Type → SubType ──
-  const allFamilies  = state.productFamilies || [];
-  const allTypes     = state.productTypes    || [];
-  const allSubTypes  = state.productSubTypes || [];
-
-  const populateTypes = (familyId, selectedTypeId='') => {
-    const sel = root.querySelector('#matType');
-    if(!sel) return;
-    const opts = allTypes.filter(t => t.familyId === familyId);
-    sel.innerHTML = '<option value="">— select type —</option>'
-      + opts.map(t=>`<option value="${t.id}"${t.id===selectedTypeId?' selected':''}>[${t.code}] ${t.label}</option>`).join('');
-    populateSubTypes(selectedTypeId);
-  };
-
-  const populateSubTypes = (typeId, selectedSubId='') => {
-    const sel = root.querySelector('#matSubType');
-    if(!sel) return;
-    const opts = allSubTypes.filter(st => st.typeId === typeId);
-    sel.innerHTML = opts.length
-      ? '<option value="">— none —</option>' + opts.map(st=>`<option value="${st.id}"${st.id===selectedSubId?' selected':''}>[${st.code}] ${st.label}</option>`).join('')
-      : '<option value="">— none —</option>';
-  };
-
-  const updateNamePreview = () => {
-    const prdId = root.querySelector('#matProducer')?.value;
-    const famId = root.querySelector('#matFamily')?.value;
-    const typId = root.querySelector('#matType')?.value;
-    const subId = root.querySelector('#matSubType')?.value;
-    const pkg   = (root.querySelector('#matName')?.value||'').trim();
-    const prd   = (state.producers||[]).find(p=>p.id===prdId);
-    const fam   = allFamilies.find(f=>f.id===famId);
-    const typ   = allTypes.find(t=>t.id===typId);
-    const sub   = allSubTypes.find(s=>s.id===subId);
-    const parts = [prd?.code, fam?.code, typ?.code, sub?.code, pkg].filter(Boolean);
-    const preview = root.querySelector('#matNamePreview');
-    if(preview) preview.textContent = parts.join(' / ') || '—';
-  };
-
   const updateMatFields = () => {
-    const famId = root.querySelector('#matFamily')?.value;
-    const fam   = allFamilies.find(f=>f.id===famId);
-    const cat   = fam?.category || '';
-    const showFuel   = cat === Categories.FUEL;
+    const cat = root.querySelector('#matCategory')?.value;
     const showLanded = [Categories.RAW, Categories.FUEL].includes(cat);
+    const showFuel = cat === Categories.FUEL;
     const lc = root.querySelector('#matFieldLandedCost');
     const mb = root.querySelector('#matFieldMMBTU');
     const co = root.querySelector('#matFieldCO2');
     if(lc) lc.style.display = showLanded ? '' : 'none';
-    if(mb) mb.style.display = showFuel   ? '' : 'none';
-    if(co) co.style.display = showFuel   ? '' : 'none';
-    updateNamePreview();
+    if(mb) mb.style.display = showFuel ? '' : 'none';
+    if(co) co.style.display = showFuel ? '' : 'none';
   };
-
-  root.querySelector('#matProducer')?.addEventListener('change', updateNamePreview);
-  root.querySelector('#matFamily')?.addEventListener('change', e => {
-    populateTypes(e.target.value);
-    updateMatFields();
-  });
-  root.querySelector('#matType')?.addEventListener('change', e => {
-    populateSubTypes(e.target.value);
-    updateNamePreview();
-  });
-  root.querySelector('#matSubType')?.addEventListener('change', updateNamePreview);
-  root.querySelector('#matName')?.addEventListener('input', updateNamePreview);
+  root.querySelector('#matCategory')?.addEventListener('change', updateMatFields);
   updateMatFields();
 
   root.querySelectorAll('[data-edit-material]').forEach(btn=>btn.onclick=()=>{
     const m=s.regionCatalog.find(x=>x.id===btn.dataset.editMaterial); if(!m) return;
     const f=root.querySelector('#materialForm');
     f.querySelector('[name=id]').value=m.id;
+    f.querySelector('[name=name]').value=m.name||'';
     f.querySelector('[name=code]').value=m.code||'';
     f.querySelector('[name=materialNumber]').value=m.materialNumber||'';
+    f.querySelector('[name=category]').value=m.category||Categories.FIN;
     f.querySelector('[name=landedCostUsdPerStn]').value=m.landedCostUsdPerStn||'';
     f.querySelector('[name=calorificPowerMMBTUPerStn]').value=m.calorificPowerMMBTUPerStn||'';
     f.querySelector('[name=co2FactorKgPerMMBTU]').value=m.co2FactorKgPerMMBTU||'';
-    // Set producer
-    f.querySelector('[name=producerId]').value=m.producerId||'';
-    // Cascade: set family → populate types → set type → populate subtypes → set subtype
-    f.querySelector('[name=familyId]').value=m.familyId||'';
-    populateTypes(m.familyId||'', m.typeId||'');
-    populateSubTypes(m.typeId||'', m.subTypeId||'');
-    // Name field holds packaging/grade — strip the family/type prefix if possible
-    f.querySelector('[name=name]').value=m.name||'';
     root.querySelector('#saveMaterialBtn').textContent='Update';
     root.querySelector('#cancelMaterialEdit').classList.remove('hidden');
     updateMatFields();
@@ -1660,41 +1511,28 @@ function renderProducts(){
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target).entries());
 
-    // Guard: family required
-    if(!fd.familyId){
-      showToast('Please select a Family', 'err');
-      root.querySelector('#matFamily')?.focus();
-      return;
-    }
-
-    // Derive category from selected family
-    const fam     = (state.productFamilies||[]).find(f=>f.id===fd.familyId);
-    const typ     = (state.productTypes||[]).find(t=>t.id===fd.typeId);
-    const sub     = (state.productSubTypes||[]).find(s=>s.id===fd.subTypeId);
-    fd.category   = fam?.category || Categories.FIN;
-
-    // Build full name: Producer / Family / Type / SubType / Packaging
-    const prd     = (state.producers||[]).find(p=>p.id===fd.producerId);
-    const pkg     = (fd.name||'').trim();
-    const parts   = [prd?.code, fam?.code, typ?.code, sub?.code, pkg].filter(Boolean);
-    const productName = parts.join(' / ');
+    // Guard: name is required
+    const productName = (fd.name||'').trim();
     if(!productName){
-      showToast('Please fill in at least the Packaging/Grade field', 'err');
+      const nameInput = root.querySelector('#materialForm [name=name]');
+      if(nameInput){ nameInput.style.border='1.5px solid var(--danger,#ef4444)'; nameInput.focus(); setTimeout(()=>nameInput.style.border='',2000); }
+      showToast('Product name is required', 'err');
       return;
     }
     fd.name = productName;
 
     const saved = a.upsertMaterial(fd);
+    // upsertCatalogItem drops extra fields — patch them back in immediately
     if(saved){
       const idx = state.catalog.findIndex(m=>m.id===saved.id);
       if(idx>=0){
-        state.catalog[idx].name        = productName;
-        state.catalog[idx].familyId    = fd.familyId||null;
-        state.catalog[idx].typeId      = fd.typeId||null;
-        state.catalog[idx].subTypeId   = fd.subTypeId||null;
-        state.catalog[idx].category    = fd.category;
+        state.catalog[idx].name            = productName; // ensure name is never lost
         state.catalog[idx].materialNumber  = fd.materialNumber||'';
         state.catalog[idx].materialNumbers = state.catalog[idx].materialNumbers||[];
+        state.catalog[idx].familyId        = fd.familyId||null;
+        state.catalog[idx].typeId          = fd.typeId||null;
+        state.catalog[idx].subTypeId       = fd.subTypeId||null;
+        state.catalog[idx].producerId      = fd.producerId||null;
       }
     }
     persist(); clearMaterialForm(); renderProducts(); renderDemand(); renderFlow(); renderPlan(); showToast('Material saved ✓');
@@ -1794,10 +1632,7 @@ function renderFlow(){
         </div>
       </div>
     </div>
-  </div>
-
-  <!-- Add Producer Modal -->
-`;
+  </div>`;
 
   // Wire flow forms
   const rer = ()=>{ persist(); renderFlow(); renderPlan(); renderDemand(); renderData(); };

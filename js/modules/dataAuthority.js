@@ -198,13 +198,9 @@ export function selectors(state) {
           .filter(fp => fp.facilityId === facId)
           .map(fp => fp.productId)
       );
-      // When no products are activated for this facility, return empty array.
-      // Returning the full catalog was causing every product to appear on every
-      // facility in multi-facility view. An unconfigured facility shows nothing.
-      if (ids.size === 0) return [];
       const rId = getFacRegionId(state, facId);
       const cat = state.catalog.filter(m => !rId || m.regionId === rId);
-      return cat.filter(m => ids.has(m.id));
+      return ids.size > 0 ? cat.filter(m => ids.has(m.id)) : cat;
     },
 
     // Lookups
@@ -581,15 +577,15 @@ export function actions(state) {
       state.org.subRegions = state.org.subRegions.filter(s => s.id !== id);
     },
 
-    addFacility({ subRegionId, name, code }) {
+    addFacility({ subRegionId, name, code, facilityType = 'terminal' }) {
       const id = slug(code || name);
       if (state.org.facilities.some(f => f.id === id)) return id;
-      state.org.facilities.push({ id, subRegionId, name, code: slug(code || name) });
+      state.org.facilities.push({ id, subRegionId, name, code: slug(code || name), facilityType });
       return id;
     },
-    updateFacility({ id, name, code }) {
+    updateFacility({ id, name, code, facilityType }) {
       const i = state.org.facilities.findIndex(f => f.id === id);
-      if (i >= 0) state.org.facilities[i] = { ...state.org.facilities[i], name, code };
+      if (i >= 0) state.org.facilities[i] = { ...state.org.facilities[i], name, code, ...(facilityType ? { facilityType } : {}) };
     },
     deleteFacility(id) {
       state.org.facilities = state.org.facilities.filter(f => f.id !== id);

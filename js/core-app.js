@@ -591,9 +591,9 @@ function renderPlan(){
   };
 
   const alertChips = [
-    ...stockoutGroups.map(g => makeChip(g,'chip-stockout','🔴','STOCKOUT')),
-    ...overflowGroups.map(g => makeChip(g,'chip-full','🟡','FULL')),
-    ...warningGroups.map(g  => makeChip(g,'chip-high','△','>75%'))
+    ...stockoutGroups.map(g => makeChip(g,'chip-stockout','','STOCKOUT')),
+    ...overflowGroups.map(g => makeChip(g,'chip-full','','FULL')),
+    ...warningGroups.map(g  => makeChip(g,'chip-high','','>75%'))
   ].join('');
 
   const _alertKey     = 'planAlertStripCollapsed';

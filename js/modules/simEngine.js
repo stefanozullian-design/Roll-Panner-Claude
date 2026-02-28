@@ -211,7 +211,8 @@ function simulateFacility(state, s, ds, facId, dates) {
     // ── Step 1: Outbound shipments (demand) ──
     // Apply demand first so cement silo headroom calculation in FM allocation
     // correctly accounts for product that will leave today.
-    // getFacilityProducts now returns [] (not full catalog) when no products configured
+    const finishedProds = s.materials.filter(m => m.category === Categories.FIN && (ds.facilityProducts || []).some(fp => fp.facilityId === facId && fp.productId === m.id) || s.getFacilityProducts(facId).some(fp => fp.id === m.id));
+    // Use all finished products that this facility has activated
     const facFinished = s.getFacilityProducts(facId).filter(m => m.category === Categories.FIN);
 
     const shipByPid = new Map();
@@ -416,130 +417,152 @@ function simulateFacility(state, s, ds, facId, dates) {
   // ── Build row objects ──
   const mkValues = getter => Object.fromEntries(dates.map(d => [d, getter(d)]));
 
-  // Products activated at this facility (now returns [] if none configured — no catalog fallback)
-  const facActivatedIds = new Set(s.getFacilityProducts(facId).map(m => m.id));
-
-  // A storage is visible only if its product family is CLINKER or CEMENT
-  // AND its product is activated for this facility (or facility has no config — legacy)
-  const visibleStorages = storages.filter(st => {
-    const fam = familyOfProduct(s, (st.allowedProductIds || [])[0]);
-    if (fam !== 'CLINKER' && fam !== 'CEMENT') return false;
-    if (facActivatedIds.size === 0) return true; // legacy: no products configured yet
-    return (st.allowedProductIds || []).some(pid => facActivatedIds.has(pid));
-  });
   const storageFamily = st => familyOfProduct(s, (st.allowedProductIds || [])[0]);
+  const storagesByFamily = fam => storages.filter(st => storageFamily(st) === fam);
 
-  // BOD rows — skip groups with no storages at this facility
-  const inventoryBODRows = [];
-  ['CLINKER', 'CEMENT'].forEach(group => {
-    const rows = visibleStorages.filter(st => storageFamily(st) === group);
-    if (rows.length === 0) return;
-    inventoryBODRows.push({
-      kind: 'subtotal', label: `${group} INV-BOD`,
-      values: mkValues(d => rows.reduce((sum, st) => sum + (bodMap.get(`${d}|${st.id}`) || 0), 0)),
-    });
-    rows.forEach(st => inventoryBODRows.push({
-      kind: 'row', storageId: st.id,
-      label: st.name,
-      productLabel: (st.allowedProductIds || []).map(pid => s.getMaterial(pid)?.name).filter(Boolean).join(' / '),
-      values: mkValues(d => bodMap.get(`${d}|${st.id}`) || 0),
-    }));
-  });
+  // Helper: BOD subtotal + storage children for a family
+  const bodSection = (fam, label) => {
+    const rows = storagesByFamily(fam);
+    if (!rows.length) return [];
+    return [
+      { kind: 'subtotal', label, _section: 'bod',
+        values: mkValues(d => rows.reduce((sum, st) => sum + (bodMap.get(`${d}|${st.id}`) || 0), 0)) },
+      ...rows.map(st => ({ kind: 'row', storageId: st.id, label: st.name,
+        productLabel: (st.allowedProductIds||[]).map(pid => s.getMaterial(pid)?.name).filter(Boolean).join(' / '),
+        values: mkValues(d => bodMap.get(`${d}|${st.id}`) || 0) })),
+    ];
+  };
 
-  // Production rows
-  const productionRows = [];
-  productionRows.push({ kind: 'subtotal', label: 'CLINKER PRODUCTION', values: mkValues(d => kilnProdMap.get(d) || 0) });
-  kilns.forEach(k => productionRows.push({
-    kind: 'row', rowType: 'equipment', equipmentId: k.id, label: k.name,
-    values: mkValues(d => prodByEqMap.get(`${d}|${k.id}`) || 0),
-  }));
-  productionRows.push({ kind: 'subtotal', label: 'FINISH MILL PRODUCTION', values: mkValues(d => fmProdMap.get(d) || 0) });
-  fms.forEach(f => productionRows.push({
-    kind: 'row', rowType: 'equipment', equipmentId: f.id, label: f.name,
-    values: mkValues(d => prodByEqMap.get(`${d}|${f.id}`) || 0),
-  }));
+  // Helper: transfer rows for a given family's products
+  const transferRows = (fam) => {
+    const famStorages = storagesByFamily(fam);
+    const famPids = new Set(famStorages.flatMap(st => st.allowedProductIds || []));
 
-  // Outflow rows
+    const outPids = [...new Set(
+      ds.actuals.transfers.filter(r => r.fromFacilityId === facId && famPids.has(r.productId)).map(r => r.productId)
+    )];
+    const inPids = [...new Set(
+      ds.actuals.transfers.filter(r => r.toFacilityId === facId && famPids.has(r.productId)).map(r => r.productId)
+    )];
+
+    const rows = [];
+    if (outPids.length) {
+      outPids.forEach(pid => {
+        const mat = s.getMaterial(pid);
+        rows.push({ kind: 'row', label: `↑ OUT ${mat?.name || pid}`, _section: 'transfer',
+          values: mkValues(d => ds.actuals.transfers
+            .filter(r => r.fromFacilityId === facId && r.date === d && r.productId === pid)
+            .reduce((sum, r) => sum + (+r.qtyStn || 0), 0)) });
+      });
+    }
+    if (inPids.length) {
+      inPids.forEach(pid => {
+        const mat = s.getMaterial(pid);
+        rows.push({ kind: 'row', label: `↓ IN ${mat?.name || pid}`, _section: 'transfer',
+          values: mkValues(d => ds.actuals.transfers
+            .filter(r => r.toFacilityId === facId && r.date === d && r.productId === pid)
+            .reduce((sum, r) => sum + (+r.qtyStn || 0), 0)) });
+      });
+    }
+    return rows;
+  };
+
+  // ── Facility-first unified rows ──
+  // Facility type drives which product families and process rows appear.
+  const fac         = state.org.facilities.find(f => f.id === facId);
+  const facType     = fac?.facilityType || 'terminal';
   const facFinished = s.getFacilityProducts(facId).filter(m => m.category === Categories.FIN);
-  // Prefix row labels with facility code so identical product names across facilities
-  // are distinguishable (e.g. "JAX / BRS IL / BULK" vs "ORL / BRS IL / BULK")
-  const facObj = state.org.facilities.find(f => f.id === facId);
-  const facCode = facObj?.code || facId;
-  const outflowRows = [];
-  outflowRows.push({ kind: 'group', label: 'CUSTOMER SHIPMENTS' });
-  facFinished.forEach(fp => outflowRows.push({
-    kind: 'row', label: `${facCode} / ${fp.name}`, productLabel: fp.name,
-    productId: fp.id,   // ← carry productId so core-app can filter by facility
-    _facilityId: facId, // ← carry facilityId so core-app can group correctly
+  const facFinishedRows = () => facFinished.map(fp => ({
+    kind: 'row', label: fp.name, productLabel: fp.name, productId: fp.id, _facilityId: facId,
     values: mkValues(d => shipMap.get(`${d}|${fp.id}`) || 0),
   }));
-  outflowRows.push({ kind: 'group', label: 'TRANSFERS OUT' });
-  const transferProducts = [...new Set(
-    ds.actuals.transfers
-      .filter(r => r.fromFacilityId === facId)
-      .map(r => r.productId)
-  )];
-  if (transferProducts.length) {
-    transferProducts.forEach(pid => {
-      const mat = s.getMaterial(pid);
-      outflowRows.push({
-        kind: 'row', label: `→ ${mat?.name || pid}`,
-        values: mkValues(d =>
-          ds.actuals.transfers
-            .filter(r => r.fromFacilityId === facId && r.date === d && r.productId === pid)
-            .reduce((sum, r) => sum + (+r.qtyStn || 0), 0)
-        ),
-      });
-    });
-  } else {
-    outflowRows.push({ kind: 'placeholder', label: 'No transfers recorded' });
-  }
-  outflowRows.push({ kind: 'group', label: 'TRANSFERS IN' });
-  const transferInProducts = [...new Set(
-    ds.actuals.transfers
-      .filter(r => r.toFacilityId === facId)
-      .map(r => r.productId)
-  )];
-  if (transferInProducts.length) {
-    transferInProducts.forEach(pid => {
-      const mat = s.getMaterial(pid);
-      outflowRows.push({
-        kind: 'row', label: `← ${mat?.name || pid}`,
-        values: mkValues(d =>
-          ds.actuals.transfers
-            .filter(r => r.toFacilityId === facId && r.date === d && r.productId === pid)
-            .reduce((sum, r) => sum + (+r.qtyStn || 0), 0)
-        ),
-      });
-    });
-  } else {
-    outflowRows.push({ kind: 'placeholder', label: 'No transfers recorded' });
-  }
-  outflowRows.push({ kind: 'subtotal', label: 'CLK CONSUMED BY MILLS', values: mkValues(d => clkConsumedMap.get(d) || 0) });
 
-  // EOD rows — skip groups with no storages at this facility
-  const inventoryEODRows = [];
-  ['CLINKER', 'CEMENT'].forEach(group => {
-    const rows = visibleStorages.filter(st => storageFamily(st) === group);
-    if (rows.length === 0) return;
-    inventoryEODRows.push({
-      kind: 'subtotal', label: `${group} INV-EOD`,
-      values: mkValues(d => rows.reduce((sum, st) => sum + (eodMap.get(`${d}|${st.id}`) || 0), 0)),
+  const facilityRows = []; // The new unified output
+
+  if (facType === 'cement_plant') {
+    // ── CLINKER section ──
+    facilityRows.push({ kind: 'family-header', label: 'CLINKER', _family: 'CLINKER' });
+    facilityRows.push(...bodSection('CLINKER', 'CLK INV-BOD'));
+    // Kiln production
+    if (kilns.length) {
+      facilityRows.push({ kind: 'subtotal', label: 'KILN PRODUCTION', _section: 'prod',
+        values: mkValues(d => kilnProdMap.get(d) || 0) });
+      kilns.forEach(k => facilityRows.push({ kind: 'row', rowType: 'equipment', equipmentId: k.id, label: k.name,
+        values: mkValues(d => prodByEqMap.get(`${d}|${k.id}`) || 0) }));
+    }
+    facilityRows.push(...transferRows('CLINKER'));
+    facilityRows.push({ kind: 'subtotal', label: 'CLK CONSUMED', _section: 'consumed',
+      values: mkValues(d => clkConsumedMap.get(d) || 0) });
+
+    // ── CEMENT section ──
+    facilityRows.push({ kind: 'family-header', label: 'CEMENT', _family: 'CEMENT' });
+    facilityRows.push(...bodSection('CEMENT', 'CEM INV-BOD'));
+    if (fms.length) {
+      facilityRows.push({ kind: 'subtotal', label: 'FM PRODUCTION', _section: 'prod',
+        values: mkValues(d => fmProdMap.get(d) || 0) });
+      fms.forEach(f => facilityRows.push({ kind: 'row', rowType: 'equipment', equipmentId: f.id, label: f.name,
+        values: mkValues(d => prodByEqMap.get(`${d}|${f.id}`) || 0) }));
+    }
+    facilityRows.push(...transferRows('CEMENT'));
+    facilityRows.push({ kind: 'subtotal', label: 'DEMAND', _section: 'demand',
+      values: mkValues(d => facFinished.reduce((sum, fp) => sum + (shipMap.get(`${d}|${fp.id}`) || 0), 0)) });
+    facilityRows.push(...facFinishedRows());
+
+  } else if (facType === 'grinding') {
+    // ── CLINKER section (no kiln) ──
+    facilityRows.push({ kind: 'family-header', label: 'CLINKER', _family: 'CLINKER' });
+    facilityRows.push(...bodSection('CLINKER', 'CLK INV-BOD'));
+    facilityRows.push(...transferRows('CLINKER'));
+    facilityRows.push({ kind: 'subtotal', label: 'CLK CONSUMED', _section: 'consumed',
+      values: mkValues(d => clkConsumedMap.get(d) || 0) });
+
+    // ── CEMENT section ──
+    facilityRows.push({ kind: 'family-header', label: 'CEMENT', _family: 'CEMENT' });
+    facilityRows.push(...bodSection('CEMENT', 'CEM INV-BOD'));
+    if (fms.length) {
+      facilityRows.push({ kind: 'subtotal', label: 'FM PRODUCTION', _section: 'prod',
+        values: mkValues(d => fmProdMap.get(d) || 0) });
+      fms.forEach(f => facilityRows.push({ kind: 'row', rowType: 'equipment', equipmentId: f.id, label: f.name,
+        values: mkValues(d => prodByEqMap.get(`${d}|${f.id}`) || 0) }));
+    }
+    facilityRows.push(...transferRows('CEMENT'));
+    facilityRows.push({ kind: 'subtotal', label: 'DEMAND', _section: 'demand',
+      values: mkValues(d => facFinished.reduce((sum, fp) => sum + (shipMap.get(`${d}|${fp.id}`) || 0), 0)) });
+    facilityRows.push(...facFinishedRows());
+
+  } else {
+    // ── TERMINAL: finished products only ──
+    // Group by product family (CEMENT, SCM, etc.) if multiple, else flat
+    const famGroups = [...new Set(facFinished.map(fp =>
+      familyOfProduct(s, fp.id) || 'CEMENT'
+    ))];
+
+    famGroups.forEach(fam => {
+      const famProds = facFinished.filter(fp => (familyOfProduct(s, fp.id) || 'CEMENT') === fam);
+      facilityRows.push({ kind: 'family-header', label: fam, _family: fam });
+      facilityRows.push(...bodSection(fam, `${fam} INV-BOD`));
+      // Placeholder for unloading (vessel arrivals — to be wired to logistics schedule)
+      facilityRows.push({ kind: 'subtotal', label: 'UNLOADING', _section: 'unloading', _placeholder: true,
+        values: mkValues(() => 0) });
+      facilityRows.push(...transferRows(fam));
+      facilityRows.push({ kind: 'subtotal', label: 'DEMAND', _section: 'demand',
+        values: mkValues(d => famProds.reduce((sum, fp) => sum + (shipMap.get(`${d}|${fp.id}`) || 0), 0)) });
+      famProds.forEach(fp => facilityRows.push({
+        kind: 'row', label: fp.name, productLabel: fp.name, productId: fp.id, _facilityId: facId,
+        values: mkValues(d => shipMap.get(`${d}|${fp.id}`) || 0),
+      }));
     });
-    rows.forEach(st => inventoryEODRows.push({
-      kind: 'row', storageId: st.id,
-      label: st.name,
-      productLabel: (st.allowedProductIds || []).map(pid => s.getMaterial(pid)?.name).filter(Boolean).join(' / '),
-      values: mkValues(d => eodMap.get(`${d}|${st.id}`) || 0),
-    }));
-  });
+  }
 
   return {
     facId,
-    inventoryBODRows,
-    productionRows,
-    outflowRows,
-    inventoryEODRows,
+    facType,
+    facilityRows,   // ← new primary output
+    // Keep legacy arrays for backward compat with any direct consumers
+    inventoryBODRows: facilityRows.filter(r => r._section === 'bod' || r.kind === 'subtotal' && r.label.includes('INV-BOD')),
+    productionRows:   facilityRows.filter(r => r._section === 'prod'),
+    outflowRows:      facilityRows.filter(r => r._section === 'demand' || r.label?.includes('DEMAND')),
+    inventoryEODRows: [],
     kilns,
     fms,
     eqCellMeta,
@@ -587,96 +610,46 @@ export function buildProductionPlanView(state, startDate, days = 35) {
     });
   });
 
-  // ── Build unified row list ──
-  // Multi-facility: wrap each facility's rows in a facility header block
-  // Single facility: no header needed (same as v2 behaviour)
+  // ── Build unified row list — facility-first structure ──
   const isMulti = facIds.length > 1;
 
-  const SECTIONS = ['bod', 'prod', 'out', 'eod'];
-  const sectionLabel = { bod: 'INV-BOD [STn]', prod: 'PROD [STn/day]', out: 'SHIPMENTS [STn]', eod: 'INV-EOD [STn]' };
+  let subCounter = 0;
+  const mkSubId = (facId, label) => `sub_${facId}_${subCounter++}_${label}`;
 
-  // Grand total rows (sum across all facilities) for multi-facility view
-  const grandTotals = {};
-  if (isMulti) {
-    SECTIONS.forEach(sec => {
-      const allRows = facResults.flatMap(fr => {
-        const rowSet = sec === 'bod' ? fr.inventoryBODRows
-          : sec === 'prod' ? fr.productionRows
-          : sec === 'out'  ? fr.outflowRows
-          : fr.inventoryEODRows;
-        return rowSet.filter(r => r.kind === 'subtotal');
-      });
-      // Build a combined subtotal per section label
-      const combined = {};
-      allRows.forEach(r => {
-        const lbl = r.label;
-        if (!combined[lbl]) combined[lbl] = { kind: 'subtotal', label: `∑ ${lbl}`, values: {} };
-        dates.forEach(d => {
-          combined[lbl].values[d] = (combined[lbl].values[d] || 0) + (r.values[d] || 0);
-        });
-      });
-      grandTotals[sec] = Object.values(combined);
-    });
-  }
-
-  // Flatten into unified rows the same way app.js expects
   const unifiedRows = [];
 
-  SECTIONS.forEach(sec => {
-    // Section header
-    unifiedRows.push({ _type: 'section-header', _secId: sec, label: sectionLabel[sec] });
+  facResults.forEach(fr => {
+    const fac     = state.org.facilities.find(f => f.id === fr.facId);
+    const facName = fac ? (fac.code ? `${fac.code} — ${fac.name}` : fac.name) : fr.facId;
 
-    // Grand totals (multi-facility only)
-    if (isMulti && grandTotals[sec]) {
-      grandTotals[sec].forEach(r => {
-        unifiedRows.push({ ...r, _type: 'subtotal-header', _secId: sec, _subId: `grand_${sec}_${r.label}`, _isGrand: true });
-      });
-    }
+    // Facility header (always shown — essential for the new layout)
+    unifiedRows.push({
+      _type: 'facility-header',
+      _facilityId: fr.facId,
+      label: facName,
+      facType: fr.facType,
+    });
 
-    // Per-facility blocks
-    facResults.forEach(fr => {
-      const fac     = state.org.facilities.find(f => f.id === fr.facId);
-      const facName = fac?.name || fr.facId;
-      const facCode = fac?.code || fr.facId;
+    let currentSubId = null;
 
-      const rowSet = sec === 'bod' ? fr.inventoryBODRows
-        : sec === 'prod' ? fr.productionRows
-        : sec === 'out'  ? fr.outflowRows
-        : fr.inventoryEODRows;
-
-      if (rowSet.length === 0) return;
-
-      // Facility sub-header (only in multi-facility mode)
-      if (isMulti) {
-        unifiedRows.push({
-          _type:       'facility-header',
-          _secId:      sec,
-          _facilityId: fr.facId,
-          label:       `🏭 ${facName}`,
-          facCode,
-        });
+    fr.facilityRows.forEach(r => {
+      if (r.kind === 'family-header') {
+        unifiedRows.push({ _type: 'family-header', _facilityId: fr.facId, label: r.label, _family: r._family });
+        currentSubId = null;
+        return;
       }
-
-      let currentSubId = null;
-      rowSet.forEach(r => {
-        if (r.kind === 'group') {
-          unifiedRows.push({ _type: 'group-label', _secId: sec, _facilityId: fr.facId, label: r.label });
-          currentSubId = null;
-          return;
-        }
-        if (r.kind === 'subtotal') {
-          const subId = `sub_${fr.facId}_${sec}_${r.label}`;
-          currentSubId = subId;
-          unifiedRows.push({ ...r, _type: 'subtotal-header', _secId: sec, _facilityId: fr.facId, _subId: subId });
-          return;
-        }
-        if (r.kind === 'placeholder') {
-          unifiedRows.push({ _type: 'placeholder', _secId: sec, _facilityId: fr.facId, label: r.label });
-          return;
-        }
-        // Normal row
-        unifiedRows.push({ ...r, _type: 'child', _secId: sec, _facilityId: fr.facId, _subId: currentSubId });
-      });
+      if (r.kind === 'subtotal') {
+        const subId = mkSubId(fr.facId, r.label);
+        currentSubId = subId;
+        unifiedRows.push({ ...r, _type: 'subtotal-header', _facilityId: fr.facId, _subId: subId });
+        return;
+      }
+      if (r.kind === 'placeholder') {
+        unifiedRows.push({ _type: 'placeholder', _facilityId: fr.facId, label: r.label });
+        return;
+      }
+      // Normal child row
+      unifiedRows.push({ ...r, _type: 'child', _facilityId: fr.facId, _subId: currentSubId });
     });
   });
 
@@ -688,12 +661,11 @@ export function buildProductionPlanView(state, startDate, days = 35) {
     alertSummary,
     isMultiFacility: isMulti,
     facilityIds:     facIds,
-    // Keep these for backward compat with parts of app.js that read them directly
-    productionRows:    facResults.flatMap(fr => fr.productionRows),
-    inventoryBODRows:  facResults.flatMap(fr => fr.inventoryBODRows),
-    outflowRows:       facResults.flatMap(fr => fr.outflowRows),
-    inventoryEODRows:  facResults.flatMap(fr => fr.inventoryEODRows),
-    // Debug
+    // Legacy flat arrays (for any backward-compat consumers in app.js)
+    productionRows:   facResults.flatMap(fr => fr.productionRows),
+    inventoryBODRows: facResults.flatMap(fr => fr.inventoryBODRows),
+    outflowRows:      facResults.flatMap(fr => fr.outflowRows),
+    inventoryEODRows: [],
     _debug: { facResults },
   };
 }

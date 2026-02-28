@@ -16,46 +16,51 @@ const uid = (p = 'id') => `${p}_${Math.random().toString(36).slice(2, 9)}`;
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const DEFAULT_PRODUCT_FAMILIES = [
-  { id: 'fam_CEM',  code: 'CEM',  label: 'Cement',       category: 'FINISHED_PRODUCT' },
-  { id: 'fam_WHT',  code: 'WHT',  label: 'White Cement', category: 'FINISHED_PRODUCT' },
-  { id: 'fam_ASH',  code: 'ASH',  label: 'Fly Ash',      category: 'FINISHED_PRODUCT' },
-  { id: 'fam_SLAG', code: 'SLAG', label: 'Slag',         category: 'FINISHED_PRODUCT' },
-  { id: 'fam_CLNK', code: 'CLNK', label: 'Clinker',      category: 'INTERMEDIATE_PRODUCT' },
-  { id: 'fam_RAW',  code: 'RAW',  label: 'Raw Material', category: 'RAW_MATERIAL' },
-  { id: 'fam_FUEL', code: 'FUEL', label: 'Fuel',         category: 'FUEL' },
+  // Finished Products
+  { id: 'fam_CEM',  code: 'CEM',  label: 'Cement',                          category: 'FINISHED_PRODUCT' },
+  { id: 'fam_SCM',  code: 'SCM',  label: 'Supplementary Cementitious Mat.', category: 'FINISHED_PRODUCT' },
+  { id: 'fam_WHT',  code: 'WHT',  label: 'White Cement',                    category: 'FINISHED_PRODUCT' },
+  // Intermediate
+  { id: 'fam_CLNK', code: 'CLNK', label: 'Clinker',                         category: 'INTERMEDIATE_PRODUCT' },
+  // Raw Materials
+  { id: 'fam_RAW',  code: 'RAW',  label: 'Raw Material',                    category: 'RAW_MATERIAL' },
+  // Fuels
+  { id: 'fam_FUEL', code: 'FUEL', label: 'Fuel',                            category: 'FUEL' },
 ];
 
 export const DEFAULT_PRODUCT_TYPES = [
-  // Cement types
+  // CEM types
   { id: 'type_IL',   familyId: 'fam_CEM', code: 'IL',   label: 'Type IL (Portland-Limestone)' },
   { id: 'type_I_II', familyId: 'fam_CEM', code: 'I-II', label: 'Type I-II' },
   { id: 'type_III',  familyId: 'fam_CEM', code: 'III',  label: 'Type III' },
   { id: 'type_V',    familyId: 'fam_CEM', code: 'V',    label: 'Type V' },
   { id: 'type_SPEC', familyId: 'fam_CEM', code: 'SPEC', label: 'Special' },
-  // White cement
+  // SCM types
+  { id: 'type_ASH',  familyId: 'fam_SCM', code: 'ASH',  label: 'Fly Ash' },
+  { id: 'type_SLAG', familyId: 'fam_SCM', code: 'SLAG', label: 'Slag' },
+  // White Cement
   { id: 'type_WCEM', familyId: 'fam_WHT', code: 'WHT',  label: 'White' },
   // Clinker
   { id: 'type_CLNK', familyId: 'fam_CLNK', code: 'CLNK', label: 'Clinker' },
-  // Fly Ash
-  { id: 'type_CI',   familyId: 'fam_ASH',  code: 'CI',   label: 'Class CI' },
-  { id: 'type_CII',  familyId: 'fam_ASH',  code: 'CII',  label: 'Class CII' },
-  // Slag
-  { id: 'type_SLAG', familyId: 'fam_SLAG', code: 'SLAG', label: 'Slag' },
-  // Fuel
-  { id: 'type_COAL', familyId: 'fam_FUEL', code: 'COAL', label: 'Coal' },
-  { id: 'type_PETC', familyId: 'fam_FUEL', code: 'PETC', label: 'Pet Coke' },
-  { id: 'type_ALT',  familyId: 'fam_FUEL', code: 'ALT',  label: 'Alternative Fuel' },
+  // Raw Material types
+  { id: 'type_RAW_PRI', familyId: 'fam_RAW', code: 'PRIMARY',   label: 'Primary Raw Material' },
+  { id: 'type_RAW_DRM', familyId: 'fam_RAW', code: 'DRM',       label: 'Dry Raw Material' },
+  { id: 'type_RAW_ARM', familyId: 'fam_RAW', code: 'ARM',       label: 'Alternative Raw Material' },
+  // Fuel types
+  { id: 'type_FUEL_PRI', familyId: 'fam_FUEL', code: 'PRIMARY',     label: 'Primary Fuel' },
+  { id: 'type_FUEL_SEC', familyId: 'fam_FUEL', code: 'SECONDARY',   label: 'Secondary Fuel' },
+  { id: 'type_FUEL_ALT', familyId: 'fam_FUEL', code: 'ALTERNATIVE', label: 'Alternative Fuel' },
 ];
 
 export const DEFAULT_PRODUCT_SUBTYPES = [
   // IL limestone content
-  { id: 'sub_8pct',    typeId: 'type_IL',   code: '8%',    label: '8% Limestone' },
-  { id: 'sub_11pct',   typeId: 'type_IL',   code: '11%',   label: '11% Limestone' },
-  { id: 'sub_15pct',   typeId: 'type_IL',   code: '15%',   label: '15% Limestone' },
+  { id: 'sub_8pct',   typeId: 'type_IL',   code: '8%',    label: '8% Limestone' },
+  { id: 'sub_11pct',  typeId: 'type_IL',   code: '11%',   label: '11% Limestone' },
+  { id: 'sub_15pct',  typeId: 'type_IL',   code: '15%',   label: '15% Limestone' },
   // SPEC sub-types
-  { id: 'sub_STUCCO',  typeId: 'type_SPEC', code: 'Stucco', label: 'Stucco' },
-  { id: 'sub_OIL',     typeId: 'type_SPEC', code: 'Oil',   label: 'Oil Well' },
-  { id: 'sub_MORTAR',  typeId: 'type_SPEC', code: 'Mortar', label: 'Mortar' },
+  { id: 'sub_STUCCO', typeId: 'type_SPEC', code: 'Stucco', label: 'Stucco' },
+  { id: 'sub_OIL',    typeId: 'type_SPEC', code: 'Oil',    label: 'Oil Well' },
+  { id: 'sub_MORTAR', typeId: 'type_SPEC', code: 'Mortar', label: 'Mortar' },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -259,10 +264,32 @@ function migrateV2V3(v2) {
     facilities: v2.org?.facilities || [],
   };
 
-  // ── Reference tables — keep defaults, user data comes later ──
-  out.productFamilies = v2.productFamilies?.length ? v2.productFamilies : base.productFamilies;
-  out.productTypes    = v2.productTypes?.length    ? v2.productTypes    : base.productTypes;
-  out.productSubTypes = v2.productSubTypes?.length ? v2.productSubTypes : base.productSubTypes;
+  // ── Reference tables — merge defaults with any user data ──
+  // Always ensure all default families/types exist (merge, don't replace)
+  const mergeById = (existing, defaults) => {
+    const map = new Map((existing||[]).map(x => [x.id, x]));
+    defaults.forEach(d => { if (!map.has(d.id)) map.set(d.id, d); });
+    return [...map.values()];
+  };
+  out.productFamilies = mergeById(v2.productFamilies, base.productFamilies);
+  out.productTypes    = mergeById(v2.productTypes,    base.productTypes);
+  out.productSubTypes = mergeById(v2.productSubTypes, base.productSubTypes);
+
+  // ── Producers — seed internal ones from facilities if not already present ──
+  // External producers (importers, suppliers) are added by the user via the Products page
+  const existingProducers = v2.producers || [];
+  const defaultExternalProducers = [
+    { id: 'prod_MED', code: 'MED', label: 'MEDCEM',  facilityId: null },
+    { id: 'prod_TAM', code: 'TAM', label: 'TAMUIN',  facilityId: null },
+  ];
+  // Internal producers: one per facility, auto-derived
+  const internalProducers = (v2.org?.facilities || []).map(f => ({
+    id: `prod_fac_${f.id}`,
+    code: f.code || f.id,
+    label: f.name,
+    facilityId: f.id,
+  }));
+  out.producers = mergeById(existingProducers, [...internalProducers, ...defaultExternalProducers]);
   out.producers       = v2.producers  || [];
   out.customers       = v2.customers  || [];
 

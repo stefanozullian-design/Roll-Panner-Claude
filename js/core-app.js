@@ -3973,14 +3973,25 @@ function openDataIODialog(){
 
           const prod = sheet('Production Actuals');
           if(prod?.length){
-            const rows = prod.map(r=>({ date:parseDate(r['Date']), facilityId:lookupFac(r['Facility']), equipmentId:lookupEq(r['Equipment']||''), productId:lookupProd(r['Material Number']||r['MatNum']||''), qtyStn:+r['Qty (STn)']||+r['Qty(STn)']||0 })).filter(r=>r.date&&r.productId&&r.qtyStn!==0);
+            const rows = prod.map(r=>({
+              date:       parseDate(r['Date']),
+              facilityId: lookupFac(r['Facility']||r['Abrev']||''),
+              equipmentId:lookupEq(r['Equipment']||''),
+              productId:  lookupProd(r['Material Number']||r['MatNum']||String(r['Material']||'')),
+              qtyStn:     +r['Qty (STn)']||+r['Qty(STn)']||+r['Volume']||0
+            })).filter(r=>r.date&&r.productId&&r.qtyStn!==0);
             ds.actuals.production = dateRangeReplace(rows, ds.actuals.production);
             imported.push(`${rows.length} production rows`);
           }
 
           const ship = sheet('Shipment Actuals');
           if(ship?.length){
-            const rows = ship.map(r=>({ date:parseDate(r['Date']), facilityId:lookupFac(r['Facility']), productId:lookupProd(r['Material Number']||r['MatNum']||''), qtyStn:+r['Qty (STn)']||+r['Qty(STn)']||0 })).filter(r=>r.date&&r.productId&&r.qtyStn!==0);
+            const rows = ship.map(r=>({
+              date:       parseDate(r['Date']||r['Delivery Date']),
+              facilityId: lookupFac(r['Facility']||r['Abrev']||''),
+              productId:  lookupProd(r['Material Number']||r['MatNum']||String(r['Material']||'')),
+              qtyStn:     +r['Qty (STn)']||+r['Qty(STn)']||+r['Volume']||0
+            })).filter(r=>r.date&&r.productId&&r.qtyStn!==0);
             ds.actuals.shipments = dateRangeReplace(rows, ds.actuals.shipments);
             imported.push(`${rows.length} shipment rows`);
           }

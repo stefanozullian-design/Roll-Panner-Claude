@@ -3934,7 +3934,8 @@ function openDataIODialog(){
 
   // ── TRANSACTIONS DOWNLOAD (Production + Shipments, simple 4-col, from Official) ──
   q('dioTxnExport').onclick = () => {
-    const ds  = state.official;
+    // Export from active dataset (sandbox if active, otherwise official)
+    const ds = isSandbox && state.sandboxes?.[sbId]?.data ? state.sandboxes[sbId].data : state.official;
     const org = state.org;
     const cat = state.catalog || [];
     const facs = org.facilities || [];

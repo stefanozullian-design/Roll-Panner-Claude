@@ -591,9 +591,9 @@ function renderPlan(){
   };
 
   const alertChips = [
-    ...stockoutGroups.map(g => makeChip(g,'chip-stockout','','STOCKOUT')),
-    ...overflowGroups.map(g => makeChip(g,'chip-full','','FULL')),
-    ...warningGroups.map(g  => makeChip(g,'chip-high','','>75%'))
+    ...stockoutGroups.map(g => makeChip(g,'chip-stockout','🔴','STOCKOUT')),
+    ...overflowGroups.map(g => makeChip(g,'chip-full','🟡','FULL')),
+    ...warningGroups.map(g  => makeChip(g,'chip-high','△','>75%'))
   ].join('');
 
   const _alertKey     = 'planAlertStripCollapsed';
@@ -630,8 +630,98 @@ function renderPlan(){
   const isWeekendDate = d => [0,6].includes(new Date(d+'T00:00:00').getDay());
   const wkdColStyle = 'background:rgba(239,68,68,0.06);border-left:1px solid rgba(239,68,68,0.3);';
 
-  // ── Unified rows come directly from simEngine (facility-first structure) ──
-  const unifiedRows = plan.unifiedRows || [];
+  // Build unified row list from all 4 sections
+  // Filter production rows: skip subtotal+children if no equipment rows exist for that group
+  const filterProductionRows = (rows) => {
+    const out = [];
+    let i = 0;
+    while(i < rows.length){
+      const r = rows[i];
+      if(r.kind === 'subtotal'){
+        const children = [];
+        let j = i + 1;
+        while(j < rows.length && rows[j].kind === 'row') { children.push(rows[j]); j++; }
+        const hasEquipment = children.some(c => c.rowType === 'equipment');
+        if(hasEquipment){
+          out.push(r);
+          children.forEach(c => out.push(c));
+        }
+        i = j;
+      } else {
+        out.push(r);
+        i++;
+      }
+    }
+    return out;
+  };
+
+  const SECTIONS = [
+    { id:'bod',  title:'INV.-BOD (STn)', rows: plan.inventoryBODRows  },
+    { id:'prod', title:'PROD. (STn/day)',      rows: filterProductionRows(plan.productionRows) },
+    { id:'out',  title:'SHIP. (STn)', rows: (() => {
+      // Rebuild outflow rows grouped by facility, only customer shipments
+      // Collect all shipment rows from simEngine output
+      const allShipRows = [];
+      let inCustShip = false;
+      for(const r of (plan.outflowRows||[])){
+        if(r.kind==='group')      inCustShip = /CUSTOMER SHIP/i.test(r.label||'');
+        else if(r.kind==='subtotal') inCustShip = false;
+        else if(r.kind==='row' && inCustShip) allShipRows.push(r);
+      }
+
+      // Group by facility: for each selected facility that has finished products,
+      // emit a facility group header then its product rows
+      const facIds = (state.ui.selectedFacilityIds||[]).length ? state.ui.selectedFacilityIds : state.org.facilities.map(f=>f.id);
+      const rows = [];
+      facIds.forEach(facId => {
+        const fac = state.org.facilities.find(f=>f.id===facId);
+        if(!fac) return;
+        const facProdIds = new Set(
+          (s.dataset.facilityProducts||[])
+            .filter(fp=>fp.facilityId===facId)
+            .map(fp=>fp.productId)
+        );
+        // match shipRows to this facility's products
+        // Match shipRows by productId (if present) or by material name lookup
+        const facRows = allShipRows.filter(r => {
+          if(r.productId) return facProdIds.has(r.productId);
+          // simEngine doesn't attach productId — match by material name
+          return [...facProdIds].some(pid => {
+            const mat = s.getMaterial(pid);
+            return mat && (r.label === mat.name || r.productLabel === mat.name);
+          });
+        });
+        if(!facRows.length) return; // skip facilities with no finished products
+        rows.push({ kind:'group', label: fac.code ? `${fac.code} — ${fac.name}` : fac.name });
+        facRows.forEach(r => rows.push(r));
+      });
+
+      // Fallback: if grouping found nothing, show flat list
+      if(!rows.length) allShipRows.forEach(r => rows.push(r));
+      return rows;
+    })() },
+    { id:'eod',  title:'INV.-EOD (STn)',               rows: plan.inventoryEODRows   },
+  ];
+  const unifiedRows = [];
+  let subCounter = 0;
+  SECTIONS.forEach(sec => {
+    unifiedRows.push({ _type:'section-header', _secId:sec.id, label:sec.title });
+    let currentSubId = null;
+    sec.rows.forEach(r => {
+      if(r.kind==='group'){
+        unifiedRows.push({ _type:'group-label', _secId:sec.id, label:r.label });
+        currentSubId = null;
+        return;
+      }
+      if(r.kind==='subtotal'){
+        const subId = `sub_${subCounter++}`;
+        currentSubId = subId;
+        unifiedRows.push({ ...r, _type:'subtotal-header', _secId:sec.id, _subId:subId });
+        return;
+      }
+      unifiedRows.push({ ...r, _type:'child', _secId:sec.id, _subId:currentSubId });
+    });
+  });
 
   // Month-grouped date headers
   const dateHeaders = months.map(mon => {
@@ -768,72 +858,31 @@ function renderPlan(){
     return `<td class="num" style="${baseSty}font-size:10px;${isSubtotal?'font-weight:700;':'color:var(--muted);'}">${v?fmt0(v):''}</td>`;
   }).join('');
 
-  // Build HTML rows — facility-first structure
-  // Facility-header collapse state: each facility block collapses independently
-  const facOpenId = fid => `fac_${fid}`;
-  const famOpenId = (fid, fam) => `fam_${fid}_${fam}`;
-
+  // Build HTML rows
   const tableRows = unifiedRows.map(r => {
-
-    // ── Facility header — top-level collapsible block ──
-    if(r._type==='facility-header'){
-      const facId  = r._facilityId;
-      const togId  = facOpenId(facId);
-      const typeBadge = {cement_plant:'🏭 Plant', grinding:'⚙ Grinding', terminal:'🚢 Terminal'}[r.facType||'terminal'] || '🚢 Terminal';
-      return `<tr class="plan-fac-header" data-fac="${facId}" style="cursor:pointer;user-select:none;">
-        <td class="row-header" style="position:sticky;left:0;z-index:4;background:#070a10;border:2px solid rgba(99,179,237,0.4);padding:6px 12px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#93c5fd;white-space:nowrap;">
-          <span class="fac-icon" data-fac="${facId}" style="margin-right:6px;display:inline-block;transition:transform .15s;">▼</span>${esc(r.label)}
-          <span style="margin-left:10px;font-size:9px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0">${typeBadge}</span>
+    if(r._type==='section-header'){
+      return `<tr class="plan-section-collapse" data-sec="${r._secId}" style="cursor:pointer;user-select:none;">
+        <td class="row-header" style="position:sticky;left:0;z-index:3;background:#0a0d14;border:1px solid var(--border);padding:5px 10px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);white-space:nowrap;">
+          <span class="collapse-icon" data-sec="${r._secId}" style="margin-right:6px;display:inline-block;transition:transform .15s;">▶</span>${esc(r.label)}
         </td>
-        <td colspan="9999" style="background:#070a10;border:2px solid rgba(99,179,237,0.4);border-left:none;padding:0;"></td>
+        <td colspan="9999" style="background:#0a0d14;border:1px solid var(--border);border-left:none;padding:0;"></td>
+        </tr>`;
+    }
+    if(r._type==='group-label'){
+      return `<tr class="sec-child sec-${r._secId}" style="display:none;">
+        <td class="row-header" style="position:sticky;left:0;z-index:3;background:rgba(10,13,20,0.97);border:1px solid var(--border);padding:4px 10px 4px 22px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);white-space:nowrap;">${esc(r.label)}</td>
+        <td colspan="9999" style="background:rgba(255,255,255,0.015);border:1px solid var(--border);border-left:none;padding:0;"></td>
       </tr>`;
     }
-
-    // ── Family header — second-level collapsible (CLINKER / CEMENT / etc.) ──
-    if(r._type==='family-header'){
-      const facId = r._facilityId;
-      const fam   = r._family || r.label;
-      const famColors = { CLINKER:'rgba(245,158,11,0.15)', CEMENT:'rgba(99,179,237,0.1)', SCM:'rgba(34,197,94,0.1)' };
-      const famTextColors = { CLINKER:'#fcd34d', CEMENT:'#93c5fd', SCM:'#86efac' };
-      const bg  = famColors[fam]  || 'rgba(255,255,255,0.05)';
-      const col = famTextColors[fam] || 'var(--muted)';
-      return `<tr class="plan-fam-header fac-child fac-${facId}" data-fam="${famOpenId(facId,fam)}" data-fac="${facId}" style="cursor:pointer;user-select:none;">
-        <td class="row-header" style="position:sticky;left:0;z-index:3;background:${bg};border:1px solid var(--border);padding:5px 10px 5px 22px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:${col};white-space:nowrap;">
-          <span class="fam-icon" data-famid="${famOpenId(facId,fam)}" style="margin-right:6px;display:inline-block;transition:transform .15s;">▼</span>${esc(r.label)}
-        </td>
-        <td colspan="9999" style="background:${bg};border:1px solid var(--border);border-left:none;padding:0;"></td>
-      </tr>`;
-    }
-
-    // ── Subtotal row (BOD, Production, Demand, CLK Consumed, Unloading) ──
     if(r._type==='subtotal-header'){
-      const facId  = r._facilityId || '';
-      const famId  = r._famId || '';
-      const isPlaceholder = r._placeholder;
-      const labelStyle = isPlaceholder ? 'color:var(--muted);font-style:italic;' : '';
-      return `<tr class="plan-sub-collapse fac-child fac-${facId}" data-sub="${r._subId}" data-fac="${facId}" style="cursor:pointer;user-select:none;">
-        <td class="row-header" style="position:sticky;left:0;z-index:3;background:rgba(15,20,30,0.97);font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text);padding-left:28px;${labelStyle}" title="${esc(r.productLabel||r.label)}">
-          <span class="collapse-icon sub-icon" data-sub="${r._subId}" style="margin-right:5px;display:inline-block;transition:transform .15s;font-size:9px;">▶</span>${esc(r.label)}${isPlaceholder?' <span style="font-size:8px;color:var(--muted)">(pending logistics)</span>':''}
+      return `<tr class="plan-sub-collapse sec-child sec-${r._secId}" data-sub="${r._subId}" style="cursor:pointer;user-select:none;display:none;">
+        <td class="row-header" style="position:sticky;left:0;z-index:3;background:rgba(15,20,30,0.97);font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text);padding-left:14px;" title="${esc(r.productLabel||r.label)}">
+          <span class="collapse-icon sub-icon" data-sub="${r._subId}" style="margin-right:5px;display:inline-block;transition:transform .15s;font-size:9px;">▶</span>${esc(r.label)}
         </td>${renderAllCells(r)}</tr>`;
     }
-
-    // ── Child data row ──
-    if(r._type==='child'){
-      const facId = r._facilityId || '';
-      return `<tr class="fac-child fac-${facId}${r._subId?' sub-child sub-'+r._subId:''}" style="display:none;">
-        <td class="row-header" style="position:sticky;left:0;z-index:3;background:rgba(10,13,20,0.97);font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--text);padding-left:${r._subId?'40px':'28px'};" title="${esc(r.productLabel||r.label)}">${esc(r.label)}</td>
-        ${renderAllCells(r)}</tr>`;
-    }
-
-    // ── Placeholder (no data) ──
-    if(r._type==='placeholder'){
-      const facId = r._facilityId || '';
-      return `<tr class="fac-child fac-${facId}">
-        <td class="row-header" colspan="9999" style="position:sticky;left:0;z-index:2;background:rgba(10,13,20,0.97);font-size:10px;color:var(--muted);padding-left:40px;font-style:italic">${esc(r.label)}</td>
-      </tr>`;
-    }
-
-    return '';
+    return `<tr class="sec-child sec-${r._secId}${r._subId?' sub-child sub-'+r._subId:''}" style="display:none;">
+      <td class="row-header" style="position:sticky;left:0;z-index:3;background:rgba(10,13,20,0.97);font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--text);padding-left:${r._subId?'26px':'14px'};" title="${esc(r.productLabel||r.label)}">${esc(r.label)}</td>
+      ${renderAllCells(r)}</tr>`;
   }).join('');
 
   root.innerHTML = `
@@ -874,23 +923,15 @@ function renderPlan(){
   // Apply month collapse CSS after DOM is ready
   applyCollapseStyle('planTable', collapsed);
 
-  // ── Collapse/expand: facility → family → subtotal ──
-  const facOpenState = {};  // facId → bool (open)
-  const famOpenState = {};  // famId → bool (open)
-  const subOpenState = {};  // subId → bool (open)
-
+  // Delegated collapse handler on tbody
+  const secOpenState = {};
+  const subOpenState = {};
   const tbody = root.querySelector('.plan-table tbody');
-
-  // All facility rows start expanded, subtotals collapsed
-  root.querySelectorAll('.plan-fac-header').forEach(tr => {
-    const facId = tr.dataset.fac;
-    facOpenState[facId] = true; // expanded by default
-  });
-
   tbody.addEventListener('click', e => {
-    // ── Subtotal row click → toggle children ──
     const subRow = e.target.closest('.plan-sub-collapse');
-    if(subRow && !e.target.closest('.plan-fam-header') && !e.target.closest('.plan-fac-header')){
+    const secRow = e.target.closest('.plan-section-collapse');
+
+    if(subRow){
       e.stopPropagation();
       const subId = subRow.dataset.sub;
       subOpenState[subId] = !subOpenState[subId];
@@ -900,58 +941,22 @@ function renderPlan(){
       root.querySelectorAll('.sub-child.sub-' + subId).forEach(row => { row.style.display = open ? '' : 'none'; });
       return;
     }
-
-    // ── Family header click → toggle family rows ──
-    const famRow = e.target.closest('.plan-fam-header');
-    if(famRow && !e.target.closest('.plan-fac-header')){
-      e.stopPropagation();
-      const famId  = famRow.dataset.fam;
-      const facId  = famRow.dataset.fac;
-      famOpenState[famId] = !famOpenState[famId];
-      const open = famOpenState[famId];
-      const icon = famRow.querySelector('.fam-icon');
-      if(icon) icon.style.transform = open ? '' : 'rotate(-90deg)';
-      // Show/hide all fac-children that come after this family header up to next family/fac header
-      let inThisFam = false;
-      root.querySelectorAll(`.fac-child.fac-${facId}`).forEach(row => {
-        if(row === famRow){ inThisFam = true; return; }
-        if(row.classList.contains('plan-fam-header')){ inThisFam = false; return; }
-        if(!inThisFam) return;
+    if(secRow){
+      const secId = secRow.dataset.sec;
+      secOpenState[secId] = !secOpenState[secId];
+      const open = secOpenState[secId];
+      const icon = secRow.querySelector('.collapse-icon[data-sec="' + secId + '"]');
+      if(icon) icon.style.transform = open ? 'rotate(90deg)' : '';
+      root.querySelectorAll('.sec-child.sec-' + secId).forEach(row => {
+        const isSub = row.classList.contains('plan-sub-collapse');
+        const isSubChild = row.classList.contains('sub-child');
+        if(isSubChild) return;
         row.style.display = open ? '' : 'none';
-        if(!open && row.classList.contains('plan-sub-collapse')){
+        if(!open && isSub){
           const subId = row.dataset.sub;
           subOpenState[subId] = false;
           root.querySelectorAll('.sub-child.sub-' + subId).forEach(c => { c.style.display = 'none'; });
           const si = row.querySelector('.sub-icon'); if(si) si.style.transform = '';
-        }
-      });
-      return;
-    }
-
-    // ── Facility header click → toggle entire facility block ──
-    const facRow = e.target.closest('.plan-fac-header');
-    if(facRow){
-      const facId = facRow.dataset.fac;
-      facOpenState[facId] = !facOpenState[facId];
-      const open = facOpenState[facId];
-      const icon = facRow.querySelector('.fac-icon');
-      if(icon) icon.style.transform = open ? '' : 'rotate(-90deg)';
-      root.querySelectorAll(`.fac-child.fac-${facId}`).forEach(row => {
-        row.style.display = open ? '' : 'none';
-        if(!open){
-          // Collapse all sub-children within
-          if(row.classList.contains('plan-sub-collapse')){
-            const subId = row.dataset.sub;
-            subOpenState[subId] = false;
-            root.querySelectorAll('.sub-child.sub-' + subId).forEach(c => { c.style.display = 'none'; });
-            const si = row.querySelector('.sub-icon'); if(si) si.style.transform = '';
-          }
-          // Reset fam state
-          if(row.classList.contains('plan-fam-header')){
-            const fId = row.dataset.fam;
-            famOpenState[fId] = false;
-            const fi = row.querySelector('.fam-icon'); if(fi) fi.style.transform = 'rotate(-90deg)';
-          }
         }
       });
     }
@@ -981,12 +986,11 @@ function renderPlan(){
     const ym = todayStr.slice(0,7);
     const cur = loadCollapsedMonths();
     if(cur.has(ym)){ cur.delete(ym); saveCollapsedMonths(cur); applyCollapseStyle('planTable', cur); }
-    // Expand all facility blocks so today column is visible
-    table.querySelectorAll('.plan-fac-header').forEach(tr => {
-      const facId = tr.dataset.fac;
-      const icon = tr.querySelector('.fac-icon');
-      if(icon) icon.style.transform = '';
-      table.querySelectorAll(`.fac-child.fac-${facId}`).forEach(r => { r.style.display = ''; });
+    // Expand all sections so today column is visible
+    table.querySelectorAll('.plan-section-collapse').forEach(tr => {
+      const sec = tr.dataset.sec;
+      tr.querySelectorAll('.collapse-icon').forEach(i=>{ i.style.transform='rotate(90deg)'; });
+      table.querySelectorAll(`.sec-child.sec-${sec}`).forEach(r=>r.style.display='');
     });
     // Find and scroll to today's th using getBoundingClientRect for accurate offset
     let th = null;
@@ -2572,7 +2576,9 @@ function renderData(){
     <div class="card-header">
       <div><div class="card-title">Data Inspector</div><div class="card-sub text-muted">Debug view · Current scenario: ${state.ui.mode.toUpperCase()}</div></div>
       <div class="flex gap-2">
-        <button id="exportJson" class="btn">↓ Export JSON</button>
+        <button id="exportFullJson" class="btn btn-primary" title="Download complete backup — all facilities, all scenarios, all data">↓ Full Backup</button>
+        <button id="exportFullExcel" class="btn btn-primary" title="Download every table as an Excel sheet — no filters, all data">↓ Full DB Excel</button>
+        <button id="exportJson" class="btn">↓ Scenario JSON</button>
         <button id="importJson" class="btn">↑ Import JSON</button>
         <input id="jsonFile" type="file" accept="application/json" class="hidden">
       </div>
@@ -2590,6 +2596,122 @@ function renderData(){
     </div>
   </div>`;
 
+  root.querySelector('#exportFullExcel').onclick = () => {
+    // Complete database dump — every table, no facility filter, human-readable columns
+    const ds  = state.official; // always export from official — the source of truth
+    const org = state.org;
+    const cat = state.catalog || [];
+    const facs  = org.facilities || [];
+    const facName  = id => facs.find(f=>f.id===id)?.name || id;
+    const facCode  = id => facs.find(f=>f.id===id)?.code || id;
+    const matName  = id => cat.find(m=>m.id===id)?.name || id;
+    const matNum   = id => { const m=cat.find(x=>x.id===id); return (m?.materialNumbers||[]).map(x=>typeof x==='object'?x.number:x).filter(Boolean).join(', ') || m?.materialNumber || ''; };
+    const eqName   = id => ds.equipment.find(e=>e.id===id)?.name || id;
+    const stName   = id => ds.storages.find(s=>s.id===id)?.name || id;
+
+    const wb = XLSX.utils.book_new();
+    const addSheet = (name, rows) => {
+      if(!rows.length) return;
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name.slice(0,31));
+    };
+
+    // ── ORG ──
+    addSheet('Facilities', [
+      ['ID','Code','Name','Type','SubRegion'],
+      ...facs.map(f=>[f.id, f.code||'', f.name, f.facilityType||'terminal', f.subRegionId||''])
+    ]);
+    addSheet('Org-Regions', [
+      ['ID','Name','CountryId'],
+      ...(org.regions||[]).map(r=>[r.id,r.name,r.countryId||''])
+    ]);
+
+    // ── CATALOG ──
+    addSheet('Products-Catalog', [
+      ['ID','Code','Name','Category','FamilyId','TypeId','MaterialNumber','LandedCost'],
+      ...cat.map(m=>[m.id, m.code||'', m.name, m.category, m.familyId||'', m.typeId||'',
+        matNum(m.id), m.landedCostUsdPerStn||0])
+    ]);
+    addSheet('FacilityProducts', [
+      ['FacilityID','FacilityName','ProductID','ProductName'],
+      ...(ds.facilityProducts||[]).map(r=>[r.facilityId, facName(r.facilityId), r.productId, matName(r.productId)])
+    ]);
+
+    // ── SETUP ──
+    addSheet('Equipment', [
+      ['ID','FacilityCode','FacilityName','Name','Type'],
+      ...ds.equipment.map(e=>[e.id, facCode(e.facilityId), facName(e.facilityId), e.name, e.type])
+    ]);
+    addSheet('Storages', [
+      ['ID','FacilityCode','FacilityName','Name','CategoryHint','AllowedProducts','MaxCapacity(STn)'],
+      ...ds.storages.map(st=>[st.id, facCode(st.facilityId), facName(st.facilityId), st.name,
+        st.categoryHint||'', (st.allowedProductIds||[]).map(matName).join(' | '), st.maxCapacityStn||0])
+    ]);
+    addSheet('Capabilities', [
+      ['EquipmentID','EquipmentName','FacilityCode','ProductID','ProductName','MaxRate(STpd)','Electric(kWh/STn)','Thermal(MMBTU/STn)'],
+      ...ds.capabilities.map(c=>{
+        const eq = ds.equipment.find(e=>e.id===c.equipmentId);
+        return [c.equipmentId, eqName(c.equipmentId), facCode(eq?.facilityId||''),
+          c.productId, matName(c.productId), c.maxRateStpd||0, c.electricKwhPerStn||0, c.thermalMMBTUPerStn||0];
+      })
+    ]);
+    addSheet('Recipes', [
+      ['RecipeID','FacilityCode','ProductID','ProductName','Version','ComponentMaterial','ComponentMatNum','Pct%'],
+      ...ds.recipes.flatMap(r=>
+        (r.components||[]).map(c=>[r.id, facCode(r.facilityId), r.productId, matName(r.productId),
+          r.version||1, matName(c.materialId), matNum(c.materialId), c.pct||0])
+      )
+    ]);
+
+    // ── PLANNING ──
+    addSheet('Campaigns', [
+      ['Date','FacilityCode','FacilityName','EquipmentID','EquipmentName','ProductID','ProductName','Status','Rate(STpd)'],
+      ...ds.campaigns.map(r=>[r.date, facCode(r.facilityId), facName(r.facilityId),
+        r.equipmentId, eqName(r.equipmentId), r.productId, matName(r.productId),
+        r.status||'produce', r.rateStn||0])
+    ]);
+    addSheet('DemandForecast', [
+      ['Date','FacilityCode','FacilityName','ProductID','ProductName','MatNum','Qty(STn)','Source'],
+      ...ds.demandForecast.map(r=>[r.date, facCode(r.facilityId), facName(r.facilityId),
+        r.productId, matName(r.productId), matNum(r.productId), r.qtyStn||0, r.source||''])
+    ]);
+
+    // ── ACTUALS ──
+    addSheet('Actuals-Inventory', [
+      ['Date','FacilityCode','FacilityName','StorageID','StorageName','ProductID','ProductName','MatNum','Qty(STn)'],
+      ...(ds.actuals.inventoryBOD||[]).map(r=>[r.date, facCode(r.facilityId), facName(r.facilityId),
+        r.storageId, stName(r.storageId), r.productId, matName(r.productId), matNum(r.productId), r.qtyStn||0])
+    ]);
+    addSheet('Actuals-Production', [
+      ['Date','FacilityCode','FacilityName','EquipmentID','EquipmentName','ProductID','ProductName','MatNum','Qty(STn)'],
+      ...(ds.actuals.production||[]).map(r=>[r.date, facCode(r.facilityId), facName(r.facilityId),
+        r.equipmentId, eqName(r.equipmentId), r.productId, matName(r.productId), matNum(r.productId), r.qtyStn||0])
+    ]);
+    addSheet('Actuals-Shipments', [
+      ['Date','FacilityCode','FacilityName','ProductID','ProductName','MatNum','Qty(STn)'],
+      ...(ds.actuals.shipments||[]).map(r=>[r.date, facCode(r.facilityId), facName(r.facilityId),
+        r.productId, matName(r.productId), matNum(r.productId), r.qtyStn||0])
+    ]);
+    addSheet('Actuals-Transfers', [
+      ['Date','FromFacilityCode','FromFacilityName','ToFacilityCode','ToFacilityName','ProductID','ProductName','MatNum','Qty(STn)'],
+      ...(ds.actuals.transfers||[]).map(r=>[r.date,
+        facCode(r.fromFacilityId), facName(r.fromFacilityId),
+        facCode(r.toFacilityId),   facName(r.toFacilityId),
+        r.productId, matName(r.productId), matNum(r.productId), r.qtyStn||0])
+    ]);
+
+    const ts = new Date().toISOString().slice(0,10);
+    XLSX.writeFile(wb, `cement_planner_FULL_DB_${ts}.xlsx`);
+    showToast('Full DB exported ✓', 'ok');
+  };
+
+  root.querySelector('#exportFullJson').onclick = () => {
+    // Full state backup — everything: org, catalog, families, all scenarios, all data
+    const data = JSON.stringify(state, null, 2);
+    const blob = new Blob([data],{type:'application/json'});
+    const ts = new Date().toISOString().slice(0,10);
+    const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`cement_planner_FULL_BACKUP_${ts}.json`; a.click(); URL.revokeObjectURL(a.href);
+    showToast('Full backup downloaded ✓', 'ok');
+  };
   root.querySelector('#exportJson').onclick = () => {
     const data = JSON.stringify(state[state.ui.mode], null, 2);
     const blob = new Blob([data],{type:'application/json'});
@@ -2739,14 +2861,6 @@ function openSettingsDialog(){
             <button class="btn" id="sfCancel" style="height:36px">Cancel</button>
           </div>
         </div>
-        ${type==='facility'?`<div style="margin-top:8px">
-          <label class="form-label">Facility Type</label>
-          <select class="form-input" id="sfFacType" style="max-width:280px">
-            <option value="cement_plant"${(existing?.facilityType||'terminal')==='cement_plant'?' selected':''}>Cement Plant — produces clinker &amp; grinds</option>
-            <option value="grinding"${(existing?.facilityType||'')==='grinding'?' selected':''}>Grinding Facility — receives clinker &amp; grinds</option>
-            <option value="terminal"${(existing?.facilityType||'terminal')==='terminal'?' selected':''}>Terminal — receives &amp; distributes finished product</option>
-          </select>
-        </div>`:''}
       </div>`;
 
     const q = id => formEl.querySelector('#'+id);
@@ -2761,13 +2875,13 @@ function openSettingsDialog(){
         if(type==='country')   a.updateCountry({id:editId, name, code});
         if(type==='region')    a.updateRegion({id:editId, name, code});
         if(type==='subregion') a.updateSubRegion({id:editId, name, code});
-        if(type==='facility')  a.updateFacility({id:editId, name, code, facilityType:q('sfFacType')?.value||'terminal'});
+        if(type==='facility')  a.updateFacility({id:editId, name, code});
       } else {
         if(type==='country')   a.addCountry({name, code});
         if(type==='region')    a.addRegion({countryId:parentId, name, code});
         if(type==='subregion') a.addSubRegion({regionId:parentId, name, code});
         if(type==='facility'){
-          const facId = a.addFacility({subRegionId:parentId, name, code, facilityType:q('sfFacType')?.value||'terminal'});
+          const facId = a.addFacility({subRegionId:parentId, name, code});
           if(facId && !state.ui.selectedFacilityId) state.ui.selectedFacilityId = facId;
         }
       }
@@ -3324,6 +3438,17 @@ function openDataIODialog(){
   };
 
   // ── EXCEL IMPORT ──
+  // Strategy:
+  //   Setup tables (Facilities, Products, Equipment, Storages, Capabilities, Recipes,
+  //                 FacilityProducts, Org-Regions):
+  //     → Full replace: what's in the sheet IS the truth. Records not in the sheet are deleted.
+  //     → Always export first, edit, re-import. Never build from scratch.
+  //
+  //   Transactional tables (Actuals, Campaigns, Demand Forecast):
+  //     → Date-range aware: detect min/max date in the sheet, replace only that window,
+  //       leave everything outside it untouched.
+  //     → Uploading only Feb 27-28 only touches those two days.
+  //     → Uploading all of Jan 2026 replaces all of Jan 2026.
   const importExcel = () => {
     const inp = document.createElement('input');
     inp.type = 'file'; inp.accept = '.xlsx,.xls,.csv';
@@ -3334,8 +3459,9 @@ function openDataIODialog(){
         try {
           const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
           const ds = selectors(state).dataset;
-          const fac = state.ui.selectedFacilityId;
-          let imported = [];
+          const fallbackFac = state.ui.selectedFacilityId;
+          const imported = [];
+          const skipped  = [];
 
           const readSheet = name => {
             const ws = wb.Sheets[name];
@@ -3343,154 +3469,270 @@ function openDataIODialog(){
             return XLSX.utils.sheet_to_json(ws, {defval:''});
           };
 
-          // ── Shared lookup helpers ──
-
-          // Facility: trim whitespace then match code / id / name
+          // ── Lookup helpers ──
           const lookupFacility = val => {
             const v = String(val||'').trim();
             return state.org.facilities.find(f => f.code===v || f.id===v || f.name===v)?.id || null;
           };
-
-          // Product: 3-tier lookup
-          //  1. Material number — split incoming "1606504, 1635289" and match ANY part
-          //     against the catalog's materialNumbers array (handles multi-mat-number products)
-          //  2. Exact name / code / id match
-          //  3. Keyword fallback: extract part after last "/" e.g. "JAX / BRS IL" → "BRS IL"
-          const lookupProduct = (matNum) => {
-            const mnParts = String(matNum||'').split(',').map(s=>s.trim()).filter(Boolean);
-            if(mnParts.length){
-              const byMat = state.catalog.find(m => {
-                const catalogNums = (m.materialNumbers||[])
-                  .map(x => typeof x==='object' ? String(x.number||x).trim() : String(x).trim());
-                // also support legacy single field
-                if(m.materialNumber) String(m.materialNumber).split(',').map(s=>s.trim()).forEach(n=>catalogNums.push(n));
-                return mnParts.some(part => catalogNums.includes(part));
-              });
-              if(byMat) return byMat.id;
-            }
-            return null;
+          const lookupProduct = matNum => {
+            const parts = String(matNum||'').split(',').map(s=>s.trim()).filter(Boolean);
+            if(!parts.length) return null;
+            return state.catalog.find(m => {
+              const nums = (m.materialNumbers||[])
+                .map(x => typeof x==='object' ? String(x.number||x).trim() : String(x).trim());
+              if(m.materialNumber) String(m.materialNumber).split(',').map(s=>s.trim()).forEach(n=>nums.push(n));
+              return parts.some(p => nums.includes(p));
+            })?.id || state.catalog.find(m=>m.name===parts[0]||m.id===parts[0]||m.code===parts[0])?.id || null;
           };
-
-          // Parse date cell → 'YYYY-MM-DD'
+          const lookupEquipment = val => {
+            const v = String(val||'').trim();
+            return ds.equipment.find(e => e.name===v || e.id===v || e.id.endsWith('_'+v))?.id || null;
+          };
           const parseDate = v => {
             if(!v) return '';
-            if(typeof v==='object' && v instanceof Date) return v.toISOString().slice(0,10);
+            if(v instanceof Date) return v.toISOString().slice(0,10);
             const s = String(v).trim();
-            // Already ISO
             if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-            // MM/DD/YYYY or M/D/YYYY
             const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
             if(mdy) return `${mdy[3]}-${mdy[1].padStart(2,'0')}-${mdy[2].padStart(2,'0')}`;
             return s.slice(0,10);
           };
 
-          // Generic accumulate-and-save for date|facility|product keyed sheets
-          const accumImport = (rows, store) => {
-            const accum = new Map();
-            rows.forEach(r => {
-              const k = `${r.date}|${r.facilityId}|${r.productId}`;
-              accum.set(k, (accum.get(k)||0) + r.qtyStn);
-            });
-            const keys = new Set(accum.keys());
-            // Remove old entries for affected keys
-            const filtered = store.filter(x => !keys.has(`${x.date}|${x.facilityId}|${x.productId}`));
-            // Push accumulated totals (skip zero-only entries)
-            accum.forEach((qtyStn, k) => {
-              const [date, facilityId, productId] = k.split('|');
-              filtered.push({ date, facilityId, productId, qtyStn });
-            });
-            return filtered;
+          // Date-range replace: remove existing records in [minDate, maxDate] window, insert new
+          const dateRangeReplace = (newRows, store, keyFn) => {
+            const dates = newRows.map(r=>r.date).filter(Boolean).sort();
+            if(!dates.length) return store;
+            const minD = dates[0], maxD = dates[dates.length-1];
+            const existingKeys = new Set(newRows.map(keyFn));
+            // Keep records outside the date window OR inside window but with a key not being replaced
+            const kept = store.filter(x => x.date < minD || x.date > maxD);
+            return [...kept, ...newRows];
           };
 
-          // Import Demand Forecast  [Date, Facility, Material Number, Qty (STn)]
-          const demand = readSheet('Demand Forecast');
-          if(demand?.length){
-            const rows = demand.map(r=>({
-              date:       parseDate(r['Date']),
-              facilityId: lookupFacility(r['Facility']) || fac,
-              productId:  lookupProduct(r['Material Number']||r['Mat. Number']||''),
-              qtyStn:     +r['Qty (STn)']||0,
-              source:     'forecast'
-            })).filter(r=>r.date && r.productId && r.qtyStn!==0);
-            ds.demandForecast = accumImport(rows, ds.demandForecast);
-            imported.push(`${rows.length} demand rows`);
+          // ══════════════════════════════════════════════════════════════
+          // SETUP TABLES — full replace (what's in the sheet = the truth)
+          // ══════════════════════════════════════════════════════════════
+
+          // Facilities
+          const facSheet = readSheet('Facilities');
+          if(facSheet?.length){
+            const rows = facSheet.map(r=>({
+              id:           String(r['ID']||'').trim(),
+              code:         String(r['Code']||'').trim(),
+              name:         String(r['Name']||'').trim(),
+              facilityType: String(r['Type']||'terminal').trim(),
+              subRegionId:  String(r['SubRegion']||'').trim(),
+            })).filter(r=>r.id && r.name);
+            state.org.facilities = rows;
+            imported.push(`${rows.length} facilities`);
           }
 
-          // Import Production Actuals  [Date, Equipment, Material Number, Qty (STn)]
-          const prod = readSheet('Production Actuals');
-          if(prod?.length){
-            const rows = prod.map(r=>{
-              const eq = ds.equipment.find(e=>e.name===String(r['Equipment']||'').trim() || e.id===String(r['Equipment']||'').trim());
-              return {
-                date:        parseDate(r['Date']),
-                equipmentId: eq?.id || '',
-                facilityId:  eq?.facilityId || fac,  // derive facility from equipment
-                productId:   lookupProduct(r['Material Number']||r['Mat. Number']||''),
-                qtyStn:      +r['Qty (STn)']||0
-              };
-            }).filter(r=>r.date && r.equipmentId && r.productId && r.qtyStn!==0);
-            // Dedup key: date|equipmentId|productId (not facilityId — already encoded in equipment)
-            const accum = new Map();
-            rows.forEach(r=>{
-              const k = `${r.date}|${r.equipmentId}|${r.productId}`;
-              accum.set(k, { ...r, qtyStn: (accum.get(k)?.qtyStn||0) + r.qtyStn });
+          // Org Regions
+          const regSheet = readSheet('Org-Regions');
+          if(regSheet?.length){
+            const rows = regSheet.map(r=>({
+              id:        String(r['ID']||'').trim(),
+              name:      String(r['Name']||'').trim(),
+              countryId: String(r['CountryId']||'').trim(),
+            })).filter(r=>r.id && r.name);
+            state.org.regions = rows;
+            imported.push(`${rows.length} regions`);
+          }
+
+          // Products Catalog — full replace
+          const catSheet = readSheet('Products-Catalog');
+          if(catSheet?.length){
+            const rows = catSheet.map(r=>({
+              id:                  String(r['ID']||'').trim(),
+              code:                String(r['Code']||'').trim(),
+              name:                String(r['Name']||'').trim(),
+              category:            String(r['Category']||'').trim(),
+              familyId:            String(r['FamilyId']||'').trim()||null,
+              typeId:              String(r['TypeId']||'').trim()||null,
+              materialNumber:      String(r['MaterialNumber']||'').trim(),
+              landedCostUsdPerStn: +r['LandedCost']||0,
+            })).filter(r=>r.id && r.name);
+            state.catalog = rows;
+            imported.push(`${rows.length} products`);
+          }
+
+          // FacilityProducts — full replace
+          const fpSheet = readSheet('FacilityProducts');
+          if(fpSheet?.length){
+            const rows = fpSheet.map(r=>({
+              facilityId: lookupFacility(r['FacilityID']||r['FacilityCode']) || String(r['FacilityID']||'').trim(),
+              productId:  String(r['ProductID']||'').trim() || lookupProduct(r['ProductName']||''),
+            })).filter(r=>r.facilityId && r.productId);
+            ds.facilityProducts = rows;
+            imported.push(`${rows.length} facility-products`);
+          }
+
+          // Equipment — full replace
+          const eqSheet = readSheet('Equipment');
+          if(eqSheet?.length){
+            const rows = eqSheet.map(r=>({
+              id:         String(r['ID']||'').trim(),
+              name:       String(r['Name']||'').trim(),
+              type:       String(r['Type']||'').trim(),
+              facilityId: lookupFacility(r['FacilityCode']||r['FacilityName']||r['Facility']) || String(r['ID']||'').split('_')[0],
+            })).filter(r=>r.id && r.name && r.facilityId);
+            ds.equipment = rows;
+            imported.push(`${rows.length} equipment`);
+          }
+
+          // Storages — full replace
+          const stSheet = readSheet('Storages');
+          if(stSheet?.length){
+            const rows = stSheet.map(r=>({
+              id:               String(r['ID']||'').trim(),
+              name:             String(r['Name']||'').trim(),
+              facilityId:       lookupFacility(r['FacilityCode']||r['FacilityName']) || String(r['ID']||'').split('_')[0],
+              categoryHint:     String(r['CategoryHint']||'').trim(),
+              maxCapacityStn:   +r['MaxCapacity(STn)']||null,
+              allowedProductIds: String(r['AllowedProducts']||'').split('|')
+                .map(n=>n.trim())
+                .map(n=>state.catalog.find(m=>m.name===n||m.id===n)?.id||n)
+                .filter(Boolean),
+            })).filter(r=>r.id && r.name && r.facilityId);
+            ds.storages = rows;
+            imported.push(`${rows.length} storages`);
+          }
+
+          // Capabilities — full replace
+          const capSheet = readSheet('Capabilities');
+          if(capSheet?.length){
+            const rows = capSheet.map(r=>({
+              equipmentId:         lookupEquipment(r['EquipmentID']||r['EquipmentName']) || String(r['EquipmentID']||'').trim(),
+              productId:           lookupProduct(r['ProductID']||r['MaterialNumber']||'') || String(r['ProductID']||'').trim(),
+              maxRateStpd:         +r['MaxRate(STpd)']||0,
+              electricKwhPerStn:   +r['Electric(kWh/STn)']||0,
+              thermalMMBTUPerStn:  +r['Thermal(MMBTU/STn)']||0,
+            })).filter(r=>r.equipmentId && r.productId);
+            ds.capabilities = rows;
+            imported.push(`${rows.length} capabilities`);
+          }
+
+          // Recipes — full replace (grouped by recipeId)
+          const recSheet = readSheet('Recipes');
+          if(recSheet?.length){
+            const recipeMap = new Map();
+            recSheet.forEach(r=>{
+              const rid = String(r['RecipeID']||'').trim();
+              const pid = lookupProduct(r['ProductID']||r['ComponentMatNum']||'') || String(r['ProductID']||'').trim();
+              const fid = lookupFacility(r['FacilityCode']) || '';
+              const matId = lookupProduct(r['ComponentMatNum']||r['ComponentMaterial']||'') || String(r['ComponentMaterial']||'').trim();
+              const pct = +r['Pct%']||0;
+              if(!rid || !pid || !matId) return;
+              if(!recipeMap.has(rid)) recipeMap.set(rid, { id:rid, facilityId:fid, productId:pid, version:1, components:[] });
+              recipeMap.get(rid).components.push({ materialId: matId, pct });
             });
-            const keys = new Set(accum.keys());
-            ds.actuals.production = ds.actuals.production.filter(x=>!keys.has(`${x.date}|${x.equipmentId}|${x.productId}`));
-            accum.forEach(r => ds.actuals.production.push(r));
-            imported.push(`${accum.size} production rows`);
+            ds.recipes = [...recipeMap.values()];
+            imported.push(`${ds.recipes.length} recipes`);
           }
 
-          // Import Shipment Actuals  [Date, Facility, Material Number, Qty (STn)]
-          const ship = readSheet('Shipment Actuals');
-          if(ship?.length){
-            const rows = ship.map(r=>({
-              date:       parseDate(r['Date']),
-              facilityId: lookupFacility(r['Facility']) || fac,
-              productId:  lookupProduct(r['Material Number']||r['Mat. Number']||''),
-              qtyStn:     +r['Qty (STn)']||0
-            })).filter(r=>r.date && r.productId);
-            ds.actuals.shipments = accumImport(rows, ds.actuals.shipments);
-            imported.push(`${rows.length} shipment rows`);
-          }
+          // ══════════════════════════════════════════════════════════════
+          // TRANSACTIONAL TABLES — date-range replace
+          // ══════════════════════════════════════════════════════════════
 
-          // Import Inventory EOD  [Date, Facility, Material Number, Qty (STn)]
-          const inv = readSheet('Inventory EOD');
-          if(inv?.length){
-            const rows = inv.map(r=>({
-              date:       parseDate(r['Date']),
-              facilityId: lookupFacility(r['Facility']) || fac,
-              productId:  lookupProduct(r['Material Number']||r['Mat. Number']||''),
-              storageId:  ds.storages.find(s=>s.name===r['Storage']||s.id===r['Storage'])?.id || '',
-              qtyStn:     +r['Qty (STn)']||0
-            })).filter(r=>r.date && r.productId && r.storageId && r.qtyStn!==0);
-            ds.actuals.inventoryBOD = accumImport(rows, ds.actuals.inventoryBOD);
-            imported.push(`${rows.length} inventory rows`);
-          }
-
-          // Import Campaigns  (unchanged — no material number involved)
+          // Campaigns
           const camps = readSheet('Campaigns');
           if(camps?.length){
             const rows = camps.map(r=>({
               date:        parseDate(r['Date']),
-              facilityId:  lookupFacility(r['Facility']) || fac,
-              equipmentId: ds.equipment.find(e=>e.name===r['Equipment']||e.id===r['Equipment'])?.id || '',
-              status:      r['Status']||'produce',
-              productId:   state.catalog.find(m=>m.name===r['Product']||m.id===r['Product']||m.code===r['Product'])?.id || '',
-              rateStn:     +r['Rate (STn/d)']||0
+              facilityId:  lookupFacility(r['Facility']||r['FacilityCode']||r['FacilityName']) || fallbackFac,
+              equipmentId: lookupEquipment(r['Equipment']||r['EquipmentID']||r['EquipmentName']) || '',
+              status:      String(r['Status']||'produce').trim(),
+              productId:   lookupProduct(r['Product']||r['ProductID']||r['MatNum']||'') ||
+                           state.catalog.find(m=>m.name===r['Product']||m.id===r['Product'])?.id || '',
+              rateStn:     +r['Rate (STn/d)']||+r['Rate(STpd)']||0,
             })).filter(r=>r.date && r.equipmentId);
-            rows.forEach(r=>{ ds.campaigns = ds.campaigns.filter(x=>!(x.date===r.date&&x.facilityId===r.facilityId&&x.equipmentId===r.equipmentId)); ds.campaigns.push(r); });
-            imported.push(`${rows.length} campaign rows`);
+            ds.campaigns = dateRangeReplace(rows, ds.campaigns, r=>`${r.date}|${r.equipmentId}`);
+            imported.push(`${rows.length} campaigns`);
+          }
+
+          // Demand Forecast
+          const demand = readSheet('DemandForecast') || readSheet('Demand Forecast');
+          if(demand?.length){
+            const rows = demand.map(r=>({
+              date:       parseDate(r['Date']),
+              facilityId: lookupFacility(r['Facility']||r['FacilityCode']||r['FacilityName']) || fallbackFac,
+              productId:  lookupProduct(r['MatNum']||r['Material Number']||r['Mat. Number']||''),
+              qtyStn:     +r['Qty(STn)']||+r['Qty (STn)']||0,
+              source:     'forecast',
+            })).filter(r=>r.date && r.productId && r.qtyStn!==0);
+            ds.demandForecast = dateRangeReplace(rows, ds.demandForecast, r=>`${r.date}|${r.facilityId}|${r.productId}`);
+            imported.push(`${rows.length} demand rows`);
+          }
+
+          // Production Actuals
+          const prod = readSheet('Actuals-Production') || readSheet('Production Actuals');
+          if(prod?.length){
+            const rows = prod.map(r=>{
+              const eqId = lookupEquipment(r['EquipmentID']||r['EquipmentName']||r['Equipment']) || '';
+              const eq   = ds.equipment.find(e=>e.id===eqId);
+              return {
+                date:        parseDate(r['Date']),
+                equipmentId: eqId,
+                facilityId:  eq?.facilityId || lookupFacility(r['FacilityCode']||r['FacilityName']) || fallbackFac,
+                productId:   lookupProduct(r['MatNum']||r['Material Number']||r['Mat. Number']||''),
+                qtyStn:      +r['Qty(STn)']||+r['Qty (STn)']||0,
+              };
+            }).filter(r=>r.date && r.equipmentId && r.productId && r.qtyStn!==0);
+            ds.actuals.production = dateRangeReplace(rows, ds.actuals.production, r=>`${r.date}|${r.equipmentId}|${r.productId}`);
+            imported.push(`${rows.length} production rows`);
+          }
+
+          // Shipment Actuals
+          const ship = readSheet('Actuals-Shipments') || readSheet('Shipment Actuals');
+          if(ship?.length){
+            const rows = ship.map(r=>({
+              date:       parseDate(r['Date']||r['Delivery Date']),
+              facilityId: lookupFacility(r['FacilityCode']||r['FacilityName']||r['Facility']||r['Abrev']) || fallbackFac,
+              productId:  lookupProduct(r['MatNum']||r['Material Number']||r['Mat. Number']||r['Material']||''),
+              qtyStn:     +r['Qty(STn)']||+r['Qty (STn)']||+r['Volume']||0,
+            })).filter(r=>r.date && r.productId && r.qtyStn!==0);
+            ds.actuals.shipments = dateRangeReplace(rows, ds.actuals.shipments, r=>`${r.date}|${r.facilityId}|${r.productId}`);
+            imported.push(`${rows.length} shipment rows`);
+          }
+
+          // Inventory Actuals
+          const inv = readSheet('Actuals-Inventory') || readSheet('Inventory EOD');
+          if(inv?.length){
+            const rows = inv.map(r=>{
+              const facilityId = lookupFacility(r['FacilityCode']||r['FacilityName']||r['Facility']) || fallbackFac;
+              const productId  = lookupProduct(r['MatNum']||r['Material Number']||r['Mat. Number']||'');
+              let storageId    = ds.storages.find(st=>st.name===r['StorageName']||st.id===r['StorageID'])?.id || '';
+              if(!storageId && productId && facilityId)
+                storageId = ds.storages.find(st=>st.facilityId===facilityId && (st.allowedProductIds||[]).includes(productId))?.id || '';
+              return { date: parseDate(r['Date']), facilityId, productId, storageId, qtyStn: +r['Qty(STn)']||+r['Qty (STn)']||0 };
+            }).filter(r=>r.date && r.productId && r.storageId && r.qtyStn!==0);
+            ds.actuals.inventoryBOD = dateRangeReplace(rows, ds.actuals.inventoryBOD, r=>`${r.date}|${r.storageId}`);
+            imported.push(`${rows.length} inventory rows`);
+          }
+
+          // Transfers Actuals
+          const xfer = readSheet('Actuals-Transfers');
+          if(xfer?.length){
+            const rows = xfer.map(r=>({
+              date:           parseDate(r['Date']),
+              fromFacilityId: lookupFacility(r['FromFacilityCode']||r['FromFacilityName']) || '',
+              toFacilityId:   lookupFacility(r['ToFacilityCode']||r['ToFacilityName']) || '',
+              productId:      lookupProduct(r['MatNum']||r['ProductID']||''),
+              qtyStn:         +r['Qty(STn)']||0,
+            })).filter(r=>r.date && r.fromFacilityId && r.toFacilityId && r.productId && r.qtyStn!==0);
+            ds.actuals.transfers = dateRangeReplace(rows, ds.actuals.transfers||[], r=>`${r.date}|${r.fromFacilityId}|${r.toFacilityId}|${r.productId}`);
+            imported.push(`${rows.length} transfers`);
           }
 
           if(imported.length){
             persist(); render();
             showToast(`Imported: ${imported.join(', ')} ✓`, 'ok');
           } else {
-            showToast('No matching sheets found in file', 'warn');
+            showToast('No recognized sheets found in file', 'warn');
           }
         } catch(err) {
           showToast('Import failed: ' + err.message, 'danger');
+          console.error('Excel import error:', err);
         }
       };
       reader.readAsArrayBuffer(file);

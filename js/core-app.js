@@ -3788,8 +3788,10 @@ function openDataIODialog(){
         <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
           <div style="font-size:11px;font-weight:600;margin-bottom:4px">📊 Export Excel</div>
           <div style="font-size:10px;color:var(--muted);margin-bottom:8px">Exports all data for current scope: <strong>${esc(scopeName)}</strong></div>
-          <button class="btn btn-primary" id="dioExcelExport" style="font-size:11px;width:100%">📊 Download Excel</button>
-          <div style="font-size:10px;color:var(--muted);margin-top:6px">Sheets: Demand Forecast · Campaigns · Production Actuals · Shipments · Inventory EOD · Equipment · Products Catalog</div>
+          <button class="btn btn-primary" id="dioExcelExport" style="font-size:11px;width:100%">📊 Download Excel (scope)</button>
+          <div style="font-size:10px;color:var(--muted);margin-top:6px;margin-bottom:10px">Sheets: Demand Forecast · Campaigns · Production Actuals · Shipments · Inventory EOD · Equipment · Products Catalog</div>
+          <button class="btn btn-primary" id="dioFullDbExcel" style="font-size:11px;width:100%;background:rgba(34,197,94,0.2);border-color:rgba(34,197,94,0.4);color:#86efac">🗄 Full DB Excel — all tables, no filter</button>
+          <div style="font-size:10px;color:var(--muted);margin-top:6px">13 sheets · all facilities · setup + actuals · use for migrations between computers</div>
         </div>
 
         <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:12px">
@@ -3815,6 +3817,37 @@ function openDataIODialog(){
   q('dioLoadOfficial').onclick = () => loadJSON('official');
   q('dioLoadSandbox').onclick  = () => loadJSON('sandbox');
   q('dioExcelExport').onclick  = exportExcel;
+  q('dioFullDbExcel').onclick  = () => {
+    const ds  = state.official;
+    const org = state.org;
+    const cat = state.catalog || [];
+    const facs   = org.facilities || [];
+    const facName  = id => facs.find(f=>f.id===id)?.name || id;
+    const facCode  = id => facs.find(f=>f.id===id)?.code || id;
+    const matName  = id => cat.find(m=>m.id===id)?.name || id;
+    const matNum   = id => { const m=cat.find(x=>x.id===id); return (m?.materialNumbers||[]).map(x=>typeof x==='object'?x.number:x).filter(Boolean).join(', ') || m?.materialNumber || ''; };
+    const eqName   = id => ds.equipment.find(e=>e.id===id)?.name || id;
+    const stName   = id => ds.storages.find(s=>s.id===id)?.name || id;
+    const wb = XLSX.utils.book_new();
+    const addSheet = (name, rows) => { if(!rows.length) return; XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name.slice(0,31)); };
+    addSheet('Facilities', [['ID','Code','Name','Type','SubRegion'],...facs.map(f=>[f.id,f.code||'',f.name,f.facilityType||'terminal',f.subRegionId||''])]);
+    addSheet('Org-Regions', [['ID','Name','CountryId'],...(org.regions||[]).map(r=>[r.id,r.name,r.countryId||''])]);
+    addSheet('Products-Catalog', [['ID','Code','Name','Category','FamilyId','TypeId','MaterialNumber','LandedCost'],...cat.map(m=>[m.id,m.code||'',m.name,m.category,m.familyId||'',m.typeId||'',matNum(m.id),m.landedCostUsdPerStn||0])]);
+    addSheet('FacilityProducts', [['FacilityID','FacilityName','ProductID','ProductName'],...(ds.facilityProducts||[]).map(r=>[r.facilityId,facName(r.facilityId),r.productId,matName(r.productId)])]);
+    addSheet('Equipment', [['ID','FacilityCode','FacilityName','Name','Type'],...ds.equipment.map(e=>[e.id,facCode(e.facilityId),facName(e.facilityId),e.name,e.type])]);
+    addSheet('Storages', [['ID','FacilityCode','FacilityName','Name','CategoryHint','AllowedProducts','MaxCapacity(STn)'],...ds.storages.map(st=>[st.id,facCode(st.facilityId),facName(st.facilityId),st.name,st.categoryHint||'',(st.allowedProductIds||[]).map(matName).join(' | '),st.maxCapacityStn||0])]);
+    addSheet('Capabilities', [['EquipmentID','EquipmentName','FacilityCode','ProductID','ProductName','MaxRate(STpd)','Electric(kWh/STn)','Thermal(MMBTU/STn)'],...ds.capabilities.map(c=>{ const eq=ds.equipment.find(e=>e.id===c.equipmentId); return [c.equipmentId,eqName(c.equipmentId),facCode(eq?.facilityId||''),c.productId,matName(c.productId),c.maxRateStpd||0,c.electricKwhPerStn||0,c.thermalMMBTUPerStn||0]; })]);
+    addSheet('Recipes', [['RecipeID','FacilityCode','ProductID','ProductName','Version','ComponentMaterial','ComponentMatNum','Pct%'],...ds.recipes.flatMap(r=>(r.components||[]).map(c=>[r.id,facCode(r.facilityId),r.productId,matName(r.productId),r.version||1,matName(c.materialId),matNum(c.materialId),c.pct||0]))]);
+    addSheet('Campaigns', [['Date','FacilityCode','FacilityName','EquipmentID','EquipmentName','ProductID','ProductName','Status','Rate(STpd)'],...ds.campaigns.map(r=>[r.date,facCode(r.facilityId),facName(r.facilityId),r.equipmentId,eqName(r.equipmentId),r.productId,matName(r.productId),r.status||'produce',r.rateStn||0])]);
+    addSheet('DemandForecast', [['Date','FacilityCode','FacilityName','ProductID','ProductName','MatNum','Qty(STn)','Source'],...ds.demandForecast.map(r=>[r.date,facCode(r.facilityId),facName(r.facilityId),r.productId,matName(r.productId),matNum(r.productId),r.qtyStn||0,r.source||''])]);
+    addSheet('Actuals-Inventory', [['Date','FacilityCode','FacilityName','StorageID','StorageName','ProductID','ProductName','MatNum','Qty(STn)'],...(ds.actuals.inventoryBOD||[]).map(r=>[r.date,facCode(r.facilityId),facName(r.facilityId),r.storageId,stName(r.storageId),r.productId,matName(r.productId),matNum(r.productId),r.qtyStn||0])]);
+    addSheet('Actuals-Production', [['Date','FacilityCode','FacilityName','EquipmentID','EquipmentName','ProductID','ProductName','MatNum','Qty(STn)'],...(ds.actuals.production||[]).map(r=>[r.date,facCode(r.facilityId),facName(r.facilityId),r.equipmentId,eqName(r.equipmentId),r.productId,matName(r.productId),matNum(r.productId),r.qtyStn||0])]);
+    addSheet('Actuals-Shipments', [['Date','FacilityCode','FacilityName','ProductID','ProductName','MatNum','Qty(STn)'],...(ds.actuals.shipments||[]).map(r=>[r.date,facCode(r.facilityId),facName(r.facilityId),r.productId,matName(r.productId),matNum(r.productId),r.qtyStn||0])]);
+    addSheet('Actuals-Transfers', [['Date','FromFacilityCode','FromFacilityName','ToFacilityCode','ToFacilityName','ProductID','ProductName','MatNum','Qty(STn)'],...(ds.actuals.transfers||[]).map(r=>[r.date,facCode(r.fromFacilityId),facName(r.fromFacilityId),facCode(r.toFacilityId),facName(r.toFacilityId),r.productId,matName(r.productId),matNum(r.productId),r.qtyStn||0])]);
+    const ts = new Date().toISOString().slice(0,10);
+    XLSX.writeFile(wb, `cement_planner_FULL_DB_${ts}.xlsx`);
+    showToast('Full DB exported ✓', 'ok');
+  };
   q('dioExcelImport').onclick  = () => {
     // Always switch to sandbox before importing
     if(state.ui.mode !== 'sandbox'){

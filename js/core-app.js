@@ -3874,7 +3874,7 @@ function openDataIODialog(){
           if(regSheet?.length){ state.org.regions = regSheet.map(r=>({ id:String(r['ID']||'').trim(), name:String(r['Name']||'').trim(), countryId:String(r['CountryId']||'').trim() })).filter(r=>r.id&&r.name); imported.push(`${state.org.regions.length} regions`); }
 
           const catSheet = sheet('Products-Catalog');
-          if(catSheet?.length){ state.catalog = catSheet.map(r=>({ id:String(r['ID']||'').trim(), code:String(r['Code']||'').trim(), name:String(r['Name']||'').trim(), category:String(r['Category']||'').trim(), familyId:String(r['FamilyId']||'').trim(), typeId:String(r['TypeId']||'').trim(), materialNumbers:[{number:String(r['MaterialNumber']||'').trim()}].filter(x=>x.number), landedCostUsdPerStn:+r['LandedCost']||0 })).filter(r=>r.id&&r.name); imported.push(`${state.catalog.length} products`); }
+          if(catSheet?.length){ state.catalog = catSheet.map(r=>({ id:String(r['ID']||'').trim(), code:String(r['Code']||'').trim(), name:String(r['Name']||'').trim(), category:String(r['Category']||'').trim(), familyId:String(r['FamilyId']||'').trim().replace(/^(None|null)$/, ''), typeId:String(r['TypeId']||'').trim().replace(/^(None|null)$/, ''), materialNumbers:[{number:String(r['MaterialNumber']||'').trim()}].filter(x=>x.number&&x.number!=='None'&&x.number!=='null'), landedCostUsdPerStn:+r['LandedCost']||0 })).filter(r=>r.id&&r.name); imported.push(`${state.catalog.length} products`); }
 
           const fpSheet = sheet('FacilityProducts');
           if(fpSheet?.length){ ds.facilityProducts = fpSheet.map(r=>({ facilityId:facId(r['FacilityID']||r['FacilityCode']), productId:prodId(r['ProductID']) })).filter(r=>r.facilityId&&r.productId); imported.push(`${ds.facilityProducts.length} facility-products`); }
@@ -3901,7 +3901,7 @@ function openDataIODialog(){
             imported.push(`${ds.recipes.length} recipes`);
           }
 
-          if(imported.length){ persist(); render(); showToast(`Setup imported into Official: ${imported.join(', ')} ✓`, 'ok'); }
+          if(imported.length){ state.ui.mode = 'official'; persist(); render(); host.classList.remove('open'); showToast(`Setup imported into Official: ${imported.join(', ')} ✓`, 'ok'); }
           else showToast('No setup sheets found', 'warn');
         } catch(err){ showToast('Import failed: '+err.message, 'danger'); console.error(err); }
       };

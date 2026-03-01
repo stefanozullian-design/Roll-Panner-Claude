@@ -3742,7 +3742,6 @@ function openDataIODialog(){
 
   // ── RENDER DIALOG ──
   const s = selectors(state);
-  const scopeName = s.getScopeName();
   const sandboxList = Object.entries(state.sandboxes||{}).map(([id,sb])=>`
     <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:11px">
       <span style="flex:1;${id===sbId?'font-weight:700;color:var(--accent)':''}">${esc(sb.name||id)}</span>
@@ -3750,59 +3749,67 @@ function openDataIODialog(){
       <button class="btn" style="font-size:10px;padding:2px 8px" data-save-sb="${id}">💾 Save</button>
     </div>`).join('');
 
-  host.innerHTML = `<div class="modal" style="max-width:680px">
+  host.innerHTML = `<div class="modal" style="max-width:760px">
     <div class="modal-header">
       <div><div class="modal-title">💾 Data — Save / Load / Export</div>
-      <div style="font-size:11px;color:var(--muted)">localStorage is your working cache. Use Save/Load to back up and restore. Export Excel for reporting or bulk data entry.</div></div>
+      <div style="font-size:11px;color:var(--muted)">Manage your data: backup via JSON, or transfer setup and transactions via Excel.</div></div>
       <button class="btn" id="dioClose">✕ Close</button>
     </div>
-    <div class="modal-body" style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div class="modal-body" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
 
-      <!-- LEFT: JSON Save/Load -->
+      <!-- COL 1: JSON Backup -->
       <div>
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:12px">JSON — Full Backup & Restore</div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:12px">JSON Backup</div>
 
-        <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
+        <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px">
           <div style="font-size:11px;font-weight:600;margin-bottom:8px;color:var(--ok)">🏛 Official</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div style="display:flex;flex-direction:column;gap:6px">
             <button class="btn btn-primary" id="dioSaveOfficial" style="font-size:11px">💾 Save Official</button>
             <button class="btn" id="dioLoadOfficial" style="font-size:11px">📂 Load into Official</button>
           </div>
-          <div style="font-size:10px;color:var(--muted);margin-top:6px">Saving downloads <code>official_${dateStr}.json</code>. Loading overwrites current Official data.</div>
-        </div>
-
-        <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
-          <div style="font-size:11px;font-weight:600;margin-bottom:8px;color:var(--accent)">📂 Sandbox Scenarios</div>
-          <div style="margin-bottom:8px">${sandboxList||'<div style="color:var(--muted);font-size:11px">No scenarios</div>'}</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn" id="dioLoadSandbox" style="font-size:11px">📂 Load JSON → New Scenario</button>
-          </div>
-          <div style="font-size:10px;color:var(--muted);margin-top:6px">Loading a JSON creates a new scenario. Data imports always go into the active sandbox, never directly into Official.</div>
-        </div>
-      </div>
-
-      <!-- RIGHT: Excel Export/Import -->
-      <div>
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:12px">Excel — Reporting & Bulk Entry</div>
-
-        <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
-          <div style="font-size:11px;font-weight:600;margin-bottom:4px">📊 Export Excel</div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:8px">Exports all data for current scope: <strong>${esc(scopeName)}</strong></div>
-          <button class="btn btn-primary" id="dioExcelExport" style="font-size:11px;width:100%">📊 Download Excel (scope)</button>
-          <div style="font-size:10px;color:var(--muted);margin-top:6px;margin-bottom:10px">Sheets: Demand Forecast · Campaigns · Production Actuals · Shipments · Inventory EOD · Equipment · Products Catalog</div>
-          <button class="btn btn-primary" id="dioFullDbExcel" style="font-size:11px;width:100%;background:rgba(34,197,94,0.2);border-color:rgba(34,197,94,0.4);color:#86efac">🗄 Full DB Excel — all tables, no filter</button>
-          <div style="font-size:10px;color:var(--muted);margin-top:6px">13 sheets · all facilities · setup + actuals · use for migrations between computers</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:6px">Downloads full Official JSON. Loading overwrites Official.</div>
         </div>
 
         <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:12px">
-          <div style="font-size:11px;font-weight:600;margin-bottom:4px">📥 Import Excel → Active Sandbox</div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:8px">Use the exported file as a template. Edit data in Excel, import back here. <strong>Always imports into active sandbox</strong> — never directly into Official.</div>
-          <button class="btn" id="dioExcelImport" style="font-size:11px;width:100%">📥 Import Excel File</button>
-          <div style="font-size:10px;color:var(--muted);margin-top:6px">Existing data for matching dates/facilities will be overwritten. Unrecognized rows are skipped.</div>
+          <div style="font-size:11px;font-weight:600;margin-bottom:8px;color:var(--accent)">📂 Scenarios</div>
+          <div style="margin-bottom:8px">${sandboxList||'<div style="color:var(--muted);font-size:11px">No scenarios</div>'}</div>
+          <button class="btn" id="dioLoadSandbox" style="font-size:11px;width:100%">📂 Load JSON → New Scenario</button>
+        </div>
+      </div>
+
+      <!-- COL 2: SETUP Excel (→ Official) -->
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#86efac;margin-bottom:12px">🗄 Setup Database</div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:10px">Facilities · Products · Equipment · Storages · Capabilities · Recipes · FacilityProducts</div>
+
+        <div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.25);border-radius:8px;padding:12px;margin-bottom:10px">
+          <div style="font-size:11px;font-weight:600;margin-bottom:6px;color:#86efac">↓ Download Setup</div>
+          <button class="btn" id="dioSetupExport" style="font-size:11px;width:100%;border-color:rgba(34,197,94,0.4);color:#86efac">📥 Download Setup Excel</button>
+          <div style="font-size:10px;color:var(--muted);margin-top:6px">All facilities · full detail · use as migration template</div>
         </div>
 
-        <div style="margin-top:12px;padding:8px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:6px;font-size:10px;color:#fcd34d">
-          ⚠ Currently active: <strong>${isSandbox ? `Sandbox — ${esc(sbName)}` : 'Official'}</strong>. Excel imports always go into the active sandbox.
+        <div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.25);border-radius:8px;padding:12px">
+          <div style="font-size:11px;font-weight:600;margin-bottom:6px;color:#86efac">↑ Upload Setup → <span style="color:var(--ok)">Official</span></div>
+          <button class="btn" id="dioSetupImport" style="font-size:11px;width:100%;border-color:rgba(34,197,94,0.4);color:#86efac">📤 Upload Setup Excel</button>
+          <div style="font-size:10px;color:var(--muted);margin-top:6px">Full replace — what's in the file becomes truth. Goes directly into <strong>Official</strong>.</div>
+        </div>
+      </div>
+
+      <!-- COL 3: TRANSACTIONS Excel (→ Sandbox) -->
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#93c5fd;margin-bottom:12px">📋 Transactions</div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:10px">Production Actuals · Shipment Actuals</div>
+
+        <div style="background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.25);border-radius:8px;padding:12px;margin-bottom:10px">
+          <div style="font-size:11px;font-weight:600;margin-bottom:6px;color:#93c5fd">↓ Download Transactions</div>
+          <button class="btn" id="dioTxnExport" style="font-size:11px;width:100%;border-color:rgba(59,130,246,0.4);color:#93c5fd">📥 Download Transactions Excel</button>
+          <div style="font-size:10px;color:var(--muted);margin-top:6px">Simple 4-col format: Date · Facility · Material · Qty</div>
+        </div>
+
+        <div style="background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.25);border-radius:8px;padding:12px">
+          <div style="font-size:11px;font-weight:600;margin-bottom:6px;color:#93c5fd">↑ Upload Transactions → <span style="color:var(--accent)">Sandbox</span></div>
+          <button class="btn" id="dioTxnImport" style="font-size:11px;width:100%;border-color:rgba(59,130,246,0.4);color:#93c5fd">📤 Upload Transactions Excel</button>
+          <div style="font-size:10px;color:var(--muted);margin-top:6px">Date-range merge — only replaces dates present in file. Goes into active <strong>Sandbox</strong>.</div>
         </div>
       </div>
 
@@ -3816,45 +3823,153 @@ function openDataIODialog(){
   q('dioSaveOfficial').onclick = saveOfficial;
   q('dioLoadOfficial').onclick = () => loadJSON('official');
   q('dioLoadSandbox').onclick  = () => loadJSON('sandbox');
-  q('dioExcelExport').onclick  = exportExcel;
-  q('dioFullDbExcel').onclick  = () => {
+
+  // ── SETUP DOWNLOAD (all setup sheets, all facilities, → Official) ──
+  q('dioSetupExport').onclick = () => {
     const ds  = state.official;
     const org = state.org;
     const cat = state.catalog || [];
-    const facs   = org.facilities || [];
-    const facName  = id => facs.find(f=>f.id===id)?.name || id;
-    const facCode  = id => facs.find(f=>f.id===id)?.code || id;
-    const matName  = id => cat.find(m=>m.id===id)?.name || id;
-    const matNum   = id => { const m=cat.find(x=>x.id===id); return (m?.materialNumbers||[]).map(x=>typeof x==='object'?x.number:x).filter(Boolean).join(', ') || m?.materialNumber || ''; };
-    const eqName   = id => ds.equipment.find(e=>e.id===id)?.name || id;
-    const stName   = id => ds.storages.find(s=>s.id===id)?.name || id;
+    const facs    = org.facilities || [];
+    const facName = id => facs.find(f=>f.id===id)?.name || id;
+    const facCode = id => facs.find(f=>f.id===id)?.code || id;
+    const matName = id => cat.find(m=>m.id===id)?.name || id;
+    const matNum  = id => { const m=cat.find(x=>x.id===id); return (m?.materialNumbers||[]).map(x=>typeof x==='object'?x.number:x).filter(Boolean).join(', ') || m?.materialNumber || ''; };
+    const eqName  = id => ds.equipment.find(e=>e.id===id)?.name || id;
     const wb = XLSX.utils.book_new();
-    const addSheet = (name, rows) => { if(!rows.length) return; XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name.slice(0,31)); };
-    addSheet('Facilities', [['ID','Code','Name','Type','SubRegion'],...facs.map(f=>[f.id,f.code||'',f.name,f.facilityType||'terminal',f.subRegionId||''])]);
-    addSheet('Org-Regions', [['ID','Name','CountryId'],...(org.regions||[]).map(r=>[r.id,r.name,r.countryId||''])]);
-    addSheet('Products-Catalog', [['ID','Code','Name','Category','FamilyId','TypeId','MaterialNumber','LandedCost'],...cat.map(m=>[m.id,m.code||'',m.name,m.category,m.familyId||'',m.typeId||'',matNum(m.id),m.landedCostUsdPerStn||0])]);
-    addSheet('FacilityProducts', [['FacilityID','FacilityName','ProductID','ProductName'],...(ds.facilityProducts||[]).map(r=>[r.facilityId,facName(r.facilityId),r.productId,matName(r.productId)])]);
-    addSheet('Equipment', [['ID','FacilityCode','FacilityName','Name','Type'],...ds.equipment.map(e=>[e.id,facCode(e.facilityId),facName(e.facilityId),e.name,e.type])]);
-    addSheet('Storages', [['ID','FacilityCode','FacilityName','Name','CategoryHint','AllowedProducts','MaxCapacity(STn)'],...ds.storages.map(st=>[st.id,facCode(st.facilityId),facName(st.facilityId),st.name,st.categoryHint||'',(st.allowedProductIds||[]).map(matName).join(' | '),st.maxCapacityStn||0])]);
-    addSheet('Capabilities', [['EquipmentID','EquipmentName','FacilityCode','ProductID','ProductName','MaxRate(STpd)','Electric(kWh/STn)','Thermal(MMBTU/STn)'],...ds.capabilities.map(c=>{ const eq=ds.equipment.find(e=>e.id===c.equipmentId); return [c.equipmentId,eqName(c.equipmentId),facCode(eq?.facilityId||''),c.productId,matName(c.productId),c.maxRateStpd||0,c.electricKwhPerStn||0,c.thermalMMBTUPerStn||0]; })]);
-    addSheet('Recipes', [['RecipeID','FacilityCode','ProductID','ProductName','Version','ComponentMaterial','ComponentMatNum','Pct%'],...ds.recipes.flatMap(r=>(r.components||[]).map(c=>[r.id,facCode(r.facilityId),r.productId,matName(r.productId),r.version||1,matName(c.materialId),matNum(c.materialId),c.pct||0]))]);
-    addSheet('Campaigns', [['Date','FacilityCode','FacilityName','EquipmentID','EquipmentName','ProductID','ProductName','Status','Rate(STpd)'],...ds.campaigns.map(r=>[r.date,facCode(r.facilityId),facName(r.facilityId),r.equipmentId,eqName(r.equipmentId),r.productId,matName(r.productId),r.status||'produce',r.rateStn||0])]);
-    addSheet('DemandForecast', [['Date','FacilityCode','FacilityName','ProductID','ProductName','MatNum','Qty(STn)','Source'],...ds.demandForecast.map(r=>[r.date,facCode(r.facilityId),facName(r.facilityId),r.productId,matName(r.productId),matNum(r.productId),r.qtyStn||0,r.source||''])]);
-    addSheet('Actuals-Inventory', [['Date','FacilityCode','FacilityName','StorageID','StorageName','ProductID','ProductName','MatNum','Qty(STn)'],...(ds.actuals.inventoryBOD||[]).map(r=>[r.date,facCode(r.facilityId),facName(r.facilityId),r.storageId,stName(r.storageId),r.productId,matName(r.productId),matNum(r.productId),r.qtyStn||0])]);
-    addSheet('Actuals-Production', [['Date','FacilityCode','FacilityName','EquipmentID','EquipmentName','ProductID','ProductName','MatNum','Qty(STn)'],...(ds.actuals.production||[]).map(r=>[r.date,facCode(r.facilityId),facName(r.facilityId),r.equipmentId,eqName(r.equipmentId),r.productId,matName(r.productId),matNum(r.productId),r.qtyStn||0])]);
-    addSheet('Actuals-Shipments', [['Date','FacilityCode','FacilityName','ProductID','ProductName','MatNum','Qty(STn)'],...(ds.actuals.shipments||[]).map(r=>[r.date,facCode(r.facilityId),facName(r.facilityId),r.productId,matName(r.productId),matNum(r.productId),r.qtyStn||0])]);
-    addSheet('Actuals-Transfers', [['Date','FromFacilityCode','FromFacilityName','ToFacilityCode','ToFacilityName','ProductID','ProductName','MatNum','Qty(STn)'],...(ds.actuals.transfers||[]).map(r=>[r.date,facCode(r.fromFacilityId),facName(r.fromFacilityId),facCode(r.toFacilityId),facName(r.toFacilityId),r.productId,matName(r.productId),matNum(r.productId),r.qtyStn||0])]);
-    const ts = new Date().toISOString().slice(0,10);
-    XLSX.writeFile(wb, `cement_planner_FULL_DB_${ts}.xlsx`);
-    showToast('Full DB exported ✓', 'ok');
+    const addSheet = (name, rows) => { if(rows.length>1) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name.slice(0,31)); };
+    addSheet('Facilities',       [['ID','Code','Name','Type','SubRegion'],                                              ...facs.map(f=>[f.id,f.code||'',f.name,f.facilityType||'terminal',f.subRegionId||''])]);
+    addSheet('Org-Regions',      [['ID','Name','CountryId'],                                                            ...(org.regions||[]).map(r=>[r.id,r.name,r.countryId||''])]);
+    addSheet('Products-Catalog', [['ID','Code','Name','Category','FamilyId','TypeId','MaterialNumber','LandedCost'],    ...cat.map(m=>[m.id,m.code||'',m.name,m.category,m.familyId||'',m.typeId||'',matNum(m.id),m.landedCostUsdPerStn||0])]);
+    addSheet('FacilityProducts', [['FacilityID','FacilityName','ProductID','ProductName'],                              ...(ds.facilityProducts||[]).map(r=>[r.facilityId,facName(r.facilityId),r.productId,matName(r.productId)])]);
+    addSheet('Equipment',        [['ID','FacilityCode','FacilityName','Name','Type'],                                   ...ds.equipment.map(e=>[e.id,facCode(e.facilityId),facName(e.facilityId),e.name,e.type])]);
+    addSheet('Storages',         [['ID','FacilityCode','FacilityName','Name','CategoryHint','AllowedProducts','MaxCapacity(STn)'], ...ds.storages.map(st=>[st.id,facCode(st.facilityId),facName(st.facilityId),st.name,st.categoryHint||'',(st.allowedProductIds||[]).map(matName).join(' | '),st.maxCapacityStn||0])]);
+    addSheet('Capabilities',     [['EquipmentID','EquipmentName','FacilityCode','ProductID','ProductName','MaxRate(STpd)','Electric(kWh/STn)','Thermal(MMBTU/STn)'], ...ds.capabilities.map(c=>{ const eq=ds.equipment.find(e=>e.id===c.equipmentId); return [c.equipmentId,eqName(c.equipmentId),facCode(eq?.facilityId||''),c.productId,matName(c.productId),c.maxRateStpd||0,c.electricKwhPerStn||0,c.thermalMMBTUPerStn||0]; })]);
+    addSheet('Recipes',          [['RecipeID','FacilityCode','ProductID','ProductName','Version','ComponentMaterial','ComponentMatNum','Pct%'], ...ds.recipes.flatMap(r=>(r.components||[]).map(c=>[r.id,facCode(r.facilityId),r.productId,matName(r.productId),r.version||1,matName(c.materialId),matNum(c.materialId),c.pct||0]))]);
+    XLSX.writeFile(wb, `setup_db_${new Date().toISOString().slice(0,10)}.xlsx`);
+    showToast('Setup DB exported ✓', 'ok');
   };
-  q('dioExcelImport').onclick  = () => {
-    // Always switch to sandbox before importing
-    if(state.ui.mode !== 'sandbox'){
-      state.ui.mode = 'sandbox';
-      persist();
-    }
-    importExcel();
+
+  // ── SETUP UPLOAD (→ directly into Official) ──
+  q('dioSetupImport').onclick = () => {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = '.xlsx,.xls';
+    inp.onchange = () => {
+      const file = inp.files[0]; if(!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        try {
+          const wb2 = XLSX.read(e.target.result, {type:'array'});
+          const sheet = n => { const ws = wb2.Sheets[n]; return ws ? XLSX.utils.sheet_to_json(ws,{defval:''}) : null; };
+          const ds = state.official;
+          const imported = [];
+          const facs = state.org.facilities || [];
+          const cat  = state.catalog || [];
+          const facId = v => { const k=String(v||'').trim(); return facs.find(f=>f.code===k||f.id===k||f.name===k)?.id || k; };
+          const prodId = v => { const k=String(v||'').trim(); return cat.find(m=>m.id===k||m.code===k||m.name===k||(m.materialNumbers||[]).some(x=>(typeof x==='object'?x.number:x)===k))?.id || k; };
+
+          const facSheet = sheet('Facilities');
+          if(facSheet?.length){ state.org.facilities = facSheet.map(r=>({ id:String(r['ID']||'').trim(), code:String(r['Code']||'').trim(), name:String(r['Name']||'').trim(), facilityType:String(r['Type']||'terminal').trim(), subRegionId:String(r['SubRegion']||'').trim() })).filter(r=>r.id&&r.name); imported.push(`${state.org.facilities.length} facilities`); }
+
+          const regSheet = sheet('Org-Regions');
+          if(regSheet?.length){ state.org.regions = regSheet.map(r=>({ id:String(r['ID']||'').trim(), name:String(r['Name']||'').trim(), countryId:String(r['CountryId']||'').trim() })).filter(r=>r.id&&r.name); imported.push(`${state.org.regions.length} regions`); }
+
+          const catSheet = sheet('Products-Catalog');
+          if(catSheet?.length){ state.catalog = catSheet.map(r=>({ id:String(r['ID']||'').trim(), code:String(r['Code']||'').trim(), name:String(r['Name']||'').trim(), category:String(r['Category']||'').trim(), familyId:String(r['FamilyId']||'').trim(), typeId:String(r['TypeId']||'').trim(), materialNumbers:[{number:String(r['MaterialNumber']||'').trim()}].filter(x=>x.number), landedCostUsdPerStn:+r['LandedCost']||0 })).filter(r=>r.id&&r.name); imported.push(`${state.catalog.length} products`); }
+
+          const fpSheet = sheet('FacilityProducts');
+          if(fpSheet?.length){ ds.facilityProducts = fpSheet.map(r=>({ facilityId:facId(r['FacilityID']||r['FacilityCode']), productId:prodId(r['ProductID']) })).filter(r=>r.facilityId&&r.productId); imported.push(`${ds.facilityProducts.length} facility-products`); }
+
+          const eqSheet = sheet('Equipment');
+          if(eqSheet?.length){ ds.equipment = eqSheet.map(r=>({ id:String(r['ID']||'').trim(), facilityId:facId(r['FacilityCode']||r['FacilityID']), name:String(r['Name']||'').trim(), type:String(r['Type']||'').trim() })).filter(r=>r.id&&r.name); imported.push(`${ds.equipment.length} equipment`); }
+
+          const stSheet = sheet('Storages');
+          if(stSheet?.length){ ds.storages = stSheet.map(r=>({ id:String(r['ID']||'').trim(), facilityId:facId(r['FacilityCode']||r['FacilityID']), name:String(r['Name']||'').trim(), categoryHint:String(r['CategoryHint']||'').trim(), allowedProductIds:String(r['AllowedProducts']||'').split('|').map(x=>prodId(x.trim())).filter(Boolean), maxCapacityStn:+r['MaxCapacity(STn)']||0 })).filter(r=>r.id&&r.name); imported.push(`${ds.storages.length} storages`); }
+
+          const capSheet = sheet('Capabilities');
+          if(capSheet?.length){ ds.capabilities = capSheet.map(r=>({ id:`${String(r['EquipmentID']||'').trim()}|${String(r['ProductID']||'').trim()}`, equipmentId:String(r['EquipmentID']||'').trim(), productId:prodId(r['ProductID']), maxRateStpd:+r['MaxRate(STpd)']||0, electricKwhPerStn:+r['Electric(kWh/STn)']||0, thermalMMBTUPerStn:+r['Thermal(MMBTU/STn)']||0 })).filter(r=>r.equipmentId&&r.productId); imported.push(`${ds.capabilities.length} capabilities`); }
+
+          const recSheet = sheet('Recipes');
+          if(recSheet?.length){
+            const recipeMap = new Map();
+            recSheet.forEach(r=>{
+              const id = String(r['RecipeID']||'').trim(); if(!id) return;
+              if(!recipeMap.has(id)) recipeMap.set(id,{ id, facilityId:facId(r['FacilityCode']), productId:prodId(r['ProductID']), version:+r['Version']||1, components:[] });
+              const compId = prodId(r['ComponentMaterial']||r['ComponentMatNum']);
+              if(compId) recipeMap.get(id).components.push({ materialId:compId, pct:+r['Pct%']||0 });
+            });
+            ds.recipes = [...recipeMap.values()];
+            imported.push(`${ds.recipes.length} recipes`);
+          }
+
+          if(imported.length){ persist(); render(); showToast(`Setup imported into Official: ${imported.join(', ')} ✓`, 'ok'); }
+          else showToast('No setup sheets found', 'warn');
+        } catch(err){ showToast('Import failed: '+err.message, 'danger'); console.error(err); }
+      };
+      reader.readAsArrayBuffer(file);
+    };
+    inp.click();
+  };
+
+  // ── TRANSACTIONS DOWNLOAD (Production + Shipments, simple 4-col, from Official) ──
+  q('dioTxnExport').onclick = () => {
+    const ds  = state.official;
+    const org = state.org;
+    const cat = state.catalog || [];
+    const facs = org.facilities || [];
+    const matNums = id => { const m=cat.find(x=>x.id===id); return (m?.materialNumbers||[]).map(x=>typeof x==='object'?x.number:x).filter(Boolean).join(', ')||m?.materialNumber||''; };
+    const facCode = id => facs.find(f=>f.id===id)?.code || id;
+    const eqName  = id => ds.equipment.find(e=>e.id===id)?.name || id;
+    const wb = XLSX.utils.book_new();
+    const addSheet = (name, rows) => { if(rows.length>1) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name.slice(0,31)); };
+    addSheet('Production Actuals', [['Date','Facility','Equipment','Material Number','Qty (STn)'],  ...(ds.actuals.production||[]).map(r=>[r.date, facCode(r.facilityId), eqName(r.equipmentId), matNums(r.productId), +r.qtyStn||0])]);
+    addSheet('Shipment Actuals',   [['Date','Facility','Material Number','Qty (STn)'],              ...(ds.actuals.shipments||[]).map(r=>[r.date, facCode(r.facilityId), matNums(r.productId), +r.qtyStn||0])]);
+    XLSX.writeFile(wb, `transactions_${new Date().toISOString().slice(0,10)}.xlsx`);
+    showToast('Transactions exported ✓', 'ok');
+  };
+
+  // ── TRANSACTIONS UPLOAD (→ active Sandbox, date-range merge) ──
+  q('dioTxnImport').onclick = () => {
+    if(state.ui.mode !== 'sandbox'){ state.ui.mode = 'sandbox'; persist(); }
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = '.xlsx,.xls';
+    inp.onchange = () => {
+      const file = inp.files[0]; if(!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        try {
+          const wb2 = XLSX.read(e.target.result, {type:'array', cellDates:true});
+          const sheet = n => { const ws = wb2.Sheets[n]; return ws ? XLSX.utils.sheet_to_json(ws,{defval:''}) : null; };
+          const sb = state.sandboxes?.[state.ui.activeSandbox]; if(!sb) return;
+          const ds = sb.data;
+          const org = state.org; const cat = state.catalog||[]; const facs = org.facilities||[];
+          const parseDate = v => { if(!v) return ''; if(v instanceof Date) return v.toISOString().slice(0,10); const s=String(v).trim(); if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10); if(/^\d{5}$/.test(s)){ const d=new Date(Math.round((+s-25569)*86400*1000)); return d.toISOString().slice(0,10); } const p=new Date(s); return isNaN(p)?s:p.toISOString().slice(0,10); };
+          const lookupFac = v => { const k=String(v||'').trim(); return facs.find(f=>f.code===k||f.id===k||f.name===k)?.id||''; };
+          const lookupProd = v => { const k=String(v||'').trim(); return cat.find(m=>(m.materialNumbers||[]).some(x=>(typeof x==='object'?x.number:x)===k)||m.id===k||m.code===k||m.name===k)?.id||''; };
+          const lookupEq = v => { const k=String(v||'').trim(); return ds.equipment.find(e=>e.name===k||e.id===k||e.id.endsWith('_'+k))?.id||''; };
+          const dateRangeReplace = (newRows, store) => { const dates=newRows.map(r=>r.date).filter(Boolean).sort(); if(!dates.length) return store; const mn=dates[0],mx=dates[dates.length-1]; return [...(store||[]).filter(x=>x.date<mn||x.date>mx), ...newRows]; };
+          const imported = [];
+
+          const prod = sheet('Production Actuals');
+          if(prod?.length){
+            const rows = prod.map(r=>({ date:parseDate(r['Date']), facilityId:lookupFac(r['Facility']), equipmentId:lookupEq(r['Equipment']||''), productId:lookupProd(r['Material Number']||r['MatNum']||''), qtyStn:+r['Qty (STn)']||+r['Qty(STn)']||0 })).filter(r=>r.date&&r.productId&&r.qtyStn!==0);
+            ds.actuals.production = dateRangeReplace(rows, ds.actuals.production);
+            imported.push(`${rows.length} production rows`);
+          }
+
+          const ship = sheet('Shipment Actuals');
+          if(ship?.length){
+            const rows = ship.map(r=>({ date:parseDate(r['Date']), facilityId:lookupFac(r['Facility']), productId:lookupProd(r['Material Number']||r['MatNum']||''), qtyStn:+r['Qty (STn)']||+r['Qty(STn)']||0 })).filter(r=>r.date&&r.productId&&r.qtyStn!==0);
+            ds.actuals.shipments = dateRangeReplace(rows, ds.actuals.shipments);
+            imported.push(`${rows.length} shipment rows`);
+          }
+
+          if(imported.length){ persist(); render(); showToast(`Transactions imported into Sandbox: ${imported.join(', ')} ✓`, 'ok'); }
+          else showToast('No transaction sheets found', 'warn');
+        } catch(err){ showToast('Import failed: '+err.message, 'danger'); console.error(err); }
+      };
+      reader.readAsArrayBuffer(file);
+    };
+    inp.click();
   };
 
   // Per-sandbox save buttons

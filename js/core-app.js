@@ -3862,11 +3862,9 @@ function openDataIODialog(){
           const sheet = n => { const ws = wb2.Sheets[n]; return ws ? XLSX.utils.sheet_to_json(ws,{defval:''}) : null; };
           const ds = state.official;
           const imported = [];
-          const facs = state.org.facilities || [];
-          const cat  = state.catalog || [];
-          const facId = v => { const k=String(v||'').trim(); return facs.find(f=>f.code===k||f.id===k||f.name===k)?.id || k; };
-          const prodId = v => { const k=String(v||'').trim(); return cat.find(m=>m.id===k||m.code===k||m.name===k||(m.materialNumbers||[]).some(x=>(typeof x==='object'?x.number:x)===k))?.id || k; };
+          const nullStr = v => { const s=String(v||'').trim(); return /^(None|null|NULL)$/i.test(s)?'':s; };
 
+          // ── Import Facilities + Catalog FIRST so lookups work against new data ──
           const facSheet = sheet('Facilities');
           if(facSheet?.length){ state.org.facilities = facSheet.map(r=>({ id:String(r['ID']||'').trim(), code:String(r['Code']||'').trim(), name:String(r['Name']||'').trim(), facilityType:String(r['Type']||'terminal').trim(), subRegionId:String(r['SubRegion']||'').trim() })).filter(r=>r.id&&r.name); imported.push(`${state.org.facilities.length} facilities`); }
 
@@ -3874,7 +3872,31 @@ function openDataIODialog(){
           if(regSheet?.length){ state.org.regions = regSheet.map(r=>({ id:String(r['ID']||'').trim(), name:String(r['Name']||'').trim(), countryId:String(r['CountryId']||'').trim() })).filter(r=>r.id&&r.name); imported.push(`${state.org.regions.length} regions`); }
 
           const catSheet = sheet('Products-Catalog');
-          if(catSheet?.length){ state.catalog = catSheet.map(r=>({ id:String(r['ID']||'').trim(), code:String(r['Code']||'').trim(), name:String(r['Name']||'').trim(), category:String(r['Category']||'').trim(), familyId:String(r['FamilyId']||'').trim().replace(/^(None|null)$/, ''), typeId:String(r['TypeId']||'').trim().replace(/^(None|null)$/, ''), materialNumbers:[{number:String(r['MaterialNumber']||'').trim()}].filter(x=>x.number&&x.number!=='None'&&x.number!=='null'), landedCostUsdPerStn:+r['LandedCost']||0 })).filter(r=>r.id&&r.name); imported.push(`${state.catalog.length} products`); }
+          if(catSheet?.length){
+            state.catalog = catSheet.map(r=>{
+              const id = String(r['ID']||'').trim();
+              // regionId is the prefix before '|' in the product ID (e.g. 'region_FL|BRS_CLK_K1' → 'region_FL')
+              const regionId = id.includes('|') ? id.split('|')[0] : '';
+              return {
+                id,
+                regionId,
+                code: String(r['Code']||'').trim(),
+                name: String(r['Name']||'').trim(),
+                category: String(r['Category']||'').trim(),
+                familyId: nullStr(r['FamilyId']),
+                typeId:   nullStr(r['TypeId']),
+                materialNumbers: String(r['MaterialNumber']||'').split(',').map(x=>x.trim()).filter(x=>x&&!/^(None|null|NULL)$/.test(x)).map(n=>({number:n})),
+                landedCostUsdPerStn: +r['LandedCost']||0
+              };
+            }).filter(r=>r.id&&r.name);
+            imported.push(`${state.catalog.length} products`);
+          }
+
+          // ── NOW build lookups against the freshly imported data ──
+          const facs  = state.org.facilities;
+          const cat   = state.catalog;
+          const facId  = v => { const k=String(v||'').trim(); return facs.find(f=>f.code===k||f.id===k||f.name===k)?.id || k; };
+          const prodId = v => { const k=String(v||'').trim(); if(!k) return ''; return cat.find(m=>m.id===k||m.code===k||m.name===k||(m.materialNumbers||[]).some(x=>(typeof x==='object'?x.number:x)===k))?.id || k; };
 
           const fpSheet = sheet('FacilityProducts');
           if(fpSheet?.length){ ds.facilityProducts = fpSheet.map(r=>({ facilityId:facId(r['FacilityID']||r['FacilityCode']), productId:prodId(r['ProductID']) })).filter(r=>r.facilityId&&r.productId); imported.push(`${ds.facilityProducts.length} facility-products`); }
@@ -3883,7 +3905,7 @@ function openDataIODialog(){
           if(eqSheet?.length){ ds.equipment = eqSheet.map(r=>({ id:String(r['ID']||'').trim(), facilityId:facId(r['FacilityCode']||r['FacilityID']), name:String(r['Name']||'').trim(), type:String(r['Type']||'').trim() })).filter(r=>r.id&&r.name); imported.push(`${ds.equipment.length} equipment`); }
 
           const stSheet = sheet('Storages');
-          if(stSheet?.length){ ds.storages = stSheet.map(r=>({ id:String(r['ID']||'').trim(), facilityId:facId(r['FacilityCode']||r['FacilityID']), name:String(r['Name']||'').trim(), categoryHint:String(r['CategoryHint']||'').trim(), allowedProductIds:String(r['AllowedProducts']||'').split('|').map(x=>prodId(x.trim())).filter(Boolean), maxCapacityStn:+r['MaxCapacity(STn)']||0 })).filter(r=>r.id&&r.name); imported.push(`${ds.storages.length} storages`); }
+          if(stSheet?.length){ ds.storages = stSheet.map(r=>({ id:String(r['ID']||'').trim(), facilityId:facId(r['FacilityCode']||r['FacilityID']), name:String(r['Name']||'').trim(), categoryHint:String(r['CategoryHint']||'').trim(), allowedProductIds:String(r['AllowedProducts']||'').split('|').map(x=>x.trim()).filter(Boolean).map(x=>prodId(x)).filter(x=>x&&x.length>0), maxCapacityStn:+r['MaxCapacity(STn)']||0 })).filter(r=>r.id&&r.name); imported.push(`${ds.storages.length} storages`); }
 
           const capSheet = sheet('Capabilities');
           if(capSheet?.length){ ds.capabilities = capSheet.map(r=>({ id:`${String(r['EquipmentID']||'').trim()}|${String(r['ProductID']||'').trim()}`, equipmentId:String(r['EquipmentID']||'').trim(), productId:prodId(r['ProductID']), maxRateStpd:+r['MaxRate(STpd)']||0, electricKwhPerStn:+r['Electric(kWh/STn)']||0, thermalMMBTUPerStn:+r['Thermal(MMBTU/STn)']||0 })).filter(r=>r.equipmentId&&r.productId); imported.push(`${ds.capabilities.length} capabilities`); }

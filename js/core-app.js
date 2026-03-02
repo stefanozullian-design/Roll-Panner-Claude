@@ -440,7 +440,7 @@ function initShell(){
 
   el('sandboxBtn').onclick = () => openSandboxDialog();
   el('settingsBtn').onclick = () => openSettingsDialog();
-  el('dataIOBtn').onclick = () => openDataIODialog();
+  el('dataIOBtn').onclick = () => openDataManagementDialog();
 
   el('pushOfficialBtn').onclick = () => {
     if(!confirm('Push current sandbox to Official? This overwrites the Official data.')) return;
@@ -3119,30 +3119,45 @@ function renderLogisticsPlaceholder(tabKey){
 
 // Boot handled by init() above
 
-/* ─────────────────── DATA I/O DIALOG ─────────────────── */
-function openDataIODialog(){
+/* ─────────────────── DATA MANAGEMENT DIALOG ─────────────────── */
+function openDataManagementDialog(){
   const host = el('dataIODialog');
   host.classList.add('open');
 
-  const isSandbox = state.ui.mode === 'sandbox';
-  const sbId = state.ui.activeSandboxId;
-  const sbName = state.sandboxes?.[sbId]?.name || 'Sandbox';
-  const dateStr = new Date().toISOString().slice(0,10)
-
-  // ── Shared import/export utilities (used by both Setup and Transactions) ──
+  const dateStr = new Date().toISOString().slice(0,10);
+  const ds = state.official; // Always work with official data
   const _facs = state.org.facilities || [];
-  const _cat  = state.catalog || [];
-  const nullStr    = v => { const s=String(v||'').trim(); return /^(None|null|NULL)$/i.test(s)?'':s; };
-  const parseDate  = v => { if(!v) return ''; if(v instanceof Date) return v.toISOString().slice(0,10); const s=String(v).trim(); if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10); const n=+s; if(!isNaN(n)&&n>40000&&n<60000){ const d=new Date(Math.round((n-25569)*86400*1000)); return d.toISOString().slice(0,10); } const p=new Date(s); return isNaN(p)?'':p.toISOString().slice(0,10); };
+  const _cat = state.catalog || [];
+/* ─────────────────── DATA MANAGEMENT DIALOG (NEW) ─────────────────── */
+function openDataManagementDialog(){
+  const host = el('dataIODialog');
+  host.classList.add('open');
 
-  // Enhanced lookups: case-insensitive with partial matching support
-  const lookupFac  = v => {
+  const dateStr = new Date().toISOString().slice(0,10);
+  const ds = state.official;
+  const _facs = state.org.facilities || [];
+  const _cat = state.catalog || [];
+
+  // ── UTILITY FUNCTIONS ──
+  const parseDate = v => {
+    if(!v) return '';
+    if(v instanceof Date) return v.toISOString().slice(0,10);
+    const s = String(v).trim();
+    if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+    const n = +s;
+    if(!isNaN(n) && n > 40000 && n < 60000){
+      const d = new Date(Math.round((n-25569)*86400*1000));
+      return d.toISOString().slice(0,10);
+    }
+    const p = new Date(s);
+    return isNaN(p) ? '' : p.toISOString().slice(0,10);
+  };
+
+  const lookupFac = v => {
     const k = String(v||'').trim().toUpperCase();
     if (!k) return '';
-    // Exact match (case-insensitive)
     let f = _facs.find(f => (f.code||'').toUpperCase() === k || f.id.toUpperCase() === k || (f.name||'').toUpperCase() === k);
     if (f) return f.id;
-    // Partial match on name/code
     f = _facs.find(f => (f.name||'').toUpperCase().includes(k) || (f.code||'').toUpperCase().includes(k));
     return f?.id || '';
   };
@@ -3150,361 +3165,193 @@ function openDataIODialog(){
   const lookupProd = v => {
     const k = String(v||'').trim().toUpperCase();
     if (!k || k === '0') return '';
-    // Check material numbers (exact)
     let m = _cat.find(m => (m.materialNumbers||[]).some(x => String(typeof x==='object'?x.number:x).toUpperCase() === k));
     if (m) return m.id;
-    // Check id, code, name (case-insensitive)
     m = _cat.find(m => m.id.toUpperCase() === k || (m.code||'').toUpperCase() === k || (m.name||'').toUpperCase() === k);
     if (m) return m.id;
-    // Partial match on name/code
     m = _cat.find(m => (m.name||'').toUpperCase().includes(k) || (m.code||'').toUpperCase().includes(k));
     return m?.id || '';
   };
-  const facCode    = id => _facs.find(f=>f.id===id)?.code || id;
-  const facName    = id => _facs.find(f=>f.id===id)?.name || id;
-  const matName    = id => { const m=_cat.find(x=>x.id===id); return m?.name||id; };
-  const matNums    = id => { const m=_cat.find(x=>x.id===id); return (m?.materialNumbers||[]).map(x=>typeof x==='object'?x.number:x).filter(Boolean).join(', ')||''; };;
 
-  // ── HELPERS ──
-  const downloadBlob = (blob, filename) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click();
-    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 500);
+  const facCode = id => _facs.find(f=>f.id===id)?.code || id;
+  const facName = id => _facs.find(f=>f.id===id)?.name || id;
+  const matName = id => { const m=_cat.find(x=>x.id===id); return m?.name||id; };
+  const matNums = id => { const m=_cat.find(x=>x.id===id); return (m?.materialNumbers||[]).map(x=>typeof x==='object'?x.number:x).filter(Boolean).join(', ')||''; };
+
+  // ── BUILD MODAL HTML ──
+  host.innerHTML = `
+    <div class="modal-content" style="max-width:600px;">
+      <div class="modal-title">📊 Data Management</div>
+
+      <div style="margin:15px 0;">
+        <label>Select Data Type:</label>
+        <select id="dioDataType" style="width:100%;padding:8px;margin-top:5px;">
+          <option value="production">Production Data (Date | Facility | Material | Qty)</option>
+          <option value="shipment">Shipment Data (Date | Facility | Material | Qty)</option>
+        </select>
+      </div>
+
+      <div style="display:flex;gap:10px;margin:15px 0;">
+        <button id="dioDownloadBtn" style="flex:1;padding:10px;" class="btn btn-primary">⬇ Download</button>
+        <button id="dioUploadBtn" style="flex:1;padding:10px;" class="btn btn-primary">⬆ Upload</button>
+      </div>
+
+      <div id="dioOptions" style="margin:15px 0;padding:10px;background:var(--bg-secondary);border-radius:4px;">
+        <div id="downloadOptions" style="display:none;">
+          <label>Date Range:</label>
+          <select id="dioDateRange" style="width:100%;padding:8px;margin-top:5px;">
+            <option value="all">All Time</option>
+            <option value="7">Last 7 Days</option>
+            <option value="30">Last 30 Days</option>
+            <option value="90">Last 90 Days</option>
+            <option value="custom">Custom Range</option>
+          </select>
+          <div id="dioCustomRange" style="display:none;margin-top:10px;">
+            <input type="date" id="dioFromDate" style="width:49%;padding:8px;"/>
+            <input type="date" id="dioToDate" style="width:49%;padding:8px;margin-left:2%;"/>
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align:right;margin-top:20px;">
+        <button onclick="el('dataIODialog').classList.remove('open');" class="btn">Close</button>
+      </div>
+    </div>
+  `;
+
+  // ── UTILITY: Download Excel ──
+  const downloadExcel = (rows, sheetName, filename) => {
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0,31));
+    XLSX.writeFile(wb, filename);
+    showToast(`${filename} downloaded ✓`, 'ok');
   };
 
-  const downloadJSON = (obj, filename) => {
-    downloadBlob(new Blob([JSON.stringify(obj, null, 2)], {type:'application/json'}), filename);
+  // ── DOWNLOAD HANDLER ──
+  el('dioDownloadBtn').onclick = () => {
+    const dataType = el('dioDataType').value;
+    const dateRange = el('dioDateRange').value;
+
+    let fromDate = null, toDate = null;
+    if (dateRange === 'custom') {
+      fromDate = el('dioFromDate').value;
+      toDate = el('dioToDate').value;
+      if (!fromDate || !toDate) { showToast('Please select both dates', 'warn'); return; }
+    } else if (dateRange !== 'all') {
+      const days = parseInt(dateRange);
+      toDate = dateStr;
+      const d = new Date();
+      d.setDate(d.getDate() - days);
+      fromDate = d.toISOString().slice(0,10);
+    }
+
+    if (dataType === 'production') {
+      const rows = [['Date','Facility','Material','Qty (STn)']];
+      (ds.actuals.production||[]).forEach(r => {
+        if (fromDate && (r.date < fromDate || r.date > toDate)) return;
+        rows.push([r.date, facCode(r.facilityId), matNums(r.productId), Math.ceil(r.qtyStn||0)]);
+      });
+      downloadExcel(rows, 'Production', `Production_${dateStr}.xlsx`);
+    } else {
+      const rows = [['Date','Facility','Material','Qty (STn)']];
+      (ds.actuals.shipments||[]).forEach(r => {
+        if (fromDate && (r.date < fromDate || r.date > toDate)) return;
+        rows.push([r.date, facCode(r.facilityId), matNums(r.productId), Math.ceil(r.qtyStn||0)]);
+      });
+      downloadExcel(rows, 'Shipment', `Shipments_${dateStr}.xlsx`);
+    }
   };
 
-  const slugName = s => (s||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
-
-  // ── JSON SAVE ──
-  const saveOfficial = () => {
-    downloadJSON({ _type:'official', _savedAt: new Date().toISOString(), org: state.org, catalog: state.catalog, data: state.official }, `official_${dateStr}.json`);
-    showToast('Official saved ✓', 'ok');
-  };
-
-  const saveSandbox = () => {
-    const sb = state.sandboxes?.[sbId];
-    if(!sb){ showToast('No active sandbox', 'warn'); return; }
-    downloadJSON({ _type:'sandbox', _name: sb.name, _savedAt: new Date().toISOString(), org: state.org, catalog: state.catalog, data: sb.data }, `scenario_${slugName(sb.name)}_${dateStr}.json`);
-    showToast(`Scenario "${sb.name}" saved ✓`, 'ok');
-  };
-
-  // ── JSON LOAD ──
-  const loadJSON = (target) => {
+  // ── UPLOAD HANDLER ──
+  el('dioUploadBtn').onclick = () => {
     const inp = document.createElement('input');
-    inp.type = 'file'; inp.accept = '.json';
+    inp.type = 'file';
+    inp.accept = '.xlsx,.xls,.csv';
     inp.onchange = () => {
-      const file = inp.files[0]; if(!file) return;
+      const file = inp.files[0];
+      if (!file) return;
+
       const reader = new FileReader();
       reader.onload = e => {
         try {
-          const obj = JSON.parse(e.target.result);
-          if(target === 'official'){
-            if(!confirm(`Load "${file.name}" into Official? This will overwrite Official data.`)) return;
-            if(obj.org) state.org = obj.org;
-            if(obj.catalog) state.catalog = obj.catalog;
-            if(obj.data) state.official = obj.data;
-            else if(obj.sandbox) state.official = obj.sandbox; // legacy
-            persist(); render();
-            showToast('Official loaded ✓', 'ok');
+          const dataType = el('dioDataType').value;
+          let rows = [];
+
+          if (file.name.endsWith('.csv')) {
+            const csv = e.target.result;
+            rows = csv.split('\n').slice(1).filter(Boolean).map(line => {
+              const parts = line.split(',').map(s => s.trim());
+              return { date: parts[0], facility: parts[1], material: parts[2], qty: parts[3] };
+            });
           } else {
-            // Load into a new sandbox scenario
-            const name = obj._name || file.name.replace('.json','');
-            const id = createSandbox(state, name);
-            if(obj.data) state.sandboxes[id].data = obj.data;
-            else if(obj.sandbox) state.sandboxes[id].data = obj.sandbox; // legacy
-            if(obj.org) state.org = obj.org;
-            if(obj.catalog) state.catalog = obj.catalog;
-            state.ui.mode = 'sandbox';
-            state.ui.activeSandboxId = id;
-            persist(); render();
-            showToast(`Loaded into new scenario "${name}" ✓`, 'ok');
+            const wb = XLSX.read(e.target.result, {type:'array'});
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            const data = XLSX.utils.sheet_to_json(ws, {defval:''});
+            rows = data.map(r => ({
+              date: parseDate(r['Date']),
+              facility: r['Facility'],
+              material: r['Material'],
+              qty: +r['Qty (STn)'] || 0
+            }));
           }
-          openDataIODialog(); // refresh dialog
-        } catch(err) {
-          showToast('Invalid JSON file', 'danger');
+
+          // Validate and upsert
+          let created = 0, updated = 0, skipped = 0;
+          const targetStore = dataType === 'production' ? ds.actuals.production : ds.actuals.shipments;
+
+          rows.forEach(r => {
+            if (!r.date || !r.facility || !r.material || r.qty === 0) { skipped++; return; }
+
+            const facId = lookupFac(r.facility);
+            const prodId = lookupProd(r.material);
+
+            if (!facId) { console.warn(`Facility not found: ${r.facility}`); skipped++; return; }
+            if (!prodId) { console.warn(`Material not found: ${r.material}`); skipped++; return; }
+
+            const qtyRounded = Math.ceil(r.qty);
+            const existingIdx = targetStore.findIndex(x => x.date === r.date && x.facilityId === facId && x.productId === prodId);
+
+            if (existingIdx >= 0) {
+              targetStore[existingIdx].qtyStn = qtyRounded;
+              updated++;
+            } else {
+              if (dataType === 'production') {
+                // For production, we need equipmentId - use first available equipment for that facility/product
+                const eq = ds.equipment?.find(e => e.facilityId === facId);
+                targetStore.push({ date: r.date, facilityId: facId, equipmentId: eq?.id || '', productId: prodId, qtyStn: qtyRounded });
+              } else {
+                targetStore.push({ date: r.date, facilityId: facId, productId: prodId, qtyStn: qtyRounded });
+              }
+              created++;
+            }
+          });
+
+          persist();
+          render();
+          host.classList.remove('open');
+          showToast(`${dataType} imported: ${created} created, ${updated} updated${skipped > 0 ? `, ${skipped} skipped` : ''} ✓`, 'ok');
+        } catch (err) {
+          showToast('Import failed: ' + err.message, 'danger');
+          console.error(err);
         }
       };
-      reader.readAsText(file);
+
+      if (file.name.endsWith('.csv')) {
+        reader.readAsText(file);
+      } else {
+        reader.readAsArrayBuffer(file);
+      }
     };
     inp.click();
   };
 
-  // ── EXCEL EXPORT ──
-  const exportExcel = () => {
-    const s = selectors(state);
-    const ds = s.dataset;
-    const fids = s.facilityIds;
-    const wb = XLSX.utils.book_new();
-
-    // Sheet 1: Demand Forecast
-    const matNums = m => m ? (m.materialNumbers||[]).map(x=>typeof x==='object'?String(x.number||x):String(x)).filter(Boolean).join(', ') || m.materialNumber || '' : '';
-    const demandRows = [['Date','Facility','Material Number','Qty (STn)']];
-    ds.demandForecast.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
-      const fac = state.org.facilities.find(f=>f.id===r.facilityId);
-      const prod = state.catalog.find(m=>m.id===r.productId);
-      demandRows.push([r.date, fac?.code||fac?.name||r.facilityId, matNums(prod), +r.qtyStn||0]);
-    });
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(demandRows), 'Demand Forecast');
-
-    // Sheet 2: Campaigns
-    const campRows = [['Facility','Equipment','Status','Product','Date','Rate (STn/d)']];
-    ds.campaigns.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
-      const fac = state.org.facilities.find(f=>f.id===r.facilityId);
-      const eq  = ds.equipment.find(e=>e.id===r.equipmentId);
-      const prod = state.catalog.find(m=>m.id===r.productId);
-      campRows.push([fac?.name||r.facilityId, eq?.name||r.equipmentId, r.status||'produce', prod?.name||r.productId||'', r.date, +r.rateStn||0]);
-    });
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(campRows), 'Campaigns');
-
-    // Sheet 3: Production Actuals
-    const prodRows = [['Date','Equipment','Material Number','Qty (STn)']];
-    ds.actuals.production.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
-      const eq   = ds.equipment.find(e=>e.id===r.equipmentId);
-      const prod = state.catalog.find(m=>m.id===r.productId);
-      prodRows.push([r.date, eq?.name||r.equipmentId, matNums(prod), +r.qtyStn||0]);
-    });
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(prodRows), 'Production Actuals');
-
-    // Sheet 4: Shipment Actuals
-    const shipRows = [['Date','Facility','Material Number','Qty (STn)']];
-    ds.actuals.shipments.filter(r=>fids.includes(r.facilityId)).forEach(r=>{
-      const fac  = state.org.facilities.find(f=>f.id===r.facilityId);
-      const prod = state.catalog.find(m=>m.id===r.productId);
-      shipRows.push([r.date, fac?.code||fac?.name||r.facilityId, matNums(prod), +r.qtyStn||0]);
-    });
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(shipRows), 'Shipment Actuals');
-
-    // Sheet 5: Inventory EOD
-    const invRows = [['Date','Facility','Material Number','Qty (STn)']];
-    (ds.actuals.inventoryBOD||[]).filter(r=>fids.includes(r.facilityId)).forEach(r=>{
-      const fac  = state.org.facilities.find(f=>f.id===r.facilityId);
-      const prod = state.catalog.find(m=>m.id===r.productId);
-      invRows.push([r.date, fac?.code||fac?.name||r.facilityId, matNums(prod), +r.qtyStn||0]);
-    });
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(invRows), 'Inventory EOD');
-
-    // Sheet 6: Setup — Equipment
-    const eqRows = [['Facility','Equipment ID','Name','Type']];
-    ds.equipment.filter(e=>fids.includes(e.facilityId)).forEach(e=>{
-      const fac = state.org.facilities.find(f=>f.id===e.facilityId);
-      eqRows.push([fac?.name||e.facilityId, e.id, e.name, e.type]);
-    });
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(eqRows), 'Equipment');
-
-    // Sheet 7: Setup — Products (catalog)
-    const prodSetupRows = [['Region','Material Number','Product ID','Code','Name','Category','Unit','Landed Cost USD/STn']];
-    state.catalog.forEach(m=>{
-      const reg = state.org.regions.find(r=>r.id===m.regionId);
-      prodSetupRows.push([reg?.name||m.regionId||'', m.materialNumber||'', m.id, m.code||'', m.name, m.category, m.unit||'STn', m.landedCostUsdPerStn||0]);
-    });
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(prodSetupRows), 'Products Catalog');
-
-    const scope = s.getScopeName();
-    const filename = `cement_planner_${slugName(scope)}_${dateStr}.xlsx`;
-    XLSX.writeFile(wb, filename);
-    showToast('Excel exported ✓', 'ok');
+  // ── DATE RANGE UI ──
+  el('dioDataType').onchange = () => {
+    el('downloadOptions').style.display = 'block';
   };
 
-  // ── EXCEL IMPORT ──
-  // Strategy:
-  el('dioSetupExport').onclick = () => {
-    const ds  = state.official;
-    // Uses shared: _cat, _facs, facCode, facName, matNums, matName
-    const matName = id => __cat.find(m=>m.id===id)?.name || id;
-    const matNum  = id => matNums(id);
-    const eqName  = id => ds.equipment.find(e=>e.id===id)?.name || id;
-    const wb = XLSX.utils.book_new();
-    const addSheet = (name, rows) => { if(rows.length>1) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name.slice(0,31)); };
-    addSheet('Facilities',       [['ID','Code','Name','Type','SubRegion'],                                              ...facs.map(f=>[f.id,f.code||'',f.name,f.facilityType||'terminal',f.subRegionId||''])]);
-    addSheet('Org-Regions',      [['ID','Name','CountryId'],                                                            ...(org.regions||[]).map(r=>[r.id,r.name,r.countryId||''])]);
-    addSheet('Products-Catalog', [['ID','Code','Name','Category','FamilyId','TypeId','MaterialNumber','LandedCost'],    ...cat.map(m=>[m.id,m.code||'',m.name,m.category,m.familyId||'',m.typeId||'',matNum(m.id),m.landedCostUsdPerStn||0])]);
-    addSheet('FacilityProducts', [['FacilityID','FacilityName','ProductID','ProductName'],                              ...(ds.facilityProducts||[]).map(r=>[r.facilityId,facName(r.facilityId),r.productId,matName(r.productId)])]);
-    addSheet('Equipment',        [['ID','FacilityCode','FacilityName','Name','Type'],                                   ...ds.equipment.map(e=>[e.id,facCode(e.facilityId),facName(e.facilityId),e.name,e.type])]);
-    addSheet('Storages',         [['ID','FacilityCode','FacilityName','Name','CategoryHint','AllowedProducts','MaxCapacity(STn)'], ...ds.storages.map(st=>[st.id,facCode(st.facilityId),facName(st.facilityId),st.name,st.categoryHint||'',(st.allowedProductIds||[]).map(matName).join(' | '),st.maxCapacityStn||0])]);
-    addSheet('Capabilities',     [['EquipmentID','EquipmentName','FacilityCode','ProductID','ProductName','MaxRate(STpd)','Electric(kWh/STn)','Thermal(MMBTU/STn)'], ...ds.capabilities.map(c=>{ const eq=ds.equipment.find(e=>e.id===c.equipmentId); return [c.equipmentId,eqName(c.equipmentId),facCode(eq?.facilityId||''),c.productId,matName(c.productId),c.maxRateStpd||0,c.electricKwhPerStn||0,c.thermalMMBTUPerStn||0]; })]);
-    addSheet('Recipes',          [['RecipeID','FacilityCode','ProductID','ProductName','Version','ComponentMaterial','ComponentMatNum','Pct%'], ...ds.recipes.flatMap(r=>(r.components||[]).map(c=>[r.id,facCode(r.facilityId),r.productId,matName(r.productId),r.version||1,matName(c.materialId),matNum(c.materialId),c.pct||0]))]);
-    XLSX.writeFile(wb, `setup_db_${new Date().toISOString().slice(0,10)}.xlsx`);
-    showToast('Setup DB exported ✓', 'ok');
+  el('dioDateRange').onchange = () => {
+    el('dioCustomRange').style.display = el('dioDateRange').value === 'custom' ? 'block' : 'none';
   };
-
-  // ── SETUP UPLOAD (→ directly into Official) ──
-  el('dioSetupImport').onclick = () => {
-    const inp = document.createElement('input');
-    inp.type = 'file'; inp.accept = '.xlsx,.xls';
-    inp.onchange = () => {
-      const file = inp.files[0]; if(!file) return;
-      const reader = new FileReader();
-      reader.onload = e => {
-        try {
-          const wb2 = XLSX.read(e.target.result, {type:'array'});
-          const sheet = n => { const ws = wb2.Sheets[n]; return ws ? XLSX.utils.sheet_to_json(ws,{defval:''}) : null; };
-          const ds = state.official;
-          const imported = [];
-          // Uses shared utilities: nullStr, parseDate, lookupFac, lookupProd, facCode, facName, matName, matNums
-          // ── Import Facilities + Catalog FIRST so lookups work against new data ──
-          const facSheet = sheet('Facilities');
-          if(facSheet?.length){ state.org.facilities = facSheet.map(r=>({ id:String(r['ID']||'').trim(), code:String(r['Code']||'').trim(), name:String(r['Name']||'').trim(), facilityType:String(r['Type']||'terminal').trim(), subRegionId:String(r['SubRegion']||'').trim() })).filter(r=>r.id&&r.name); imported.push(`${state.org.facilities.length} facilities`); }
-
-          const regSheet = sheet('Org-Regions');
-          if(regSheet?.length){ state.org.regions = regSheet.map(r=>({ id:String(r['ID']||'').trim(), name:String(r['Name']||'').trim(), countryId:String(r['CountryId']||'').trim() })).filter(r=>r.id&&r.name); imported.push(`${state.org.regions.length} regions`); }
-
-          const catSheet = sheet('Products-Catalog');
-          if(catSheet?.length){
-            state.catalog = catSheet.map(r=>{
-              const id = String(r['ID']||'').trim();
-              // regionId is the prefix before '|' in the product ID (e.g. 'region_FL|BRS_CLK_K1' → 'region_FL')
-              const regionId = id.includes('|') ? id.split('|')[0] : '';
-              return {
-                id,
-                regionId,
-                code: String(r['Code']||'').trim(),
-                name: String(r['Name']||'').trim(),
-                category: String(r['Category']||'').trim(),
-                familyId: nullStr(r['FamilyId']),
-                typeId:   nullStr(r['TypeId']),
-                materialNumbers: String(r['MaterialNumber']||'').split(',').map(x=>x.trim()).filter(x=>x&&!/^(None|null|NULL)$/.test(x)).map(n=>({number:n})),
-                landedCostUsdPerStn: +r['LandedCost']||0
-              };
-            }).filter(r=>r.id&&r.name);
-            imported.push(`${state.catalog.length} products`);
-          }
-
-          // ── Rebuild lookups against freshly imported catalog/facilities ──
-          const facId  = v => { const k=String(v||'').trim(); const f=(state.org.facilities||[]).find(x=>x.code===k||x.id===k||x.name===k); return f?.id||k; };
-          const prodId = v => { const k=String(v||'').trim(); if(!k) return ''; const m=(state.catalog||[]).find(x=>x.id===k||x.code===k||x.name===k||(x.materialNumbers||[]).some(n=>String(typeof n==='object'?n.number:n)===k)); return m?.id||k; };
-
-          const fpSheet = sheet('FacilityProducts');
-          if(fpSheet?.length){ ds.facilityProducts = fpSheet.map(r=>({ facilityId:facId(r['FacilityID']||r['FacilityCode']), productId:prodId(r['ProductID']) })).filter(r=>r.facilityId&&r.productId); imported.push(`${ds.facilityProducts.length} facility-products`); }
-
-          const eqSheet = sheet('Equipment');
-          if(eqSheet?.length){ ds.equipment = eqSheet.map(r=>({ id:String(r['ID']||'').trim(), facilityId:facId(r['FacilityCode']||r['FacilityID']), name:String(r['Name']||'').trim(), type:String(r['Type']||'').trim() })).filter(r=>r.id&&r.name); imported.push(`${ds.equipment.length} equipment`); }
-
-          const stSheet = sheet('Storages');
-          if(stSheet?.length){ ds.storages = stSheet.map(r=>({ id:String(r['ID']||'').trim(), facilityId:facId(r['FacilityCode']||r['FacilityID']), name:String(r['Name']||'').trim(), categoryHint:String(r['CategoryHint']||'').trim(), allowedProductIds:String(r['AllowedProducts']||'').split('|').map(x=>x.trim()).filter(Boolean).map(x=>prodId(x)).filter(x=>x&&x.length>0), maxCapacityStn:+r['MaxCapacity(STn)']||0 })).filter(r=>r.id&&r.name); imported.push(`${ds.storages.length} storages`); }
-
-          const capSheet = sheet('Capabilities');
-          if(capSheet?.length){ ds.capabilities = capSheet.map(r=>({ id:`${String(r['EquipmentID']||'').trim()}|${String(r['ProductID']||'').trim()}`, equipmentId:String(r['EquipmentID']||'').trim(), productId:prodId(r['ProductID']), maxRateStpd:+r['MaxRate(STpd)']||0, electricKwhPerStn:+r['Electric(kWh/STn)']||0, thermalMMBTUPerStn:+r['Thermal(MMBTU/STn)']||0 })).filter(r=>r.equipmentId&&r.productId); imported.push(`${ds.capabilities.length} capabilities`); }
-
-          const recSheet = sheet('Recipes');
-          if(recSheet?.length){
-            const recipeMap = new Map();
-            recSheet.forEach(r=>{
-              const id = String(r['RecipeID']||'').trim(); if(!id) return;
-              if(!recipeMap.has(id)) recipeMap.set(id,{ id, facilityId:facId(r['FacilityCode']), productId:prodId(r['ProductID']), version:+r['Version']||1, components:[] });
-              const compId = prodId(r['ComponentMaterial']||r['ComponentMatNum']);
-              if(compId) recipeMap.get(id).components.push({ materialId:compId, pct:+r['Pct%']||0 });
-            });
-            ds.recipes = [...recipeMap.values()];
-            imported.push(`${ds.recipes.length} recipes`);
-          }
-
-          if(imported.length){ state.ui.mode = 'official'; persist(); render(); host.classList.remove('open'); showToast(`Setup imported into Official: ${imported.join(', ')} ✓`, 'ok'); }
-          else showToast('No setup sheets found', 'warn');
-        } catch(err){ showToast('Import failed: '+err.message, 'danger'); console.error(err); }
-      };
-      reader.readAsArrayBuffer(file);
-    };
-    inp.click();
-  };
-
-  // ── TRANSACTIONS DOWNLOAD (Production + Shipments, simple 4-col, from Official) ──
-  el('dioTxnExport').onclick = () => {
-    // Export from active dataset (sandbox if active, otherwise official)
-    const ds = isSandbox && state.sandboxes?.[sbId]?.data ? state.sandboxes[sbId].data : state.official;
-    const eqName = id => ds.equipment.find(e=>e.id===id)?.name || id;
-    const wb = XLSX.utils.book_new();
-    const addSheet = (name, rows) => { if(rows.length>1) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name.slice(0,31)); };
-    addSheet('Production Actuals', [['Date','Facility','Equipment','Material Number','Qty (STn)'],  ...(ds.actuals.production||[]).map(r=>[r.date, facCode(r.facilityId), eqName(r.equipmentId), matNums(r.productId), +r.qtyStn||0])]);
-    addSheet('Shipment Actuals',   [['Date','Facility','Material Number','Qty (STn)'],              ...(ds.actuals.shipments||[]).map(r=>[r.date, facCode(r.facilityId), matNums(r.productId), +r.qtyStn||0])]);
-    XLSX.writeFile(wb, `transactions_${new Date().toISOString().slice(0,10)}.xlsx`);
-    showToast('Transactions exported ✓', 'ok');
-  };
-
-  // ── TRANSACTIONS UPLOAD (→ active Sandbox, date-range merge) ──
-  el('dioTxnImport').onclick = () => {
-    if(state.ui.mode !== 'sandbox'){ state.ui.mode = 'sandbox'; persist(); }
-    const inp = document.createElement('input');
-    inp.type = 'file'; inp.accept = '.xlsx,.xls';
-    inp.onchange = () => {
-      const file = inp.files[0]; if(!file) return;
-      const reader = new FileReader();
-      reader.onload = e => {
-        try {
-          const wb2 = XLSX.read(e.target.result, {type:'array', cellDates:true});
-          const sheet = n => { const ws = wb2.Sheets[n]; return ws ? XLSX.utils.sheet_to_json(ws,{defval:''}) : null; };
-          // If no sandbox exists, create one automatically
-          if(!state.sandboxes) state.sandboxes = {};
-          const _sbId = state.ui.activeSandboxId;
-          if(!_sbId || !state.sandboxes[_sbId]){
-            const newId = 'sb_' + Date.now();
-            state.sandboxes[newId] = { name:'Default Sandbox', createdAt:new Date().toISOString(), data: JSON.parse(JSON.stringify(state.official)) };
-            state.ui.activeSandboxId = newId;
-            state.ui.mode = 'sandbox';
-          }
-          const sb = state.sandboxes[state.ui.activeSandboxId];
-          const ds = sb.data;
-          const parseDate = v => { if(!v) return ''; if(v instanceof Date) return v.toISOString().slice(0,10); const s=String(v).trim(); if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10); const n=+s; if(!isNaN(n)&&n>40000&&n<60000){ const d=new Date(Math.round((n-25569)*86400*1000)); return d.toISOString().slice(0,10); } const p=new Date(s); return isNaN(p)?'':p.toISOString().slice(0,10); };
-          // Uses shared: lookupFac, lookupProd
-          const lookupEq = v => { const k=String(v||'').trim(); return ds.equipment.find(e=>e.name===k||e.id===k||e.id.endsWith('_'+k))?.id||''; };
-          const dateRangeReplace = (newRows, store) => { const dates=newRows.map(r=>r.date).filter(Boolean).sort(); if(!dates.length) return store; const mn=dates[0],mx=dates[dates.length-1]; return [...(store||[]).filter(x=>x.date<mn||x.date>mx), ...newRows]; };
-          const imported = [];
-
-          const prod = sheet('Production Actuals');
-          if(prod?.length){
-            const allRows = prod.map(r=>({
-              date:       parseDate(r['Date']),
-              facilityId: lookupFac(r['Facility']||r['Abrev']||''),
-              equipmentId:lookupEq(r['Equipment']||''),
-              productId:  lookupProd(r['Material Number']||r['MatNum']||String(r['Material']||'')),
-              qtyStn:     +r['Qty (STn)']||+r['Qty(STn)']||+r['Volume']||0,
-              _original: r
-            }));
-            const rows = allRows.filter(r=>r.date&&r.productId&&r.qtyStn!==0);
-            const skipped = allRows.filter(r=>!r.date||!r.productId||r.qtyStn===0);
-            ds.actuals.production = dateRangeReplace(rows, ds.actuals.production);
-            if(skipped.length) console.warn(`Production: skipped ${skipped.length} invalid rows (missing date, product, or qty)`);
-            imported.push(`${rows.length} production rows`);
-          }
-
-          const ship = sheet('Shipment Actuals');
-          if(ship?.length){
-            const allRows = ship.map(r=>({
-              date:       parseDate(r['Date']||r['Delivery Date']),
-              facilityId: lookupFac(r['Facility']||r['Abrev']||''),
-              productId:  lookupProd(r['Material Number']||r['MatNum']||String(r['Material']||'')),
-              qtyStn:     +r['Qty (STn)']||+r['Qty(STn)']||+r['Volume']||0,
-              _original: r
-            }));
-            const rows = allRows.filter(r=>r.date&&r.productId&&r.qtyStn!==0);
-            const skipped = allRows.filter(r=>!r.date||!r.productId||r.qtyStn===0);
-            ds.actuals.shipments = dateRangeReplace(rows, ds.actuals.shipments);
-            if(skipped.length) console.warn(`Shipments: skipped ${skipped.length} invalid rows (missing date, product, or qty)`);
-            imported.push(`${rows.length} shipment rows`);
-          }
-
-          if(imported.length){ persist(); render(); showToast(`Transactions imported into Sandbox: ${imported.join(', ')} ✓`, 'ok'); }
-          else showToast('No transaction sheets found or all rows invalid (check browser console for details)', 'warn');
-        } catch(err){ showToast('Import failed: '+err.message, 'danger'); console.error(err); }
-      };
-      reader.readAsArrayBuffer(file);
-    };
-    inp.click();
-  };
-
-  // Per-sandbox save buttons
-  host.querySelectorAll('[data-save-sb]').forEach(btn => {
-    btn.onclick = () => {
-      const id = btn.dataset.saveSb;
-      const sb = state.sandboxes?.[id];
-      if(!sb) return;
-      const name = sb.name || id;
-      downloadJSON({ _type:'sandbox', _name:name, _savedAt:new Date().toISOString(), org:state.org, catalog:state.catalog, data:sb.data }, `scenario_${slugName(name)}_${dateStr}.json`);
-      showToast(`"${name}" saved ✓`, 'ok');
-    };
-  });
 }

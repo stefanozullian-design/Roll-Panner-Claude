@@ -71,6 +71,7 @@ const TAB_PARENT = {};
 NAV.forEach(s=>s.subs.forEach(t=>TAB_PARENT[t.key]=s.key));
 
 const el = id => document.getElementById(id);
+const q = id => document.getElementById(id);  // shorthand alias for el()
 
 /* ─────────────────── MONTH-COLLAPSE SPINE ─────────────────── */
 // Build full date spine: Jan 2025 → Dec 2027

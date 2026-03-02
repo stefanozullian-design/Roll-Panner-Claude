@@ -459,6 +459,9 @@ export function actions(state) {
       let suffix = 2;
       while(state.catalog.some(x => x.id === id)) { id = `${baseId}_${suffix++}`; }
 
+      // Auto-generate code from name: "MIA IL / BULK" → "MIA_IL_BULK"
+      const autoCode = m.code || nameSlug;
+
       const row = {
         id,
         regionId:                  rId,
@@ -466,6 +469,7 @@ export function actions(state) {
         familyId:                  m.familyId      || null,
         typeId:                    m.typeId        || null,
         subTypeId:                 m.subTypeId     || null,
+        code:                      autoCode,
         name,
         category,
         unit:                      m.unit          || 'STn',

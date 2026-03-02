@@ -444,11 +444,21 @@ export async function loadState() {
     const remote = await firebaseLoad();
     if (remote) {
       const v = remote._version || 0;
-      let state = remote;
-      if (v < 3) state = migrateV2V3(remote);
-      if (v < 4) state = migrateV3ToV4(state);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      return state;
+      let remoteState = remote;
+      if (v < 3) remoteState = migrateV2V3(remote);
+      if (v < 4) remoteState = migrateV3ToV4(remoteState);
+
+      // Preserve local ui state if it exists — each computer navigates independently
+      const localRaw = localStorage.getItem(STORAGE_KEY);
+      if (localRaw) {
+        try {
+          const localState = JSON.parse(localRaw);
+          if (localState.ui) remoteState.ui = localState.ui;
+        } catch(e) {}
+      }
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(remoteState));
+      return remoteState;
     }
 
     // ── Fall back to localStorage ──

@@ -34,22 +34,84 @@ const MY_CLIENT_ID = Math.random().toString(36).slice(2);
 
 let _saveTimer = null;
 let _lastSavedWriteId = null;  // ignore snapshots with this writeId (our own echo)
+let _pendingState = null;  // queued state for retry
+let _retryCount = 0;  // current retry attempt count
+let _lastSaveError = null;  // track last save error for status reporting
 
-// ── SAVE (debounced 1.5s to avoid hammering Firestore) ──
+const MAX_RETRIES = 3;
+const RETRY_DELAYS = [1000, 3000, 5000]; // exponential backoff in ms
+const INITIAL_DEBOUNCE = 1500;
+
+// Callback for notifying UI of persistent save failures
+let _onPersistentFailure = null;
+export function setSaveFailureCallback(callback) {
+  _onPersistentFailure = callback;
+}
+
+// Status check function for UI to display sync state
+export function getSaveStatus() {
+  return {
+    isPending: _saveTimer !== null || _pendingState !== null,
+    retryCount: _retryCount,
+    lastError: _lastSaveError?.message || null,
+    isFailed: _retryCount >= MAX_RETRIES
+  };
+}
+
+// ── SAVE (debounced 1.5s with exponential backoff retry) ──
 // Only syncs DATA — ui state (active tab, facility selection, mode) stays local per-computer
 export function firebaseSave(state) {
+  _pendingState = state;  // Queue this state for save
+
   if (_saveTimer) clearTimeout(_saveTimer);
+
+  // Use shorter delay for retries, longer for initial save
+  const delay = _retryCount > 0 ? RETRY_DELAYS[Math.min(_retryCount - 1, RETRY_DELAYS.length - 1)] : INITIAL_DEBOUNCE;
+
   _saveTimer = setTimeout(async () => {
-    try {
-      // Strip ui from what we save — each computer navigates independently
-      const { ui, ...dataOnly } = state;
-      const writeId = `${MY_CLIENT_ID}_${Date.now()}`;
-      _lastSavedWriteId = writeId;
-      await setDoc(STATE_DOC, { payload: JSON.stringify(dataOnly), writeId });
-    } catch (err) {
-      console.warn('[Firebase] save failed:', err);
+    _saveTimer = null;
+    await _performSave(_pendingState);
+  }, delay);
+}
+
+async function _performSave(state) {
+  try {
+    // Strip ui from what we save — each computer navigates independently
+    const { ui, ...dataOnly } = state;
+    const writeId = `${MY_CLIENT_ID}_${Date.now()}`;
+    _lastSavedWriteId = writeId;
+    await setDoc(STATE_DOC, { payload: JSON.stringify(dataOnly), writeId });
+
+    // Success — reset retry counter
+    _retryCount = 0;
+    _lastSaveError = null;
+    _pendingState = null;
+    console.log('[Firebase] save succeeded');
+  } catch (err) {
+    _lastSaveError = err;
+
+    // Check if we should retry
+    if (_retryCount < MAX_RETRIES) {
+      _retryCount++;
+      const nextDelay = RETRY_DELAYS[_retryCount - 1];
+      console.warn(`[Firebase] save failed, retrying in ${nextDelay}ms (attempt ${_retryCount}/${MAX_RETRIES}):`, err.message);
+
+      // Schedule retry
+      _saveTimer = setTimeout(async () => {
+        _saveTimer = null;
+        await _performSave(_pendingState);
+      }, nextDelay);
+    } else {
+      // All retries exhausted
+      console.error('[Firebase] save failed after', MAX_RETRIES, 'retries:', err.message);
+      _pendingState = null;
+
+      // Notify UI of persistent failure
+      if (_onPersistentFailure) {
+        _onPersistentFailure(err);
+      }
     }
-  }, 1500);
+  }
 }
 
 // ── LOAD (one-time read on startup) ──

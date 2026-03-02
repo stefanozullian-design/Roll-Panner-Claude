@@ -3,6 +3,9 @@
 .env.local
 .env.*.local
 
+# Firebase configuration (contains API keys - NEVER commit!)
+config.js
+
 # IDE
 .vscode/
 .idea/

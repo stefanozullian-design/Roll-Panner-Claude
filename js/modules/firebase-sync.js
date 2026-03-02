@@ -7,14 +7,23 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js';
 import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js';
 
-const firebaseConfig = {
-  apiKey:            "AIzaSyCxs2XHfS3Xj4IJdWWlhKgQ2OsENGVk2Zw",
-  authDomain:        "inventory-roll.firebaseapp.com",
-  projectId:         "inventory-roll",
-  storageBucket:     "inventory-roll.firebasestorage.app",
-  messagingSenderId: "935575596192",
-  appId:             "1:935575596192:web:a56fb920aab7865ad3edc5"
-};
+// Read Firebase config from window.FIREBASE_CONFIG (loaded from config.js)
+// For security: credentials should never be hardcoded in source
+let firebaseConfig = window.FIREBASE_CONFIG;
+
+if (!firebaseConfig) {
+  console.error('[Firebase] FIREBASE_CONFIG not found. Please create a config.js file with your Firebase credentials.');
+  console.error('[Firebase] See config.example.js for the required format.');
+  // Provide minimal fallback to prevent complete failure (though this won't work without valid credentials)
+  firebaseConfig = {
+    apiKey: '',
+    authDomain: '',
+    projectId: '',
+    storageBucket: '',
+    messagingSenderId: '',
+    appId: ''
+  };
+}
 
 const app = initializeApp(firebaseConfig);
 const db  = getFirestore(app);

@@ -482,6 +482,20 @@
 <div class="modal-backdrop" id="dailyActualsDialog"></div>
 <div class="modal-backdrop" id="forecastToolDialog"></div>
 
+<!-- Load Firebase config if available (local development only) -->
+<script>
+  // Attempt to load local config.js file
+  // If not found, firebase-sync.js will use fallback (empty config or error handling)
+  if (!window.FIREBASE_CONFIG) {
+    const script = document.createElement('script');
+    script.src = './config.js';
+    script.onerror = () => {
+      console.warn('[Config] config.js not found. Using environment variables or defaults.');
+    };
+    document.head.appendChild(script);
+  }
+</script>
+
 <script type="module" src="./js/core-app.js"></script>
 </body>
 </html>

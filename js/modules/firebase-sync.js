@@ -31,11 +31,17 @@ const MY_CLIENT_ID = Math.random().toString(36).slice(2);
 
 let _saveTimer = null;
 let _lastSavedWriteId = null;  // ignore snapshots with this writeId (our own echo)
+let _lastState = null;         // track last attempted state
+let _retryCount = 0;           // count failed attempts
+const MAX_RETRIES = 3;
+const RETRY_DELAYS = [1000, 3000, 5000]; // exponential backoff in milliseconds
 
 // ── SAVE (debounced 1.5s to avoid hammering Firestore) ──
 // Only syncs DATA — ui state (active tab, facility selection, mode) stays local per-computer
+// Includes exponential backoff retry logic for network failures
 export function firebaseSave(state) {
   if (_saveTimer) clearTimeout(_saveTimer);
+  _lastState = state; // track for retries
   _saveTimer = setTimeout(async () => {
     try {
       // Strip ui from what we save — each computer navigates independently
@@ -43,8 +49,18 @@ export function firebaseSave(state) {
       const writeId = `${MY_CLIENT_ID}_${Date.now()}`;
       _lastSavedWriteId = writeId;
       await setDoc(STATE_DOC, { payload: JSON.stringify(dataOnly), writeId });
+      _retryCount = 0; // reset on successful save
     } catch (err) {
-      console.warn('[Firebase] save failed:', err);
+      if (_retryCount < MAX_RETRIES) {
+        _retryCount++;
+        const delay = RETRY_DELAYS[_retryCount - 1];
+        console.warn(`[Firebase] save failed, retrying in ${delay}ms (attempt ${_retryCount}/${MAX_RETRIES}):`, err.message);
+        // Schedule retry with exponential backoff
+        setTimeout(() => firebaseSave(_lastState), delay);
+      } else {
+        console.error('[Firebase] save failed after', MAX_RETRIES, 'retries:', err.message);
+        // Optionally trigger user notification here if callback provided
+      }
     }
   }, 1500);
 }

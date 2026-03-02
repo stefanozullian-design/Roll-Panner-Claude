@@ -1644,7 +1644,7 @@ function renderFlow(){
   </div>`;
 
   // Wire flow forms
-  const rer = ()=>{ persist(); renderFlow(); renderPlan(); renderDemand(); renderData(); };
+  const rer = ()=>{ persist(); renderFlow(); renderPlan(); renderDemand(); };
   const clearEq=()=>{ root.querySelector('#eqForm').reset(); root.querySelector('#eqForm [name=id]').value=''; root.querySelector('#saveEqBtn').textContent='Save'; root.querySelector('#cancelEqEdit').classList.add('hidden'); };
   const clearSt=()=>{ root.querySelector('#stForm').reset(); root.querySelector('#stForm [name=id]').value=''; root.querySelector('#saveStBtn').textContent='Save'; root.querySelector('#cancelStEdit').classList.add('hidden'); };
   const clearCap=()=>{ root.querySelector('#capForm').reset(); root.querySelector('[name=editingCapId]').value=''; root.querySelector('#saveCapBtn').textContent='Save Capability'; root.querySelector('#cancelCapEdit').classList.add('hidden'); };
@@ -2561,178 +2561,6 @@ function openDailyActualsDialog(preselectedFacId){
   buildForm();
 }
 
-/* ─────────────────── DATA TAB ─────────────────── */
-function renderData(){
-  const root = el('tab-data');
-  const s = selectors(state);
-  const ds = s.dataset;
-  const tables = {
-    Material: ds.materials,
-    RecipeHeader: ds.recipes.map(r=>({id:r.id,facilityId:r.facilityId,productId:r.productId,version:r.version,components:r.components.length})),
-    RecipeComponent: ds.recipes.flatMap(r=>r.components.map(c=>({recipeId:r.id,productId:r.productId,materialId:c.materialId,pct:c.pct}))),
-    Equipment: ds.equipment,
-    Storage: ds.storages,
-    Capabilities: ds.capabilities,
-    InventoryBOD: ds.actuals.inventoryBOD,
-    ProductionActuals: ds.actuals.production,
-    Shipments: ds.actuals.shipments,
-    DemandForecast: ds.demandForecast,
-    Campaigns: ds.campaigns,
-  };
-
-  root.innerHTML = `
-  <div class="card">
-    <div class="card-header">
-      <div><div class="card-title">Data Inspector</div><div class="card-sub text-muted">Debug view · Current scenario: ${state.ui.mode.toUpperCase()}</div></div>
-      <div class="flex gap-2">
-        <button id="exportFullJson" class="btn btn-primary" title="Download complete backup — all facilities, all scenarios, all data">↓ Full Backup</button>
-        <button id="exportFullExcel" class="btn btn-primary" title="Download every table as an Excel sheet — no filters, all data">↓ Full DB Excel</button>
-        <button id="exportJson" class="btn">↓ Scenario JSON</button>
-        <button id="importJson" class="btn">↑ Import JSON</button>
-        <input id="jsonFile" type="file" accept="application/json" class="hidden">
-      </div>
-    </div>
-    <div class="card-body">
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px">
-        ${Object.entries(tables).map(([name,rows])=>`
-        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <div style="padding:8px 12px;background:var(--surface2);font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:space-between">
-            <span>${name}</span><span class="pill pill-gray">${rows.length}</span>
-          </div>
-          <pre style="font-size:10px;padding:10px;overflow:auto;max-height:200px;color:var(--muted);line-height:1.5;margin:0">${esc(JSON.stringify(rows.slice(0,20),null,2))}</pre>
-        </div>`).join('')}
-      </div>
-    </div>
-  </div>`;
-
-  root.querySelector('#exportFullExcel').onclick = () => {
-    // Complete database dump — every table, no facility filter, human-readable columns
-    const ds  = state.official; // always export from official — the source of truth
-    const org = state.org;
-    const cat = state.catalog || [];
-    const facs  = org.facilities || [];
-    const facName  = id => facs.find(f=>f.id===id)?.name || id;
-    const facCode  = id => facs.find(f=>f.id===id)?.code || id;
-    const matName  = id => cat.find(m=>m.id===id)?.name || id;
-    const matNum   = id => { const m=cat.find(x=>x.id===id); return (m?.materialNumbers||[]).map(x=>typeof x==='object'?x.number:x).filter(Boolean).join(', ') || m?.materialNumber || ''; };
-    const eqName   = id => ds.equipment.find(e=>e.id===id)?.name || id;
-    const stName   = id => ds.storages.find(s=>s.id===id)?.name || id;
-
-    const wb = XLSX.utils.book_new();
-    const addSheet = (name, rows) => {
-      if(!rows.length) return;
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name.slice(0,31));
-    };
-
-    // ── ORG ──
-    addSheet('Facilities', [
-      ['ID','Code','Name','Type','SubRegion'],
-      ...facs.map(f=>[f.id, f.code||'', f.name, f.facilityType||'terminal', f.subRegionId||''])
-    ]);
-    addSheet('Org-Regions', [
-      ['ID','Name','CountryId'],
-      ...(org.regions||[]).map(r=>[r.id,r.name,r.countryId||''])
-    ]);
-
-    // ── CATALOG ──
-    addSheet('Products-Catalog', [
-      ['ID','Code','Name','Category','FamilyId','TypeId','MaterialNumber','LandedCost'],
-      ...cat.map(m=>[m.id, m.code||'', m.name, m.category, m.familyId||'', m.typeId||'',
-        matNum(m.id), m.landedCostUsdPerStn||0])
-    ]);
-    addSheet('FacilityProducts', [
-      ['FacilityID','FacilityName','ProductID','ProductName'],
-      ...(ds.facilityProducts||[]).map(r=>[r.facilityId, facName(r.facilityId), r.productId, matName(r.productId)])
-    ]);
-
-    // ── SETUP ──
-    addSheet('Equipment', [
-      ['ID','FacilityCode','FacilityName','Name','Type'],
-      ...ds.equipment.map(e=>[e.id, facCode(e.facilityId), facName(e.facilityId), e.name, e.type])
-    ]);
-    addSheet('Storages', [
-      ['ID','FacilityCode','FacilityName','Name','CategoryHint','AllowedProducts','MaxCapacity(STn)'],
-      ...ds.storages.map(st=>[st.id, facCode(st.facilityId), facName(st.facilityId), st.name,
-        st.categoryHint||'', (st.allowedProductIds||[]).map(matName).join(' | '), st.maxCapacityStn||0])
-    ]);
-    addSheet('Capabilities', [
-      ['EquipmentID','EquipmentName','FacilityCode','ProductID','ProductName','MaxRate(STpd)','Electric(kWh/STn)','Thermal(MMBTU/STn)'],
-      ...ds.capabilities.map(c=>{
-        const eq = ds.equipment.find(e=>e.id===c.equipmentId);
-        return [c.equipmentId, eqName(c.equipmentId), facCode(eq?.facilityId||''),
-          c.productId, matName(c.productId), c.maxRateStpd||0, c.electricKwhPerStn||0, c.thermalMMBTUPerStn||0];
-      })
-    ]);
-    addSheet('Recipes', [
-      ['RecipeID','FacilityCode','ProductID','ProductName','Version','ComponentMaterial','ComponentMatNum','Pct%'],
-      ...ds.recipes.flatMap(r=>
-        (r.components||[]).map(c=>[r.id, facCode(r.facilityId), r.productId, matName(r.productId),
-          r.version||1, matName(c.materialId), matNum(c.materialId), c.pct||0])
-      )
-    ]);
-
-    // ── PLANNING ──
-    addSheet('Campaigns', [
-      ['Date','FacilityCode','FacilityName','EquipmentID','EquipmentName','ProductID','ProductName','Status','Rate(STpd)'],
-      ...ds.campaigns.map(r=>[r.date, facCode(r.facilityId), facName(r.facilityId),
-        r.equipmentId, eqName(r.equipmentId), r.productId, matName(r.productId),
-        r.status||'produce', r.rateStn||0])
-    ]);
-    addSheet('DemandForecast', [
-      ['Date','FacilityCode','FacilityName','ProductID','ProductName','MatNum','Qty(STn)','Source'],
-      ...ds.demandForecast.map(r=>[r.date, facCode(r.facilityId), facName(r.facilityId),
-        r.productId, matName(r.productId), matNum(r.productId), r.qtyStn||0, r.source||''])
-    ]);
-
-    // ── ACTUALS ──
-    addSheet('Actuals-Inventory', [
-      ['Date','FacilityCode','FacilityName','StorageID','StorageName','ProductID','ProductName','MatNum','Qty(STn)'],
-      ...(ds.actuals.inventoryBOD||[]).map(r=>[r.date, facCode(r.facilityId), facName(r.facilityId),
-        r.storageId, stName(r.storageId), r.productId, matName(r.productId), matNum(r.productId), r.qtyStn||0])
-    ]);
-    addSheet('Actuals-Production', [
-      ['Date','FacilityCode','FacilityName','EquipmentID','EquipmentName','ProductID','ProductName','MatNum','Qty(STn)'],
-      ...(ds.actuals.production||[]).map(r=>[r.date, facCode(r.facilityId), facName(r.facilityId),
-        r.equipmentId, eqName(r.equipmentId), r.productId, matName(r.productId), matNum(r.productId), r.qtyStn||0])
-    ]);
-    addSheet('Actuals-Shipments', [
-      ['Date','FacilityCode','FacilityName','ProductID','ProductName','MatNum','Qty(STn)'],
-      ...(ds.actuals.shipments||[]).map(r=>[r.date, facCode(r.facilityId), facName(r.facilityId),
-        r.productId, matName(r.productId), matNum(r.productId), r.qtyStn||0])
-    ]);
-    addSheet('Actuals-Transfers', [
-      ['Date','FromFacilityCode','FromFacilityName','ToFacilityCode','ToFacilityName','ProductID','ProductName','MatNum','Qty(STn)'],
-      ...(ds.actuals.transfers||[]).map(r=>[r.date,
-        facCode(r.fromFacilityId), facName(r.fromFacilityId),
-        facCode(r.toFacilityId),   facName(r.toFacilityId),
-        r.productId, matName(r.productId), matNum(r.productId), r.qtyStn||0])
-    ]);
-
-    const ts = new Date().toISOString().slice(0,10);
-    XLSX.writeFile(wb, `cement_planner_FULL_DB_${ts}.xlsx`);
-    showToast('Full DB exported ✓', 'ok');
-  };
-
-  root.querySelector('#exportFullJson').onclick = () => {
-    // Full state backup — everything: org, catalog, families, all scenarios, all data
-    const data = JSON.stringify(state, null, 2);
-    const blob = new Blob([data],{type:'application/json'});
-    const ts = new Date().toISOString().slice(0,10);
-    const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`cement_planner_FULL_BACKUP_${ts}.json`; a.click(); URL.revokeObjectURL(a.href);
-    showToast('Full backup downloaded ✓', 'ok');
-  };
-  root.querySelector('#exportJson').onclick = () => {
-    const data = JSON.stringify(state[state.ui.mode], null, 2);
-    const blob = new Blob([data],{type:'application/json'});
-    const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`cement_planner_${state.ui.mode}.json`; a.click(); URL.revokeObjectURL(a.href);
-  };
-  root.querySelector('#importJson').onclick = () => root.querySelector('#jsonFile').click();
-  root.querySelector('#jsonFile').onchange = async e => {
-    const file=e.target.files[0]; if(!file) return;
-    try { state[state.ui.mode]=JSON.parse(await file.text()); persist(); render(); showToast('Scenario imported ✓'); }
-    catch(err){ alert('Invalid JSON'); }
-  };
-}
 
 
 /* ─────────────────── SETTINGS DIALOG (Org Hierarchy) ─────────────────── */
@@ -3298,7 +3126,19 @@ function openDataIODialog(){
   const isSandbox = state.ui.mode === 'sandbox';
   const sbId = state.ui.activeSandboxId;
   const sbName = state.sandboxes?.[sbId]?.name || 'Sandbox';
-  const dateStr = new Date().toISOString().slice(0,10);
+  const dateStr = new Date().toISOString().slice(0,10)
+
+  // ── Shared import/export utilities (used by both Setup and Transactions) ──
+  const _facs = state.org.facilities || [];
+  const _cat  = state.catalog || [];
+  const nullStr    = v => { const s=String(v||'').trim(); return /^(None|null|NULL)$/i.test(s)?'':s; };
+  const parseDate  = v => { if(!v) return ''; if(v instanceof Date) return v.toISOString().slice(0,10); const s=String(v).trim(); if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10); const n=+s; if(!isNaN(n)&&n>40000&&n<60000){ const d=new Date(Math.round((n-25569)*86400*1000)); return d.toISOString().slice(0,10); } const p=new Date(s); return isNaN(p)?'':p.toISOString().slice(0,10); };
+  const lookupFac  = v => { const k=String(v||'').trim(); return _facs.find(f=>f.code===k||f.id===k||f.name===k)?.id||''; };
+  const lookupProd = v => { const k=String(v||'').trim(); if(!k||k==='0') return ''; return _cat.find(m=>(m.materialNumbers||[]).some(x=>String(typeof x==='object'?x.number:x)===k)||m.id===k||m.code===k||m.name===k)?.id||''; };
+  const facCode    = id => _facs.find(f=>f.id===id)?.code || id;
+  const facName    = id => _facs.find(f=>f.id===id)?.name || id;
+  const matName    = id => { const m=_cat.find(x=>x.id===id); return m?.name||id; };
+  const matNums    = id => { const m=_cat.find(x=>x.id===id); return (m?.materialNumbers||[]).map(x=>typeof x==='object'?x.number:x).filter(Boolean).join(', ')||''; };;
 
   // ── HELPERS ──
   const downloadBlob = (blob, filename) => {
@@ -3447,401 +3287,11 @@ function openDataIODialog(){
 
   // ── EXCEL IMPORT ──
   // Strategy:
-  //   Setup tables (Facilities, Products, Equipment, Storages, Capabilities, Recipes,
-  //                 FacilityProducts, Org-Regions):
-  //     → Full replace: what's in the sheet IS the truth. Records not in the sheet are deleted.
-  //     → Always export first, edit, re-import. Never build from scratch.
-  //
-  //   Transactional tables (Actuals, Campaigns, Demand Forecast):
-  //     → Date-range aware: detect min/max date in the sheet, replace only that window,
-  //       leave everything outside it untouched.
-  //     → Uploading only Feb 27-28 only touches those two days.
-  //     → Uploading all of Jan 2026 replaces all of Jan 2026.
-  const importExcel = () => {
-    const inp = document.createElement('input');
-    inp.type = 'file'; inp.accept = '.xlsx,.xls,.csv';
-    inp.onchange = () => {
-      const file = inp.files[0]; if(!file) return;
-      const reader = new FileReader();
-      reader.onload = e => {
-        try {
-          const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
-          const ds = selectors(state).dataset;
-          const fallbackFac = state.ui.selectedFacilityId;
-          const imported = [];
-          const skipped  = [];
-
-          const readSheet = name => {
-            const ws = wb.Sheets[name];
-            if(!ws) return null;
-            return XLSX.utils.sheet_to_json(ws, {defval:''});
-          };
-
-          // ── Lookup helpers ──
-          const lookupFacility = val => {
-            const v = String(val||'').trim();
-            return state.org.facilities.find(f => f.code===v || f.id===v || f.name===v)?.id || null;
-          };
-          const lookupProduct = matNum => {
-            const parts = String(matNum||'').split(',').map(s=>s.trim()).filter(Boolean);
-            if(!parts.length) return null;
-            return state.catalog.find(m => {
-              const nums = (m.materialNumbers||[])
-                .map(x => typeof x==='object' ? String(x.number||x).trim() : String(x).trim());
-              if(m.materialNumber) String(m.materialNumber).split(',').map(s=>s.trim()).forEach(n=>nums.push(n));
-              return parts.some(p => nums.includes(p));
-            })?.id || state.catalog.find(m=>m.name===parts[0]||m.id===parts[0]||m.code===parts[0])?.id || null;
-          };
-          const lookupEquipment = val => {
-            const v = String(val||'').trim();
-            return ds.equipment.find(e => e.name===v || e.id===v || e.id.endsWith('_'+v))?.id || null;
-          };
-          const parseDate = v => {
-            if(!v) return '';
-            if(v instanceof Date) return v.toISOString().slice(0,10);
-            const s = String(v).trim();
-            if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-            const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-            if(mdy) return `${mdy[3]}-${mdy[1].padStart(2,'0')}-${mdy[2].padStart(2,'0')}`;
-            return s.slice(0,10);
-          };
-
-          // Date-range replace: remove existing records in [minDate, maxDate] window, insert new
-          const dateRangeReplace = (newRows, store, keyFn) => {
-            const dates = newRows.map(r=>r.date).filter(Boolean).sort();
-            if(!dates.length) return store;
-            const minD = dates[0], maxD = dates[dates.length-1];
-            const existingKeys = new Set(newRows.map(keyFn));
-            // Keep records outside the date window OR inside window but with a key not being replaced
-            const kept = store.filter(x => x.date < minD || x.date > maxD);
-            return [...kept, ...newRows];
-          };
-
-          // ══════════════════════════════════════════════════════════════
-          // SETUP TABLES — full replace (what's in the sheet = the truth)
-          // ══════════════════════════════════════════════════════════════
-
-          // Facilities
-          const facSheet = readSheet('Facilities');
-          if(facSheet?.length){
-            const rows = facSheet.map(r=>({
-              id:           String(r['ID']||'').trim(),
-              code:         String(r['Code']||'').trim(),
-              name:         String(r['Name']||'').trim(),
-              facilityType: String(r['Type']||'terminal').trim(),
-              subRegionId:  String(r['SubRegion']||'').trim(),
-            })).filter(r=>r.id && r.name);
-            state.org.facilities = rows;
-            imported.push(`${rows.length} facilities`);
-          }
-
-          // Org Regions
-          const regSheet = readSheet('Org-Regions');
-          if(regSheet?.length){
-            const rows = regSheet.map(r=>({
-              id:        String(r['ID']||'').trim(),
-              name:      String(r['Name']||'').trim(),
-              countryId: String(r['CountryId']||'').trim(),
-            })).filter(r=>r.id && r.name);
-            state.org.regions = rows;
-            imported.push(`${rows.length} regions`);
-          }
-
-          // Products Catalog — full replace
-          const catSheet = readSheet('Products-Catalog');
-          if(catSheet?.length){
-            const rows = catSheet.map(r=>({
-              id:                  String(r['ID']||'').trim(),
-              code:                String(r['Code']||'').trim(),
-              name:                String(r['Name']||'').trim(),
-              category:            String(r['Category']||'').trim(),
-              familyId:            String(r['FamilyId']||'').trim()||null,
-              typeId:              String(r['TypeId']||'').trim()||null,
-              materialNumber:      String(r['MaterialNumber']||'').trim(),
-              landedCostUsdPerStn: +r['LandedCost']||0,
-            })).filter(r=>r.id && r.name);
-            state.catalog = rows;
-            imported.push(`${rows.length} products`);
-          }
-
-          // FacilityProducts — full replace
-          const fpSheet = readSheet('FacilityProducts');
-          if(fpSheet?.length){
-            const rows = fpSheet.map(r=>({
-              facilityId: lookupFacility(r['FacilityID']||r['FacilityCode']) || String(r['FacilityID']||'').trim(),
-              productId:  String(r['ProductID']||'').trim() || lookupProduct(r['ProductName']||''),
-            })).filter(r=>r.facilityId && r.productId);
-            ds.facilityProducts = rows;
-            imported.push(`${rows.length} facility-products`);
-          }
-
-          // Equipment — full replace
-          const eqSheet = readSheet('Equipment');
-          if(eqSheet?.length){
-            const rows = eqSheet.map(r=>({
-              id:         String(r['ID']||'').trim(),
-              name:       String(r['Name']||'').trim(),
-              type:       String(r['Type']||'').trim(),
-              facilityId: lookupFacility(r['FacilityCode']||r['FacilityName']||r['Facility']) || String(r['ID']||'').split('_')[0],
-            })).filter(r=>r.id && r.name && r.facilityId);
-            ds.equipment = rows;
-            imported.push(`${rows.length} equipment`);
-          }
-
-          // Storages — full replace
-          const stSheet = readSheet('Storages');
-          if(stSheet?.length){
-            const rows = stSheet.map(r=>({
-              id:               String(r['ID']||'').trim(),
-              name:             String(r['Name']||'').trim(),
-              facilityId:       lookupFacility(r['FacilityCode']||r['FacilityName']) || String(r['ID']||'').split('_')[0],
-              categoryHint:     String(r['CategoryHint']||'').trim(),
-              maxCapacityStn:   +r['MaxCapacity(STn)']||null,
-              allowedProductIds: String(r['AllowedProducts']||'').split('|')
-                .map(n=>n.trim())
-                .map(n=>state.catalog.find(m=>m.name===n||m.id===n)?.id||n)
-                .filter(Boolean),
-            })).filter(r=>r.id && r.name && r.facilityId);
-            ds.storages = rows;
-            imported.push(`${rows.length} storages`);
-          }
-
-          // Capabilities — full replace
-          const capSheet = readSheet('Capabilities');
-          if(capSheet?.length){
-            const rows = capSheet.map(r=>({
-              equipmentId:         lookupEquipment(r['EquipmentID']||r['EquipmentName']) || String(r['EquipmentID']||'').trim(),
-              productId:           lookupProduct(r['ProductID']||r['MaterialNumber']||'') || String(r['ProductID']||'').trim(),
-              maxRateStpd:         +r['MaxRate(STpd)']||0,
-              electricKwhPerStn:   +r['Electric(kWh/STn)']||0,
-              thermalMMBTUPerStn:  +r['Thermal(MMBTU/STn)']||0,
-            })).filter(r=>r.equipmentId && r.productId);
-            ds.capabilities = rows;
-            imported.push(`${rows.length} capabilities`);
-          }
-
-          // Recipes — full replace (grouped by recipeId)
-          const recSheet = readSheet('Recipes');
-          if(recSheet?.length){
-            const recipeMap = new Map();
-            recSheet.forEach(r=>{
-              const rid = String(r['RecipeID']||'').trim();
-              const pid = lookupProduct(r['ProductID']||r['ComponentMatNum']||'') || String(r['ProductID']||'').trim();
-              const fid = lookupFacility(r['FacilityCode']) || '';
-              const matId = lookupProduct(r['ComponentMatNum']||r['ComponentMaterial']||'') || String(r['ComponentMaterial']||'').trim();
-              const pct = +r['Pct%']||0;
-              if(!rid || !pid || !matId) return;
-              if(!recipeMap.has(rid)) recipeMap.set(rid, { id:rid, facilityId:fid, productId:pid, version:1, components:[] });
-              recipeMap.get(rid).components.push({ materialId: matId, pct });
-            });
-            ds.recipes = [...recipeMap.values()];
-            imported.push(`${ds.recipes.length} recipes`);
-          }
-
-          // ══════════════════════════════════════════════════════════════
-          // TRANSACTIONAL TABLES — date-range replace
-          // ══════════════════════════════════════════════════════════════
-
-          // Campaigns
-          const camps = readSheet('Campaigns');
-          if(camps?.length){
-            const rows = camps.map(r=>({
-              date:        parseDate(r['Date']),
-              facilityId:  lookupFacility(r['Facility']||r['FacilityCode']||r['FacilityName']) || fallbackFac,
-              equipmentId: lookupEquipment(r['Equipment']||r['EquipmentID']||r['EquipmentName']) || '',
-              status:      String(r['Status']||'produce').trim(),
-              productId:   lookupProduct(r['Product']||r['ProductID']||r['MatNum']||'') ||
-                           state.catalog.find(m=>m.name===r['Product']||m.id===r['Product'])?.id || '',
-              rateStn:     +r['Rate (STn/d)']||+r['Rate(STpd)']||0,
-            })).filter(r=>r.date && r.equipmentId);
-            ds.campaigns = dateRangeReplace(rows, ds.campaigns, r=>`${r.date}|${r.equipmentId}`);
-            imported.push(`${rows.length} campaigns`);
-          }
-
-          // Demand Forecast
-          const demand = readSheet('DemandForecast') || readSheet('Demand Forecast');
-          if(demand?.length){
-            const rows = demand.map(r=>({
-              date:       parseDate(r['Date']),
-              facilityId: lookupFacility(r['Facility']||r['FacilityCode']||r['FacilityName']) || fallbackFac,
-              productId:  lookupProduct(r['MatNum']||r['Material Number']||r['Mat. Number']||''),
-              qtyStn:     +r['Qty(STn)']||+r['Qty (STn)']||0,
-              source:     'forecast',
-            })).filter(r=>r.date && r.productId && r.qtyStn!==0);
-            ds.demandForecast = dateRangeReplace(rows, ds.demandForecast, r=>`${r.date}|${r.facilityId}|${r.productId}`);
-            imported.push(`${rows.length} demand rows`);
-          }
-
-          // Production Actuals
-          const prod = readSheet('Actuals-Production') || readSheet('Production Actuals');
-          if(prod?.length){
-            const rows = prod.map(r=>{
-              const eqId = lookupEquipment(r['EquipmentID']||r['EquipmentName']||r['Equipment']) || '';
-              const eq   = ds.equipment.find(e=>e.id===eqId);
-              return {
-                date:        parseDate(r['Date']),
-                equipmentId: eqId,
-                facilityId:  eq?.facilityId || lookupFacility(r['FacilityCode']||r['FacilityName']) || fallbackFac,
-                productId:   lookupProduct(r['MatNum']||r['Material Number']||r['Mat. Number']||''),
-                qtyStn:      +r['Qty(STn)']||+r['Qty (STn)']||0,
-              };
-            }).filter(r=>r.date && r.equipmentId && r.productId && r.qtyStn!==0);
-            ds.actuals.production = dateRangeReplace(rows, ds.actuals.production, r=>`${r.date}|${r.equipmentId}|${r.productId}`);
-            imported.push(`${rows.length} production rows`);
-          }
-
-          // Shipment Actuals
-          const ship = readSheet('Actuals-Shipments') || readSheet('Shipment Actuals');
-          if(ship?.length){
-            const rows = ship.map(r=>({
-              date:       parseDate(r['Date']||r['Delivery Date']),
-              facilityId: lookupFacility(r['FacilityCode']||r['FacilityName']||r['Facility']||r['Abrev']) || fallbackFac,
-              productId:  lookupProduct(r['MatNum']||r['Material Number']||r['Mat. Number']||r['Material']||''),
-              qtyStn:     +r['Qty(STn)']||+r['Qty (STn)']||+r['Volume']||0,
-            })).filter(r=>r.date && r.productId && r.qtyStn!==0);
-            ds.actuals.shipments = dateRangeReplace(rows, ds.actuals.shipments, r=>`${r.date}|${r.facilityId}|${r.productId}`);
-            imported.push(`${rows.length} shipment rows`);
-          }
-
-          // Inventory Actuals
-          const inv = readSheet('Actuals-Inventory') || readSheet('Inventory EOD');
-          if(inv?.length){
-            const rows = inv.map(r=>{
-              const facilityId = lookupFacility(r['FacilityCode']||r['FacilityName']||r['Facility']) || fallbackFac;
-              const productId  = lookupProduct(r['MatNum']||r['Material Number']||r['Mat. Number']||'');
-              let storageId    = ds.storages.find(st=>st.name===r['StorageName']||st.id===r['StorageID'])?.id || '';
-              if(!storageId && productId && facilityId)
-                storageId = ds.storages.find(st=>st.facilityId===facilityId && (st.allowedProductIds||[]).includes(productId))?.id || '';
-              return { date: parseDate(r['Date']), facilityId, productId, storageId, qtyStn: +r['Qty(STn)']||+r['Qty (STn)']||0 };
-            }).filter(r=>r.date && r.productId && r.storageId && r.qtyStn!==0);
-            ds.actuals.inventoryBOD = dateRangeReplace(rows, ds.actuals.inventoryBOD, r=>`${r.date}|${r.storageId}`);
-            imported.push(`${rows.length} inventory rows`);
-          }
-
-          // Transfers Actuals
-          const xfer = readSheet('Actuals-Transfers');
-          if(xfer?.length){
-            const rows = xfer.map(r=>({
-              date:           parseDate(r['Date']),
-              fromFacilityId: lookupFacility(r['FromFacilityCode']||r['FromFacilityName']) || '',
-              toFacilityId:   lookupFacility(r['ToFacilityCode']||r['ToFacilityName']) || '',
-              productId:      lookupProduct(r['MatNum']||r['ProductID']||''),
-              qtyStn:         +r['Qty(STn)']||0,
-            })).filter(r=>r.date && r.fromFacilityId && r.toFacilityId && r.productId && r.qtyStn!==0);
-            ds.actuals.transfers = dateRangeReplace(rows, ds.actuals.transfers||[], r=>`${r.date}|${r.fromFacilityId}|${r.toFacilityId}|${r.productId}`);
-            imported.push(`${rows.length} transfers`);
-          }
-
-          if(imported.length){
-            persist(); render();
-            showToast(`Imported: ${imported.join(', ')} ✓`, 'ok');
-          } else {
-            showToast('No recognized sheets found in file', 'warn');
-          }
-        } catch(err) {
-          showToast('Import failed: ' + err.message, 'danger');
-          console.error('Excel import error:', err);
-        }
-      };
-      reader.readAsArrayBuffer(file);
-    };
-    inp.click();
-  };
-
-  // ── RENDER DIALOG ──
-  const s = selectors(state);
-  const sandboxList = Object.entries(state.sandboxes||{}).map(([id,sb])=>`
-    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:11px">
-      <span style="flex:1;${id===sbId?'font-weight:700;color:var(--accent)':''}">${esc(sb.name||id)}</span>
-      <span style="color:var(--muted)">${sb.createdAt?new Date(sb.createdAt).toLocaleDateString():''}</span>
-      <button class="btn" style="font-size:10px;padding:2px 8px" data-save-sb="${id}">💾 Save</button>
-    </div>`).join('');
-
-  host.innerHTML = `<div class="modal" style="max-width:760px">
-    <div class="modal-header">
-      <div><div class="modal-title">💾 Data — Save / Load / Export</div>
-      <div style="font-size:11px;color:var(--muted)">Manage your data: backup via JSON, or transfer setup and transactions via Excel.</div></div>
-      <button class="btn" id="dioClose">✕ Close</button>
-    </div>
-    <div class="modal-body" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
-
-      <!-- COL 1: JSON Backup -->
-      <div>
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:12px">JSON Backup</div>
-
-        <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px">
-          <div style="font-size:11px;font-weight:600;margin-bottom:8px;color:var(--ok)">🏛 Official</div>
-          <div style="display:flex;flex-direction:column;gap:6px">
-            <button class="btn btn-primary" id="dioSaveOfficial" style="font-size:11px">💾 Save Official</button>
-            <button class="btn" id="dioLoadOfficial" style="font-size:11px">📂 Load into Official</button>
-          </div>
-          <div style="font-size:10px;color:var(--muted);margin-top:6px">Downloads full Official JSON. Loading overwrites Official.</div>
-        </div>
-
-        <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:12px">
-          <div style="font-size:11px;font-weight:600;margin-bottom:8px;color:var(--accent)">📂 Scenarios</div>
-          <div style="margin-bottom:8px">${sandboxList||'<div style="color:var(--muted);font-size:11px">No scenarios</div>'}</div>
-          <button class="btn" id="dioLoadSandbox" style="font-size:11px;width:100%">📂 Load JSON → New Scenario</button>
-        </div>
-      </div>
-
-      <!-- COL 2: SETUP Excel (→ Official) -->
-      <div>
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#86efac;margin-bottom:12px">🗄 Setup Database</div>
-        <div style="font-size:10px;color:var(--muted);margin-bottom:10px">Facilities · Products · Equipment · Storages · Capabilities · Recipes · FacilityProducts</div>
-
-        <div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.25);border-radius:8px;padding:12px;margin-bottom:10px">
-          <div style="font-size:11px;font-weight:600;margin-bottom:6px;color:#86efac">↓ Download Setup</div>
-          <button class="btn" id="dioSetupExport" style="font-size:11px;width:100%;border-color:rgba(34,197,94,0.4);color:#86efac">📥 Download Setup Excel</button>
-          <div style="font-size:10px;color:var(--muted);margin-top:6px">All facilities · full detail · use as migration template</div>
-        </div>
-
-        <div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.25);border-radius:8px;padding:12px">
-          <div style="font-size:11px;font-weight:600;margin-bottom:6px;color:#86efac">↑ Upload Setup → <span style="color:var(--ok)">Official</span></div>
-          <button class="btn" id="dioSetupImport" style="font-size:11px;width:100%;border-color:rgba(34,197,94,0.4);color:#86efac">📤 Upload Setup Excel</button>
-          <div style="font-size:10px;color:var(--muted);margin-top:6px">Full replace — what's in the file becomes truth. Goes directly into <strong>Official</strong>.</div>
-        </div>
-      </div>
-
-      <!-- COL 3: TRANSACTIONS Excel (→ Sandbox) -->
-      <div>
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#93c5fd;margin-bottom:12px">📋 Transactions</div>
-        <div style="font-size:10px;color:var(--muted);margin-bottom:10px">Production Actuals · Shipment Actuals</div>
-
-        <div style="background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.25);border-radius:8px;padding:12px;margin-bottom:10px">
-          <div style="font-size:11px;font-weight:600;margin-bottom:6px;color:#93c5fd">↓ Download Transactions</div>
-          <button class="btn" id="dioTxnExport" style="font-size:11px;width:100%;border-color:rgba(59,130,246,0.4);color:#93c5fd">📥 Download Transactions Excel</button>
-          <div style="font-size:10px;color:var(--muted);margin-top:6px">Simple 4-col format: Date · Facility · Material · Qty</div>
-        </div>
-
-        <div style="background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.25);border-radius:8px;padding:12px">
-          <div style="font-size:11px;font-weight:600;margin-bottom:6px;color:#93c5fd">↑ Upload Transactions → <span style="color:var(--accent)">Sandbox</span></div>
-          <button class="btn" id="dioTxnImport" style="font-size:11px;width:100%;border-color:rgba(59,130,246,0.4);color:#93c5fd">📤 Upload Transactions Excel</button>
-          <div style="font-size:10px;color:var(--muted);margin-top:6px">Date-range merge — only replaces dates present in file. Goes into active <strong>Sandbox</strong>.</div>
-        </div>
-      </div>
-
-    </div>
-  </div>`;
-
-  const q = id => host.querySelector('#'+id);
-  q('dioClose').onclick = () => host.classList.remove('open');
-  host.onclick = e => { if(e.target===host) host.classList.remove('open'); };
-
-  q('dioSaveOfficial').onclick = saveOfficial;
-  q('dioLoadOfficial').onclick = () => loadJSON('official');
-  q('dioLoadSandbox').onclick  = () => loadJSON('sandbox');
-
-  // ── SETUP DOWNLOAD (all setup sheets, all facilities, → Official) ──
   q('dioSetupExport').onclick = () => {
     const ds  = state.official;
-    const org = state.org;
-    const cat = state.catalog || [];
-    const facs    = org.facilities || [];
-    const facName = id => facs.find(f=>f.id===id)?.name || id;
-    const facCode = id => facs.find(f=>f.id===id)?.code || id;
-    const matName = id => cat.find(m=>m.id===id)?.name || id;
-    const matNum  = id => { const m=cat.find(x=>x.id===id); return (m?.materialNumbers||[]).map(x=>typeof x==='object'?x.number:x).filter(Boolean).join(', ') || m?.materialNumber || ''; };
+    // Uses shared: _cat, _facs, facCode, facName, matNums, matName
+    const matName = id => __cat.find(m=>m.id===id)?.name || id;
+    const matNum  = id => matNums(id);
     const eqName  = id => ds.equipment.find(e=>e.id===id)?.name || id;
     const wb = XLSX.utils.book_new();
     const addSheet = (name, rows) => { if(rows.length>1) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name.slice(0,31)); };
@@ -3870,8 +3320,7 @@ function openDataIODialog(){
           const sheet = n => { const ws = wb2.Sheets[n]; return ws ? XLSX.utils.sheet_to_json(ws,{defval:''}) : null; };
           const ds = state.official;
           const imported = [];
-          const nullStr = v => { const s=String(v||'').trim(); return /^(None|null|NULL)$/i.test(s)?'':s; };
-
+          // Uses shared utilities: nullStr, parseDate, lookupFac, lookupProd, facCode, facName, matName, matNums
           // ── Import Facilities + Catalog FIRST so lookups work against new data ──
           const facSheet = sheet('Facilities');
           if(facSheet?.length){ state.org.facilities = facSheet.map(r=>({ id:String(r['ID']||'').trim(), code:String(r['Code']||'').trim(), name:String(r['Name']||'').trim(), facilityType:String(r['Type']||'terminal').trim(), subRegionId:String(r['SubRegion']||'').trim() })).filter(r=>r.id&&r.name); imported.push(`${state.org.facilities.length} facilities`); }
@@ -3900,11 +3349,9 @@ function openDataIODialog(){
             imported.push(`${state.catalog.length} products`);
           }
 
-          // ── NOW build lookups against the freshly imported data ──
-          const facs  = state.org.facilities;
-          const cat   = state.catalog;
-          const facId  = v => { const k=String(v||'').trim(); return facs.find(f=>f.code===k||f.id===k||f.name===k)?.id || k; };
-          const prodId = v => { const k=String(v||'').trim(); if(!k) return ''; return cat.find(m=>m.id===k||m.code===k||m.name===k||(m.materialNumbers||[]).some(x=>(typeof x==='object'?x.number:x)===k))?.id || k; };
+          // ── Rebuild lookups against freshly imported catalog/facilities ──
+          const facId  = v => { const k=String(v||'').trim(); const f=(state.org.facilities||[]).find(x=>x.code===k||x.id===k||x.name===k); return f?.id||k; };
+          const prodId = v => { const k=String(v||'').trim(); if(!k) return ''; const m=(state.catalog||[]).find(x=>x.id===k||x.code===k||x.name===k||(x.materialNumbers||[]).some(n=>String(typeof n==='object'?n.number:n)===k)); return m?.id||k; };
 
           const fpSheet = sheet('FacilityProducts');
           if(fpSheet?.length){ ds.facilityProducts = fpSheet.map(r=>({ facilityId:facId(r['FacilityID']||r['FacilityCode']), productId:prodId(r['ProductID']) })).filter(r=>r.facilityId&&r.productId); imported.push(`${ds.facilityProducts.length} facility-products`); }
@@ -3944,12 +3391,7 @@ function openDataIODialog(){
   q('dioTxnExport').onclick = () => {
     // Export from active dataset (sandbox if active, otherwise official)
     const ds = isSandbox && state.sandboxes?.[sbId]?.data ? state.sandboxes[sbId].data : state.official;
-    const org = state.org;
-    const cat = state.catalog || [];
-    const facs = org.facilities || [];
-    const matNums = id => { const m=cat.find(x=>x.id===id); return (m?.materialNumbers||[]).map(x=>typeof x==='object'?x.number:x).filter(Boolean).join(', ')||m?.materialNumber||''; };
-    const facCode = id => facs.find(f=>f.id===id)?.code || id;
-    const eqName  = id => ds.equipment.find(e=>e.id===id)?.name || id;
+    const eqName = id => ds.equipment.find(e=>e.id===id)?.name || id;
     const wb = XLSX.utils.book_new();
     const addSheet = (name, rows) => { if(rows.length>1) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name.slice(0,31)); };
     addSheet('Production Actuals', [['Date','Facility','Equipment','Material Number','Qty (STn)'],  ...(ds.actuals.production||[]).map(r=>[r.date, facCode(r.facilityId), eqName(r.equipmentId), matNums(r.productId), +r.qtyStn||0])]);
@@ -3981,10 +3423,8 @@ function openDataIODialog(){
           }
           const sb = state.sandboxes[state.ui.activeSandboxId];
           const ds = sb.data;
-          const org = state.org; const cat = state.catalog||[]; const facs = org.facilities||[];
           const parseDate = v => { if(!v) return ''; if(v instanceof Date) return v.toISOString().slice(0,10); const s=String(v).trim(); if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10); const n=+s; if(!isNaN(n)&&n>40000&&n<60000){ const d=new Date(Math.round((n-25569)*86400*1000)); return d.toISOString().slice(0,10); } const p=new Date(s); return isNaN(p)?'':p.toISOString().slice(0,10); };
-          const lookupFac = v => { const k=String(v||'').trim(); return facs.find(f=>f.code===k||f.id===k||f.name===k)?.id||''; };
-          const lookupProd = v => { const k=String(v||'').trim(); if(!k||k==='0') return ''; return cat.find(m=>(m.materialNumbers||[]).some(x=>String(typeof x==='object'?x.number:x)===k)||m.id===k||m.code===k||m.name===k)?.id||''; };
+          // Uses shared: lookupFac, lookupProd
           const lookupEq = v => { const k=String(v||'').trim(); return ds.equipment.find(e=>e.name===k||e.id===k||e.id.endsWith('_'+k))?.id||''; };
           const dateRangeReplace = (newRows, store) => { const dates=newRows.map(r=>r.date).filter(Boolean).sort(); if(!dates.length) return store; const mn=dates[0],mx=dates[dates.length-1]; return [...(store||[]).filter(x=>x.date<mn||x.date>mx), ...newRows]; };
           const imported = [];

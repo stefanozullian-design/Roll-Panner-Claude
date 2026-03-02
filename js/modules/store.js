@@ -460,13 +460,13 @@ export async function loadState() {
       // Key exists but wrong version — migrate forward
       if (parsed._version === 3) {
         const v4 = migrateV3ToV4(parsed);
-        saveState(v4);
+        saveState(v4, { silent: true });
         return v4;
       }
       // Even older data in v4 key — full chain
       const v3 = migrateV2V3(parsed);
       const v4 = migrateV3ToV4(v3);
-      saveState(v4);
+      saveState(v4, { silent: true });
       return v4;
     }
 
@@ -475,7 +475,7 @@ export async function loadState() {
     if (raw3) {
       const v3 = JSON.parse(raw3);
       const v4 = migrateV3ToV4(v3._version === 3 ? v3 : migrateV2V3(v3));
-      saveState(v4);
+      saveState(v4, { silent: true });
       return v4;
     }
 
@@ -484,26 +484,26 @@ export async function loadState() {
     if (raw2) {
       const v3 = migrateV2V3(JSON.parse(raw2));
       const v4 = migrateV3ToV4(v3);
-      saveState(v4);
+      saveState(v4, { silent: true });
       return v4;
     }
 
     // ── Fresh install ──
     const s = seed();
-    saveState(s);
+    saveState(s, { silent: true });
     return s;
 
   } catch (err) {
     console.warn('loadState error — resetting to seed:', err);
     const s = seed();
-    saveState(s);
+    saveState(s, { silent: true });
     return s;
   }
 }
 
-export function saveState(state) {
+export function saveState(state, { silent = false } = {}) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  firebaseSave(state);
+  if (!silent) firebaseSave(state);
 }
 
 /**

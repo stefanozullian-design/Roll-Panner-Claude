@@ -27,13 +27,16 @@ let _saveTimer = null;
 let _lastSavedWriteId = null;  // ignore snapshots with this writeId (our own echo)
 
 // ── SAVE (debounced 1.5s to avoid hammering Firestore) ──
+// Only syncs DATA — ui state (active tab, facility selection, mode) stays local per-computer
 export function firebaseSave(state) {
   if (_saveTimer) clearTimeout(_saveTimer);
   _saveTimer = setTimeout(async () => {
     try {
+      // Strip ui from what we save — each computer navigates independently
+      const { ui, ...dataOnly } = state;
       const writeId = `${MY_CLIENT_ID}_${Date.now()}`;
       _lastSavedWriteId = writeId;
-      await setDoc(STATE_DOC, { payload: JSON.stringify(state), writeId });
+      await setDoc(STATE_DOC, { payload: JSON.stringify(dataOnly), writeId });
     } catch (err) {
       console.warn('[Firebase] save failed:', err);
     }

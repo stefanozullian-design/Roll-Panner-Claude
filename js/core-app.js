@@ -774,9 +774,18 @@ function renderPlan(){
   const facOpenState = {};
   const tbody = root.querySelector('.plan-table tbody');
   if(tbody){
+    const table = root.querySelector('.plan-table');
+
     // Initialize all facilities as expanded
     unifiedRows.forEach(r => {
       if(r._type === 'facility-header') facOpenState[r._facilityId] = true;
+    });
+
+    // Show/hide rows based on initial open state
+    Object.entries(facOpenState).forEach(([facId, isOpen]) => {
+      root.querySelectorAll(`.fac-child.fac-${facId}`).forEach(row => {
+        row.style.display = isOpen ? '' : 'none';
+      });
     });
 
     tbody.addEventListener('click', e => {

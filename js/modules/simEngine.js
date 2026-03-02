@@ -479,11 +479,20 @@ function simulateFacility(state, s, ds, facId, dates) {
 
   const facilityRows = []; // The new unified output
 
-  if (facType === 'cement_plant') {
-    // ── CLINKER section ──
+  // Check if this facility should have CLINKER section (BRS and MIA only)
+  const hasClinkerSection = facId === 'BRS' || facId === 'MIA';
+
+  if (facType === 'cement_plant' && hasClinkerSection) {
+    // ── CLINKER section (BRS and MIA only) ──
+    // Order: BOD → Consumption → Production → EOD
     facilityRows.push({ kind: 'family-header', label: 'CLINKER', _family: 'CLINKER' });
     facilityRows.push(...bodSection('CLINKER', 'CLK INV-BOD'));
-    // Kiln production
+
+    // Clinker consumption (derived from FM production × recipe clinker %)
+    facilityRows.push({ kind: 'subtotal', label: 'CLK CONSUMPTION', _section: 'consumption',
+      values: mkValues(d => clkConsumedMap.get(d) || 0) });
+
+    // Kiln production (total and by kiln)
     if (kilns.length) {
       facilityRows.push({ kind: 'subtotal', label: 'KILN PRODUCTION', _section: 'prod',
         values: mkValues(d => kilnProdMap.get(d) || 0) });
@@ -491,8 +500,16 @@ function simulateFacility(state, s, ds, facId, dates) {
         values: mkValues(d => prodByEqMap.get(`${d}|${k.id}`) || 0) }));
     }
     facilityRows.push(...transferRows('CLINKER'));
-    facilityRows.push({ kind: 'subtotal', label: 'CLK CONSUMED', _section: 'consumed',
-      values: mkValues(d => clkConsumedMap.get(d) || 0) });
+
+    // Clinker EOD (BOD + Production - Consumption)
+    facilityRows.push({ kind: 'subtotal', label: 'CLK INV-EOD', _section: 'eod',
+      values: mkValues(d => {
+        const clinkerStorages = storages.filter(st => familyOfProduct(s, (st.allowedProductIds||[])[0]) === 'CLINKER');
+        const bod = clinkerStorages.reduce((sum, st) => sum + (bodMap.get(`${d}|${st.id}`) || 0), 0);
+        const prod = kilnProdMap.get(d) || 0;
+        const cons = clkConsumedMap.get(d) || 0;
+        return bod + prod - cons;
+      }) });
 
     // ── CEMENT section ──
     facilityRows.push({ kind: 'family-header', label: 'CEMENT', _family: 'CEMENT' });
@@ -508,13 +525,20 @@ function simulateFacility(state, s, ds, facId, dates) {
       values: mkValues(d => facFinished.reduce((sum, fp) => sum + (shipMap.get(`${d}|${fp.id}`) || 0), 0)) });
     facilityRows.push(...facFinishedRows());
 
-  } else if (facType === 'grinding') {
-    // ── CLINKER section (no kiln) ──
+  } else if (facType === 'grinding' && hasClinkerSection) {
+    // ── CLINKER section (no kiln) — only for designated facilities ──
     facilityRows.push({ kind: 'family-header', label: 'CLINKER', _family: 'CLINKER' });
     facilityRows.push(...bodSection('CLINKER', 'CLK INV-BOD'));
-    facilityRows.push(...transferRows('CLINKER'));
-    facilityRows.push({ kind: 'subtotal', label: 'CLK CONSUMED', _section: 'consumed',
+    facilityRows.push({ kind: 'subtotal', label: 'CLK CONSUMPTION', _section: 'consumption',
       values: mkValues(d => clkConsumedMap.get(d) || 0) });
+    facilityRows.push(...transferRows('CLINKER'));
+    facilityRows.push({ kind: 'subtotal', label: 'CLK INV-EOD', _section: 'eod',
+      values: mkValues(d => {
+        const clinkerStorages = storages.filter(st => familyOfProduct(s, (st.allowedProductIds||[])[0]) === 'CLINKER');
+        const bod = clinkerStorages.reduce((sum, st) => sum + (bodMap.get(`${d}|${st.id}`) || 0), 0);
+        const cons = clkConsumedMap.get(d) || 0;
+        return bod - cons;
+      }) });
 
     // ── CEMENT section ──
     facilityRows.push({ kind: 'family-header', label: 'CEMENT', _family: 'CEMENT' });

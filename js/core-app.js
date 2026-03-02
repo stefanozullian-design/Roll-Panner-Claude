@@ -34,9 +34,8 @@ async function init() {
 
   // Live listener — update state when another computer saves
   firebaseListen(remoteState => {
-    state = remoteState;
-    render();
-    showToast('🔄 Data updated from another device', 'ok');
+    // Safety: never silently overwrite — show a notification with a manual reload button
+    showToast('🔄 Another device saved changes. <button onclick="window.location.reload()" style="margin-left:8px;padding:2px 8px;border-radius:4px;border:1px solid #22c55e;background:none;color:#22c55e;cursor:pointer;font-size:11px">Reload</button>', 'ok', 8000);
   });
 
   render();
@@ -451,16 +450,16 @@ function initShell(){
 }
 
 /* ─────────────────── TOAST ─────────────────── */
-function showToast(msg, type='ok'){
+function showToast(msg, type='ok', duration=2500){
   let t = el('toast');
-  if(!t){ t = document.createElement('div'); t.id='toast'; t.style.cssText='position:fixed;bottom:24px;right:24px;z-index:9999;padding:10px 16px;border-radius:8px;font-size:12px;font-weight:600;transition:opacity .3s;pointer-events:none;'; document.body.appendChild(t); }
-  t.textContent = msg;
+  if(!t){ t = document.createElement('div'); t.id='toast'; t.style.cssText='position:fixed;bottom:24px;right:24px;z-index:9999;padding:10px 16px;border-radius:8px;font-size:12px;font-weight:600;transition:opacity .3s;pointer-events:auto;max-width:360px;'; document.body.appendChild(t); }
+  t.innerHTML = msg;
   t.style.background = type==='ok' ? 'var(--ok-bg)' : type==='warn' ? 'var(--warn-bg)' : 'var(--danger-bg)';
   t.style.border = `1px solid ${type==='ok'?'var(--ok)':type==='warn'?'var(--warn)':'var(--danger)'}`;
   t.style.color = type==='ok' ? '#86efac' : type==='warn' ? '#fcd34d' : '#fca5a5';
   t.style.opacity='1';
   clearTimeout(t._timer);
-  t._timer = setTimeout(()=>{ t.style.opacity='0'; }, 2500);
+  t._timer = setTimeout(()=>{ t.style.opacity='0'; }, duration);
 }
 
 /* ─────────────────── RENDER ─────────────────── */

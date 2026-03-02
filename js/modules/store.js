@@ -10,7 +10,25 @@ export const STORAGE_KEY  = 'cementPlannerRebuild_v4';
 const LEGACY_KEY_V3       = 'cementPlannerRebuild_v3';
 const LEGACY_KEY_V2       = 'cementPlannerRebuild_v2';
 
-const uid = (p = 'id') => `${p}_${Math.random().toString(36).slice(2, 9)}`;
+// Generate cryptographically secure random IDs using Web Crypto API
+// Fallback to Math.random() for older browsers (better than nothing)
+const uid = (p = 'id') => {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      const bytes = new Uint8Array(6);
+      crypto.getRandomValues(bytes);
+      const randomPart = Array.from(bytes)
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('')
+        .slice(0, 9);
+      return `${p}_${randomPart}`;
+    }
+  } catch (e) {
+    console.warn('[UID] crypto.getRandomValues failed, falling back to Math.random()');
+  }
+  // Fallback for older browsers or if crypto fails
+  return `${p}_${Math.random().toString(36).slice(2, 9)}`;
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DEFAULT REFERENCE DATA

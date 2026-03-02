@@ -5,7 +5,24 @@
 
 import { getDataset, buildProductName, categoryFromFamily } from './store.js';
 
-const uid  = (p = 'id') => `${p}_${Math.random().toString(36).slice(2, 9)}`;
+// Generate cryptographically secure random IDs using Web Crypto API
+// Fallback to Math.random() for older browsers
+const uid  = (p = 'id') => {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      const bytes = new Uint8Array(6);
+      crypto.getRandomValues(bytes);
+      const randomPart = Array.from(bytes)
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('')
+        .slice(0, 9);
+      return `${p}_${randomPart}`;
+    }
+  } catch (e) {
+    console.warn('[UID] crypto.getRandomValues failed, falling back to Math.random()');
+  }
+  return `${p}_${Math.random().toString(36).slice(2, 9)}`;
+};
 const slug = s => (s || '').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '');
 
 export const Categories = {

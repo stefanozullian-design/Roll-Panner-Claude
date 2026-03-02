@@ -7,62 +7,29 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js';
 import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js';
 
-// Firebase configuration from environment variables for security
-// Never commit actual credentials - use .env file for local development
-// Safely access import.meta.env (may be undefined on static hosts like GitHub Pages)
-let env = {};
-try {
-  env = import.meta?.env || {};
-} catch (e) {
-  console.warn('[Firebase] Could not access import.meta.env:', e.message);
-}
-
 const firebaseConfig = {
-  apiKey:            env.VITE_FIREBASE_API_KEY || '',
-  authDomain:        env.VITE_FIREBASE_AUTH_DOMAIN || '',
-  projectId:         env.VITE_FIREBASE_PROJECT_ID || '',
-  storageBucket:     env.VITE_FIREBASE_STORAGE_BUCKET || '',
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
-  appId:             env.VITE_FIREBASE_APP_ID || ''
+  apiKey:            "AIzaSyCxs2XHfS3Xj4IJdWWlhKgQ2OsENGVk2Zw",
+  authDomain:        "inventory-roll.firebaseapp.com",
+  projectId:         "inventory-roll",
+  storageBucket:     "inventory-roll.firebasestorage.app",
+  messagingSenderId: "935575596192",
+  appId:             "1:935575596192:web:a56fb920aab7865ad3edc5"
 };
 
-if (!firebaseConfig.projectId) {
-  console.error('[Firebase] Configuration missing. Ensure .env file has VITE_FIREBASE_* variables set.');
-}
-
-let app, db, STATE_DOC;
-try {
-  app = initializeApp(firebaseConfig);
-  db  = getFirestore(app);
-  STATE_DOC = doc(db, 'app', 'state');
-} catch (err) {
-  console.error('[Firebase] Failed to initialize:', err.message);
-  // Create dummy objects so the rest of the code doesn't break
-  app = null;
-  db = null;
-  STATE_DOC = null;
-}
+const app = initializeApp(firebaseConfig);
+const db  = getFirestore(app);
+const STATE_DOC = doc(db, 'app', 'state');
 
 // Unique ID for this browser tab — used to detect own writes
 const MY_CLIENT_ID = Math.random().toString(36).slice(2);
 
 let _saveTimer = null;
 let _lastSavedWriteId = null;  // ignore snapshots with this writeId (our own echo)
-let _lastState = null;         // track last attempted state
-let _retryCount = 0;           // count failed attempts
-const MAX_RETRIES = 3;
-const RETRY_DELAYS = [1000, 3000, 5000]; // exponential backoff in milliseconds
 
 // ── SAVE (debounced 1.5s to avoid hammering Firestore) ──
 // Only syncs DATA — ui state (active tab, facility selection, mode) stays local per-computer
-// Includes exponential backoff retry logic for network failures
 export function firebaseSave(state) {
-  if (!STATE_DOC) {
-    console.warn('[Firebase] Firebase not initialized, save skipped');
-    return;
-  }
   if (_saveTimer) clearTimeout(_saveTimer);
-  _lastState = state; // track for retries
   _saveTimer = setTimeout(async () => {
     try {
       // Strip ui from what we save — each computer navigates independently
@@ -70,28 +37,14 @@ export function firebaseSave(state) {
       const writeId = `${MY_CLIENT_ID}_${Date.now()}`;
       _lastSavedWriteId = writeId;
       await setDoc(STATE_DOC, { payload: JSON.stringify(dataOnly), writeId });
-      _retryCount = 0; // reset on successful save
     } catch (err) {
-      if (_retryCount < MAX_RETRIES) {
-        _retryCount++;
-        const delay = RETRY_DELAYS[_retryCount - 1];
-        console.warn(`[Firebase] save failed, retrying in ${delay}ms (attempt ${_retryCount}/${MAX_RETRIES}):`, err.message);
-        // Schedule retry with exponential backoff
-        setTimeout(() => firebaseSave(_lastState), delay);
-      } else {
-        console.error('[Firebase] save failed after', MAX_RETRIES, 'retries:', err.message);
-        // Optionally trigger user notification here if callback provided
-      }
+      console.warn('[Firebase] save failed:', err);
     }
   }, 1500);
 }
 
 // ── LOAD (one-time read on startup) ──
 export async function firebaseLoad() {
-  if (!STATE_DOC) {
-    console.warn('[Firebase] Firebase not initialized, load skipped');
-    return null;
-  }
   try {
     const snap = await getDoc(STATE_DOC);
     if (snap.exists()) {
@@ -107,10 +60,6 @@ export async function firebaseLoad() {
 
 // ── LIVE LISTENER — updates UI when another computer saves ──
 export function firebaseListen(callback) {
-  if (!STATE_DOC) {
-    console.warn('[Firebase] Firebase not initialized, listener not started');
-    return () => {}; // return no-op unsubscribe function
-  }
   return onSnapshot(STATE_DOC, (snap) => {
     if (!snap.exists()) return;
     const data = snap.data();

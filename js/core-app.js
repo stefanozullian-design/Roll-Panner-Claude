@@ -1529,6 +1529,7 @@ function renderProducts(){
       return;
     }
     fd.name = productName;
+    fd.nameOverride = productName;  // tell upsertCatalogItem to use this name directly
 
     const saved = a.upsertMaterial(fd);
     // upsertCatalogItem drops extra fields — patch them back in immediately

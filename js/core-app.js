@@ -3133,8 +3133,32 @@ function openDataIODialog(){
   const _cat  = state.catalog || [];
   const nullStr    = v => { const s=String(v||'').trim(); return /^(None|null|NULL)$/i.test(s)?'':s; };
   const parseDate  = v => { if(!v) return ''; if(v instanceof Date) return v.toISOString().slice(0,10); const s=String(v).trim(); if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10); const n=+s; if(!isNaN(n)&&n>40000&&n<60000){ const d=new Date(Math.round((n-25569)*86400*1000)); return d.toISOString().slice(0,10); } const p=new Date(s); return isNaN(p)?'':p.toISOString().slice(0,10); };
-  const lookupFac  = v => { const k=String(v||'').trim(); return _facs.find(f=>f.code===k||f.id===k||f.name===k)?.id||''; };
-  const lookupProd = v => { const k=String(v||'').trim(); if(!k||k==='0') return ''; return _cat.find(m=>(m.materialNumbers||[]).some(x=>String(typeof x==='object'?x.number:x)===k)||m.id===k||m.code===k||m.name===k)?.id||''; };
+
+  // Enhanced lookups: case-insensitive with partial matching support
+  const lookupFac  = v => {
+    const k = String(v||'').trim().toUpperCase();
+    if (!k) return '';
+    // Exact match (case-insensitive)
+    let f = _facs.find(f => (f.code||'').toUpperCase() === k || f.id.toUpperCase() === k || (f.name||'').toUpperCase() === k);
+    if (f) return f.id;
+    // Partial match on name/code
+    f = _facs.find(f => (f.name||'').toUpperCase().includes(k) || (f.code||'').toUpperCase().includes(k));
+    return f?.id || '';
+  };
+
+  const lookupProd = v => {
+    const k = String(v||'').trim().toUpperCase();
+    if (!k || k === '0') return '';
+    // Check material numbers (exact)
+    let m = _cat.find(m => (m.materialNumbers||[]).some(x => String(typeof x==='object'?x.number:x).toUpperCase() === k));
+    if (m) return m.id;
+    // Check id, code, name (case-insensitive)
+    m = _cat.find(m => m.id.toUpperCase() === k || (m.code||'').toUpperCase() === k || (m.name||'').toUpperCase() === k);
+    if (m) return m.id;
+    // Partial match on name/code
+    m = _cat.find(m => (m.name||'').toUpperCase().includes(k) || (m.code||'').toUpperCase().includes(k));
+    return m?.id || '';
+  };
   const facCode    = id => _facs.find(f=>f.id===id)?.code || id;
   const facName    = id => _facs.find(f=>f.id===id)?.name || id;
   const matName    = id => { const m=_cat.find(x=>x.id===id); return m?.name||id; };
@@ -3431,31 +3455,39 @@ function openDataIODialog(){
 
           const prod = sheet('Production Actuals');
           if(prod?.length){
-            const rows = prod.map(r=>({
+            const allRows = prod.map(r=>({
               date:       parseDate(r['Date']),
               facilityId: lookupFac(r['Facility']||r['Abrev']||''),
               equipmentId:lookupEq(r['Equipment']||''),
               productId:  lookupProd(r['Material Number']||r['MatNum']||String(r['Material']||'')),
-              qtyStn:     +r['Qty (STn)']||+r['Qty(STn)']||+r['Volume']||0
-            })).filter(r=>r.date&&r.productId&&r.qtyStn!==0);
+              qtyStn:     +r['Qty (STn)']||+r['Qty(STn)']||+r['Volume']||0,
+              _original: r
+            }));
+            const rows = allRows.filter(r=>r.date&&r.productId&&r.qtyStn!==0);
+            const skipped = allRows.filter(r=>!r.date||!r.productId||r.qtyStn===0);
             ds.actuals.production = dateRangeReplace(rows, ds.actuals.production);
+            if(skipped.length) console.warn(`Production: skipped ${skipped.length} invalid rows (missing date, product, or qty)`);
             imported.push(`${rows.length} production rows`);
           }
 
           const ship = sheet('Shipment Actuals');
           if(ship?.length){
-            const rows = ship.map(r=>({
+            const allRows = ship.map(r=>({
               date:       parseDate(r['Date']||r['Delivery Date']),
               facilityId: lookupFac(r['Facility']||r['Abrev']||''),
               productId:  lookupProd(r['Material Number']||r['MatNum']||String(r['Material']||'')),
-              qtyStn:     +r['Qty (STn)']||+r['Qty(STn)']||+r['Volume']||0
-            })).filter(r=>r.date&&r.productId&&r.qtyStn!==0);
+              qtyStn:     +r['Qty (STn)']||+r['Qty(STn)']||+r['Volume']||0,
+              _original: r
+            }));
+            const rows = allRows.filter(r=>r.date&&r.productId&&r.qtyStn!==0);
+            const skipped = allRows.filter(r=>!r.date||!r.productId||r.qtyStn===0);
             ds.actuals.shipments = dateRangeReplace(rows, ds.actuals.shipments);
+            if(skipped.length) console.warn(`Shipments: skipped ${skipped.length} invalid rows (missing date, product, or qty)`);
             imported.push(`${rows.length} shipment rows`);
           }
 
           if(imported.length){ persist(); render(); showToast(`Transactions imported into Sandbox: ${imported.join(', ')} ✓`, 'ok'); }
-          else showToast('No transaction sheets found', 'warn');
+          else showToast('No transaction sheets found or all rows invalid (check browser console for details)', 'warn');
         } catch(err){ showToast('Import failed: '+err.message, 'danger'); console.error(err); }
       };
       reader.readAsArrayBuffer(file);

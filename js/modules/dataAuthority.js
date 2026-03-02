@@ -312,6 +312,24 @@ export function actions(state) {
 
   const regionId = primaryFacId ? getFacRegionId(state, primaryFacId) : null;
 
+  // ── Input validation helpers ──
+  const validateString = (v, { maxLen = 255, minLen = 1, allowEmpty = false } = {}) => {
+    if (v === null || v === undefined) return allowEmpty ? '' : null;
+    const s = String(v).trim();
+    if (s.length === 0) return allowEmpty ? '' : null;
+    if (s.length < minLen || s.length > maxLen) return null;
+    return s;
+  };
+
+  const validateNumber = (v, { min = null, max = null, allowZero = true } = {}) => {
+    const n = typeof v === 'number' ? v : +v;
+    if (isNaN(n)) return null;
+    if (!allowZero && n === 0) return null;
+    if (min !== null && n < min) return null;
+    if (max !== null && n > max) return null;
+    return n;
+  };
+
   return {
 
     // ────────────────────────────────────────────────────────────────────────
@@ -320,7 +338,11 @@ export function actions(state) {
 
     // Families
     upsertFamily({ id, code, label, category }) {
-      const row = { id: id || uid('fam'), code: code.toUpperCase(), label, category: category || 'FINISHED_PRODUCT' };
+      const validCode = validateString(code, { maxLen: 10, minLen: 1 });
+      const validLabel = validateString(label, { maxLen: 100, minLen: 1 });
+      if (!validCode || !validLabel) throw new Error('Family code (max 10 chars) and label (max 100 chars) are required');
+
+      const row = { id: id || uid('fam'), code: validCode.toUpperCase(), label: validLabel, category: category || 'FINISHED_PRODUCT' };
       const i   = (state.productFamilies || []).findIndex(f => f.id === row.id);
       if (!state.productFamilies) state.productFamilies = [];
       if (i >= 0) state.productFamilies[i] = row;
@@ -476,8 +498,23 @@ export function actions(state) {
       let suffix = 2;
       while(state.catalog.some(x => x.id === id)) { id = `${baseId}_${suffix++}`; }
 
+      // Validate name and code with length limits
+      const validName = validateString(name, { maxLen: 255, minLen: 1 });
+      if (!validName) throw new Error('Product name is required (max 255 characters)');
+
       // Auto-generate code from name: "MIA IL / BULK" → "MIA_IL_BULK"
       const autoCode = m.code || nameSlug;
+      const validCode = validateString(autoCode, { maxLen: 50, minLen: 1 });
+      if (!validCode) throw new Error('Product code is required (max 50 characters)');
+
+      // Validate numeric fields
+      const landedCost = validateNumber(m.landedCostUsdPerStn || 0, { min: 0, max: 999999 });
+      const calorificPower = validateNumber(m.calorificPowerMMBTUPerStn || 0, { min: 0, max: 99999 });
+      const co2Factor = validateNumber(m.co2FactorKgPerMMBTU || 0, { min: 0, max: 99999 });
+
+      if (landedCost === null || calorificPower === null || co2Factor === null) {
+        throw new Error('Numeric fields must be non-negative');
+      }
 
       const row = {
         id,
@@ -486,13 +523,13 @@ export function actions(state) {
         familyId:                  m.familyId      || null,
         typeId:                    m.typeId        || null,
         subTypeId:                 m.subTypeId     || null,
-        code:                      autoCode,
-        name,
+        code:                      validCode,
+        name:                      validName,
         category,
         unit:                      m.unit          || 'STn',
-        landedCostUsdPerStn:       +(m.landedCostUsdPerStn       || 0),
-        calorificPowerMMBTUPerStn: +(m.calorificPowerMMBTUPerStn || 0),
-        co2FactorKgPerMMBTU:       +(m.co2FactorKgPerMMBTU       || 0),
+        landedCostUsdPerStn:       landedCost,
+        calorificPowerMMBTUPerStn: calorificPower,
+        co2FactorKgPerMMBTU:       co2Factor,
         materialNumbers:           parseMaterialNumbers(m.materialNumbers),
       };
 
@@ -605,9 +642,15 @@ export function actions(state) {
     },
 
     addFacility({ subRegionId, name, code }) {
-      const id = slug(code || name);
-      if (state.org.facilities.some(f => f.id === id)) return id;
-      state.org.facilities.push({ id, subRegionId, name, code: slug(code || name) });
+      const validName = validateString(name, { maxLen: 100, minLen: 1 });
+      const validCode = validateString(code, { maxLen: 10, minLen: 1, allowEmpty: true });
+      if (!validName) throw new Error('Facility name is required (max 100 characters)');
+
+      const id = slug(validCode || validName);
+      if (state.org.facilities.some(f => f.id === id)) {
+        throw new Error(`Facility with code/name "${validName}" already exists`);
+      }
+      state.org.facilities.push({ id, subRegionId, name: validName, code: slug(validCode || validName) });
       return id;
     },
     updateFacility({ id, name, code }) {

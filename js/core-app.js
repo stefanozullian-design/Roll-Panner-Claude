@@ -11,6 +11,25 @@ async function init() {
 
   state = await loadState();
 
+  // Patch state after load
+  const _datasets = [state.official, ...Object.values(state.sandboxes||{}).map(sb=>sb?.data)].filter(Boolean);
+  _datasets.forEach(ds => {
+    if (!ds.actuals) ds.actuals = {};
+    if (ds.actuals.inventoryEOD !== undefined) {
+      if (!Array.isArray(ds.actuals.inventoryBOD) || ds.actuals.inventoryBOD.length === 0)
+        ds.actuals.inventoryBOD = ds.actuals.inventoryEOD;
+      delete ds.actuals.inventoryEOD;
+    }
+    if (!Array.isArray(ds.actuals.inventoryBOD)) ds.actuals.inventoryBOD = [];
+    if (!Array.isArray(ds.actuals.production))   ds.actuals.production   = [];
+    if (!Array.isArray(ds.actuals.shipments))     ds.actuals.shipments    = [];
+    if (!Array.isArray(ds.actuals.transfers))     ds.actuals.transfers    = [];
+    if (!Array.isArray(ds.logisticsSchedule))     ds.logisticsSchedule    = [];
+  });
+  if (!state.logistics) state.logistics = { rulesOfEngagement: [], lanes: [] };
+  if (!Array.isArray(state.logistics.rulesOfEngagement)) state.logistics.rulesOfEngagement = [];
+  if (!Array.isArray(state.logistics.lanes))             state.logistics.lanes = [];
+
   document.getElementById('fb-loading')?.remove();
 
   // Live listener — update state when another computer saves
@@ -25,39 +44,7 @@ async function init() {
 
 init();
 
-// ── Runtime data patch: ensure actuals use new field names ──
-// Covers existing v3 data saved before the inventoryEOD→inventoryBOD rename
-(function patchActuals() {
-  const datasets = [state.official, ...Object.values(state.sandboxes||{}).map(sb=>sb?.data)].filter(Boolean);
-  datasets.forEach(ds => {
-    // Ensure actuals object exists
-    if (!ds.actuals) ds.actuals = {};
-    // Rename inventoryEOD → inventoryBOD (v2→v3 rename)
-    if (ds.actuals.inventoryEOD !== undefined) {
-      if (!Array.isArray(ds.actuals.inventoryBOD) || ds.actuals.inventoryBOD.length === 0) {
-        ds.actuals.inventoryBOD = ds.actuals.inventoryEOD;
-      }
-      delete ds.actuals.inventoryEOD;
-    }
-    // Guarantee all actuals arrays exist
-    if (!Array.isArray(ds.actuals.inventoryBOD)) ds.actuals.inventoryBOD = [];
-    if (!Array.isArray(ds.actuals.production))   ds.actuals.production   = [];
-    if (!Array.isArray(ds.actuals.shipments))     ds.actuals.shipments    = [];
-    if (!Array.isArray(ds.actuals.transfers))     ds.actuals.transfers    = [];
-  });
-  saveState(state);
-})();
 
-// ── Runtime patch: ensure logistics arrays exist on older saved state ──
-(function patchLogistics() {
-  if (!state.logistics) state.logistics = { rulesOfEngagement: [], lanes: [] };
-  if (!Array.isArray(state.logistics.rulesOfEngagement)) state.logistics.rulesOfEngagement = [];
-  if (!Array.isArray(state.logistics.lanes))             state.logistics.lanes = [];
-  const datasets = [state.official, ...Object.values(state.sandboxes||{}).map(sb=>sb?.data)].filter(Boolean);
-  datasets.forEach(ds => {
-    if (!Array.isArray(ds.logisticsSchedule)) ds.logisticsSchedule = [];
-  });
-})();
 
 // Two-level nav: top sections + sub-tabs
 const NAV = [

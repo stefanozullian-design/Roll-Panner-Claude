@@ -447,11 +447,17 @@ export function actions(state) {
       }
 
       // Build a stable, human-readable ID from producer + type + subtype
+      // Fall back to slugified name so every product gets a unique ID
       const producer  = (state.producers     || []).find(p => p.id === m.producerId);
       const type      = (state.productTypes  || []).find(t => t.id === m.typeId);
       const subType   = (state.productSubTypes || []).find(s => s.id === m.subTypeId);
-      const idParts   = [rId, producer?.code || 'EXT', type?.code, subType?.code].filter(Boolean);
-      const id        = idParts.join('|');
+      const nameParts = [producer?.code, type?.code, subType?.code].filter(Boolean);
+      const nameSlug  = nameParts.length ? nameParts.join('_') : (name||'product').toUpperCase().replace(/[^A-Z0-9]+/g,'_').replace(/^_|_$/g,'');
+      const baseId    = `${rId}|${nameSlug}`;
+      // Ensure unique ID if slug collides
+      let id = baseId;
+      let suffix = 2;
+      while(state.catalog.some(x => x.id === id)) { id = `${baseId}_${suffix++}`; }
 
       const row = {
         id,
@@ -577,15 +583,15 @@ export function actions(state) {
       state.org.subRegions = state.org.subRegions.filter(s => s.id !== id);
     },
 
-    addFacility({ subRegionId, name, code, facilityType = 'terminal' }) {
+    addFacility({ subRegionId, name, code }) {
       const id = slug(code || name);
       if (state.org.facilities.some(f => f.id === id)) return id;
-      state.org.facilities.push({ id, subRegionId, name, code: slug(code || name), facilityType });
+      state.org.facilities.push({ id, subRegionId, name, code: slug(code || name) });
       return id;
     },
-    updateFacility({ id, name, code, facilityType }) {
+    updateFacility({ id, name, code }) {
       const i = state.org.facilities.findIndex(f => f.id === id);
-      if (i >= 0) state.org.facilities[i] = { ...state.org.facilities[i], name, code, ...(facilityType ? { facilityType } : {}) };
+      if (i >= 0) state.org.facilities[i] = { ...state.org.facilities[i], name, code };
     },
     deleteFacility(id) {
       state.org.facilities = state.org.facilities.filter(f => f.id !== id);

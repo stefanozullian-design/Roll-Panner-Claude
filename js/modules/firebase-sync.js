@@ -7,14 +7,20 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js';
 import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js';
 
+// Firebase configuration from environment variables for security
+// Never commit actual credentials - use .env file for local development
 const firebaseConfig = {
-  apiKey:            "AIzaSyCxs2XHfS3Xj4IJdWWlhKgQ2OsENGVk2Zw",
-  authDomain:        "inventory-roll.firebaseapp.com",
-  projectId:         "inventory-roll",
-  storageBucket:     "inventory-roll.firebasestorage.app",
-  messagingSenderId: "935575596192",
-  appId:             "1:935575596192:web:a56fb920aab7865ad3edc5"
+  apiKey:            import.meta.env.VITE_FIREBASE_API_KEY || '',
+  authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
+  projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
+  storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+  appId:             import.meta.env.VITE_FIREBASE_APP_ID || ''
 };
+
+if (!firebaseConfig.projectId) {
+  console.error('[Firebase] Configuration missing. Ensure .env file has VITE_FIREBASE_* variables set.');
+}
 
 const app = initializeApp(firebaseConfig);
 const db  = getFirestore(app);

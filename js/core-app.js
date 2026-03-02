@@ -3124,29 +3124,20 @@ function openDataManagementDialog(){
   const host = el('dataIODialog');
   host.classList.add('open');
 
-  const dateStr = new Date().toISOString().slice(0,10);
-  const ds = state.official; // Always work with official data
-  const _facs = state.org.facilities || [];
-  const _cat = state.catalog || [];
-/* ─────────────────── DATA MANAGEMENT DIALOG (NEW) ─────────────────── */
-function openDataManagementDialog(){
-  const host = el('dataIODialog');
-  host.classList.add('open');
-
-  const dateStr = new Date().toISOString().slice(0,10);
   const ds = state.official;
   const _facs = state.org.facilities || [];
   const _cat = state.catalog || [];
+  const dateStr = new Date().toISOString().slice(0,10);
 
-  // ── UTILITY FUNCTIONS ──
+  // ── Shared utilities ──
   const parseDate = v => {
-    if(!v) return '';
-    if(v instanceof Date) return v.toISOString().slice(0,10);
+    if (!v) return '';
+    if (v instanceof Date) return v.toISOString().slice(0,10);
     const s = String(v).trim();
-    if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
     const n = +s;
-    if(!isNaN(n) && n > 40000 && n < 60000){
-      const d = new Date(Math.round((n-25569)*86400*1000));
+    if (!isNaN(n) && n > 40000 && n < 60000) {
+      const d = new Date(Math.round((n - 25569) * 86400 * 1000));
       return d.toISOString().slice(0,10);
     }
     const p = new Date(s);
@@ -3154,183 +3145,280 @@ function openDataManagementDialog(){
   };
 
   const lookupFac = v => {
-    const k = String(v||'').trim().toUpperCase();
+    const k = String(v || '').trim().toUpperCase();
     if (!k) return '';
-    let f = _facs.find(f => (f.code||'').toUpperCase() === k || f.id.toUpperCase() === k || (f.name||'').toUpperCase() === k);
+    let f = _facs.find(f => (f.code || '').toUpperCase() === k || f.id.toUpperCase() === k || (f.name || '').toUpperCase() === k);
     if (f) return f.id;
-    f = _facs.find(f => (f.name||'').toUpperCase().includes(k) || (f.code||'').toUpperCase().includes(k));
+    f = _facs.find(f => (f.name || '').toUpperCase().includes(k) || (f.code || '').toUpperCase().includes(k));
     return f?.id || '';
   };
 
   const lookupProd = v => {
-    const k = String(v||'').trim().toUpperCase();
+    const k = String(v || '').trim().toUpperCase();
     if (!k || k === '0') return '';
-    let m = _cat.find(m => (m.materialNumbers||[]).some(x => String(typeof x==='object'?x.number:x).toUpperCase() === k));
+    let m = _cat.find(m => (m.materialNumbers || []).some(x => String(typeof x === 'object' ? x.number : x).toUpperCase() === k));
     if (m) return m.id;
-    m = _cat.find(m => m.id.toUpperCase() === k || (m.code||'').toUpperCase() === k || (m.name||'').toUpperCase() === k);
+    m = _cat.find(m => m.id.toUpperCase() === k || (m.code || '').toUpperCase() === k || (m.name || '').toUpperCase() === k);
     if (m) return m.id;
-    m = _cat.find(m => (m.name||'').toUpperCase().includes(k) || (m.code||'').toUpperCase().includes(k));
+    m = _cat.find(m => (m.name || '').toUpperCase().includes(k) || (m.code || '').toUpperCase().includes(k));
     return m?.id || '';
   };
 
-  const facCode = id => _facs.find(f=>f.id===id)?.code || id;
-  const facName = id => _facs.find(f=>f.id===id)?.name || id;
-  const matName = id => { const m=_cat.find(x=>x.id===id); return m?.name||id; };
-  const matNums = id => { const m=_cat.find(x=>x.id===id); return (m?.materialNumbers||[]).map(x=>typeof x==='object'?x.number:x).filter(Boolean).join(', ')||''; };
+  const facCode = id => _facs.find(f => f.id === id)?.code || id;
+  const matNums = id => {
+    const m = _cat.find(x => x.id === id);
+    return (m?.materialNumbers || []).map(x => typeof x === 'object' ? x.number : x).filter(Boolean).join(', ') || '';
+  };
 
-  // ── BUILD MODAL HTML ──
+  const downloadBlob = (blob, filename) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 500);
+  };
+
+  // Build modal HTML
   host.innerHTML = `
-    <div class="modal-content" style="max-width:600px;">
-      <div class="modal-title">📊 Data Management</div>
+    <div class="modal-content" style="max-width:600px">
+      <h2>Data Management</h2>
 
-      <div style="margin:15px 0;">
-        <label>Select Data Type:</label>
-        <select id="dioDataType" style="width:100%;padding:8px;margin-top:5px;">
-          <option value="production">Production Data (Date | Facility | Material | Qty)</option>
-          <option value="shipment">Shipment Data (Date | Facility | Material | Qty)</option>
+      <div style="margin:20px 0">
+        <label style="display:block;margin-bottom:4px">Data Type:</label>
+        <select id="dataType" style="width:100%;padding:8px">
+          <option value="production">Production Data</option>
+          <option value="shipment">Shipment Data</option>
         </select>
       </div>
 
-      <div style="display:flex;gap:10px;margin:15px 0;">
-        <button id="dioDownloadBtn" style="flex:1;padding:10px;" class="btn btn-primary">⬇ Download</button>
-        <button id="dioUploadBtn" style="flex:1;padding:10px;" class="btn btn-primary">⬆ Upload</button>
+      <div style="display:flex;gap:10px;margin:20px 0">
+        <button id="downloadBtn" style="flex:1;padding:8px;cursor:pointer">📥 Download</button>
+        <button id="uploadBtn" style="flex:1;padding:8px;cursor:pointer">📤 Upload</button>
       </div>
 
-      <div id="dioOptions" style="margin:15px 0;padding:10px;background:var(--bg-secondary);border-radius:4px;">
-        <div id="downloadOptions" style="display:none;">
-          <label>Date Range:</label>
-          <select id="dioDateRange" style="width:100%;padding:8px;margin-top:5px;">
-            <option value="all">All Time</option>
-            <option value="7">Last 7 Days</option>
-            <option value="30">Last 30 Days</option>
-            <option value="90">Last 90 Days</option>
-            <option value="custom">Custom Range</option>
-          </select>
-          <div id="dioCustomRange" style="display:none;margin-top:10px;">
-            <input type="date" id="dioFromDate" style="width:49%;padding:8px;"/>
-            <input type="date" id="dioToDate" style="width:49%;padding:8px;margin-left:2%;"/>
-          </div>
-        </div>
-      </div>
-
-      <div style="text-align:right;margin-top:20px;">
-        <button onclick="el('dataIODialog').classList.remove('open');" class="btn">Close</button>
+      <div style="margin-top:20px;text-align:right">
+        <button id="closeDialogBtn" style="padding:8px 16px;cursor:pointer">Close</button>
       </div>
     </div>
   `;
 
-  // ── UTILITY: Download Excel ──
-  const downloadExcel = (rows, sheetName, filename) => {
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0,31));
-    XLSX.writeFile(wb, filename);
-    showToast(`${filename} downloaded ✓`, 'ok');
+  // Download handler
+  el('downloadBtn').onclick = () => {
+    const dataType = el('dataType').value || 'production';
+
+    // Show date range dialog
+    const dlgHTML = `
+      <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:white;padding:20px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:10001">
+        <h3 style="margin:0 0 15px 0">Download ${dataType === 'production' ? 'Production' : 'Shipment'} Data</h3>
+        <div style="margin:15px 0">
+          <label style="display:block;margin-bottom:4px">Date Range:</label>
+          <select id="dlDateRange" style="width:100%;padding:8px">
+            <option value="all">All Time</option>
+            <option value="7days">Last 7 Days</option>
+            <option value="30days">Last 30 Days</option>
+            <option value="90days">Last 90 Days</option>
+            <option value="custom">Custom Range</option>
+          </select>
+        </div>
+        <div id="dlCustomRange" style="display:none;margin:15px 0">
+          <div style="margin-bottom:10px">
+            <label style="display:block;margin-bottom:4px">From:</label>
+            <input type="date" id="dlStartDate" style="width:100%;padding:4px">
+          </div>
+          <div>
+            <label style="display:block;margin-bottom:4px">To:</label>
+            <input type="date" id="dlEndDate" style="width:100%;padding:4px">
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:20px">
+          <button id="dlCancelBtn" style="flex:1;padding:8px;cursor:pointer">Cancel</button>
+          <button id="dlConfirmBtn" style="flex:1;padding:8px;background:#4CAF50;color:white;cursor:pointer">Download</button>
+        </div>
+      </div>
+    `;
+
+    const dlg = document.createElement('div');
+    dlg.innerHTML = dlgHTML;
+    document.body.appendChild(dlg);
+
+    const dlDateRange = dlg.querySelector('#dlDateRange');
+    const dlCustomRange = dlg.querySelector('#dlCustomRange');
+
+    dlDateRange.onchange = () => {
+      dlCustomRange.style.display = dlDateRange.value === 'custom' ? 'block' : 'none';
+    };
+
+    dlg.querySelector('#dlCancelBtn').onclick = () => dlg.remove();
+
+    dlg.querySelector('#dlConfirmBtn').onclick = () => {
+      const rangeType = dlDateRange.value;
+      const now = new Date();
+      let startDate = '1900-01-01';
+      let endDate = dateStr;
+
+      if (rangeType === 'custom') {
+        startDate = dlg.querySelector('#dlStartDate').value || '1900-01-01';
+        endDate = dlg.querySelector('#dlEndDate').value || dateStr;
+      } else if (rangeType !== 'all') {
+        const daysAgo = rangeType === '7days' ? 7 : rangeType === '30days' ? 30 : 90;
+        const cutoff = new Date(now);
+        cutoff.setDate(cutoff.getDate() - daysAgo);
+        startDate = cutoff.toISOString().slice(0,10);
+      }
+
+      // Filter and export data
+      let records = [];
+      if (dataType === 'production') {
+        records = (ds.actuals.production || []).filter(r => r.date >= startDate && r.date <= endDate);
+      } else {
+        records = (ds.actuals.shipments || []).filter(r => r.date >= startDate && r.date <= endDate);
+      }
+
+      // Convert to CSV
+      const headers = dataType === 'production'
+        ? ['Date', 'Facility Code', 'Equipment ID', 'Material Number', 'Qty (STn)']
+        : ['Date', 'Facility Code', 'Material Number', 'Qty (STn)'];
+
+      const rows = records.map(r => {
+        const matNum = matNums(r.productId);
+        if (dataType === 'production') {
+          return [r.date, facCode(r.facilityId), r.equipmentId || '', matNum, Math.ceil(r.qtyStn || 0)];
+        } else {
+          return [r.date, facCode(r.facilityId), matNum, Math.ceil(r.qtyStn || 0)];
+        }
+      });
+
+      const csv = [headers, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      downloadBlob(blob, `${dataType}_data_${startDate}_to_${endDate}.csv`);
+
+      showToast(`${dataType === 'production' ? 'Production' : 'Shipment'} data exported (${records.length} rows) ✓`, 'ok');
+      dlg.remove();
+    };
   };
 
-  // ── DOWNLOAD HANDLER ──
-  el('dioDownloadBtn').onclick = () => {
-    const dataType = el('dioDataType').value;
-    const dateRange = el('dioDateRange').value;
-
-    let fromDate = null, toDate = null;
-    if (dateRange === 'custom') {
-      fromDate = el('dioFromDate').value;
-      toDate = el('dioToDate').value;
-      if (!fromDate || !toDate) { showToast('Please select both dates', 'warn'); return; }
-    } else if (dateRange !== 'all') {
-      const days = parseInt(dateRange);
-      toDate = dateStr;
-      const d = new Date();
-      d.setDate(d.getDate() - days);
-      fromDate = d.toISOString().slice(0,10);
-    }
-
-    if (dataType === 'production') {
-      const rows = [['Date','Facility','Material','Qty (STn)']];
-      (ds.actuals.production||[]).forEach(r => {
-        if (fromDate && (r.date < fromDate || r.date > toDate)) return;
-        rows.push([r.date, facCode(r.facilityId), matNums(r.productId), Math.ceil(r.qtyStn||0)]);
-      });
-      downloadExcel(rows, 'Production', `Production_${dateStr}.xlsx`);
-    } else {
-      const rows = [['Date','Facility','Material','Qty (STn)']];
-      (ds.actuals.shipments||[]).forEach(r => {
-        if (fromDate && (r.date < fromDate || r.date > toDate)) return;
-        rows.push([r.date, facCode(r.facilityId), matNums(r.productId), Math.ceil(r.qtyStn||0)]);
-      });
-      downloadExcel(rows, 'Shipment', `Shipments_${dateStr}.xlsx`);
-    }
-  };
-
-  // ── UPLOAD HANDLER ──
-  el('dioUploadBtn').onclick = () => {
+  // Upload handler
+  el('uploadBtn').onclick = () => {
     const inp = document.createElement('input');
     inp.type = 'file';
     inp.accept = '.xlsx,.xls,.csv';
-    inp.onchange = () => {
+    inp.onchange = async () => {
       const file = inp.files[0];
       if (!file) return;
 
+      const dataType = el('dataType').value || 'production';
       const reader = new FileReader();
-      reader.onload = e => {
+
+      reader.onload = async (e) => {
         try {
-          const dataType = el('dioDataType').value;
           let rows = [];
 
           if (file.name.endsWith('.csv')) {
             const csv = e.target.result;
-            rows = csv.split('\n').slice(1).filter(Boolean).map(line => {
-              const parts = line.split(',').map(s => s.trim());
-              return { date: parts[0], facility: parts[1], material: parts[2], qty: parts[3] };
-            });
+            const lines = csv.split('\n').slice(1); // skip header
+            rows = lines
+              .filter(line => line.trim())
+              .map(line => {
+                const parts = line.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+                if (dataType === 'production') {
+                  return {
+                    date: parts[0],
+                    facilityCode: parts[1],
+                    equipmentId: parts[2],
+                    materialNumber: parts[3],
+                    qtyStn: +parts[4] || 0
+                  };
+                } else {
+                  return {
+                    date: parts[0],
+                    facilityCode: parts[1],
+                    materialNumber: parts[2],
+                    qtyStn: +parts[3] || 0
+                  };
+                }
+              });
           } else {
-            const wb = XLSX.read(e.target.result, {type:'array'});
+            // Excel file
+            const wb = XLSX.read(e.target.result, { type: 'array' });
             const ws = wb.Sheets[wb.SheetNames[0]];
-            const data = XLSX.utils.sheet_to_json(ws, {defval:''});
-            rows = data.map(r => ({
-              date: parseDate(r['Date']),
-              facility: r['Facility'],
-              material: r['Material'],
-              qty: +r['Qty (STn)'] || 0
-            }));
+            const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+            rows = data.map(row => {
+              if (dataType === 'production') {
+                return {
+                  date: row['Date'] || row['date'] || '',
+                  facilityCode: row['Facility Code'] || row['Facility'] || row['facilityCode'] || '',
+                  equipmentId: row['Equipment ID'] || row['Equipment'] || row['equipmentId'] || '',
+                  materialNumber: row['Material Number'] || row['Material'] || row['materialNumber'] || '',
+                  qtyStn: +(row['Qty (STn)'] || row['Qty'] || row['qtyStn'] || 0)
+                };
+              } else {
+                return {
+                  date: row['Date'] || row['date'] || '',
+                  facilityCode: row['Facility Code'] || row['Facility'] || row['facilityCode'] || '',
+                  materialNumber: row['Material Number'] || row['Material'] || row['materialNumber'] || '',
+                  qtyStn: +(row['Qty (STn)'] || row['Qty'] || row['qtyStn'] || 0)
+                };
+              }
+            });
           }
 
-          // Validate and upsert
+          // Validate and import
           let created = 0, updated = 0, skipped = 0;
-          const targetStore = dataType === 'production' ? ds.actuals.production : ds.actuals.shipments;
+          const targetList = dataType === 'production' ? ds.actuals.production : ds.actuals.shipments;
 
-          rows.forEach(r => {
-            if (!r.date || !r.facility || !r.material || r.qty === 0) { skipped++; return; }
+          rows.forEach(row => {
+            const date = parseDate(row.date);
+            const facilityId = lookupFac(row.facilityCode);
+            const productId = lookupProd(row.materialNumber);
+            const qty = Math.ceil(row.qtyStn || 0);
 
-            const facId = lookupFac(r.facility);
-            const prodId = lookupProd(r.material);
+            if (!date || !facilityId || !productId || qty === 0) {
+              skipped++;
+              return;
+            }
 
-            if (!facId) { console.warn(`Facility not found: ${r.facility}`); skipped++; return; }
-            if (!prodId) { console.warn(`Material not found: ${r.material}`); skipped++; return; }
+            // Upsert logic
+            if (dataType === 'production') {
+              const idx = targetList.findIndex(r =>
+                r.date === date && r.facilityId === facilityId && r.productId === productId && r.equipmentId === row.equipmentId
+              );
 
-            const qtyRounded = Math.ceil(r.qty);
-            const existingIdx = targetStore.findIndex(x => x.date === r.date && x.facilityId === facId && x.productId === prodId);
-
-            if (existingIdx >= 0) {
-              targetStore[existingIdx].qtyStn = qtyRounded;
-              updated++;
-            } else {
-              if (dataType === 'production') {
-                // For production, we need equipmentId - use first available equipment for that facility/product
-                const eq = ds.equipment?.find(e => e.facilityId === facId);
-                targetStore.push({ date: r.date, facilityId: facId, equipmentId: eq?.id || '', productId: prodId, qtyStn: qtyRounded });
+              if (idx >= 0) {
+                targetList[idx].qtyStn = qty;
+                updated++;
               } else {
-                targetStore.push({ date: r.date, facilityId: facId, productId: prodId, qtyStn: qtyRounded });
+                targetList.push({
+                  date, facilityId, productId, equipmentId: row.equipmentId || '', qtyStn: qty
+                });
+                created++;
               }
-              created++;
+            } else {
+              const idx = targetList.findIndex(r =>
+                r.date === date && r.facilityId === facilityId && r.productId === productId
+              );
+
+              if (idx >= 0) {
+                targetList[idx].qtyStn = qty;
+                updated++;
+              } else {
+                targetList.push({ date, facilityId, productId, qtyStn: qty });
+                created++;
+              }
             }
           });
 
           persist();
           render();
-          host.classList.remove('open');
-          showToast(`${dataType} imported: ${created} created, ${updated} updated${skipped > 0 ? `, ${skipped} skipped` : ''} ✓`, 'ok');
+
+          const summary = [];
+          if (created > 0) summary.push(`${created} created`);
+          if (updated > 0) summary.push(`${updated} updated`);
+          if (skipped > 0) summary.push(`${skipped} skipped`);
+
+          showToast(`Import complete: ${summary.join(', ')} ✓`, 'ok');
         } catch (err) {
           showToast('Import failed: ' + err.message, 'danger');
           console.error(err);
@@ -3346,12 +3434,8 @@ function openDataManagementDialog(){
     inp.click();
   };
 
-  // ── DATE RANGE UI ──
-  el('dioDataType').onchange = () => {
-    el('downloadOptions').style.display = 'block';
-  };
-
-  el('dioDateRange').onchange = () => {
-    el('dioCustomRange').style.display = el('dioDateRange').value === 'custom' ? 'block' : 'none';
+  // Close handler
+  el('closeDialogBtn').onclick = () => {
+    host.classList.remove('open');
   };
 }

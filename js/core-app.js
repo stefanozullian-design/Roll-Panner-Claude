@@ -2950,23 +2950,39 @@ function openDataManagementDialog(){
   };
 
   const lookupFac = v => {
-    const k = String(v || '').trim().toUpperCase();
-    if (!k) return '';
-    let f = _facs.find(f => (f.code || '').toUpperCase() === k || f.id.toUpperCase() === k || (f.name || '').toUpperCase() === k);
-    if (f) return f.id;
-    f = _facs.find(f => (f.name || '').toUpperCase().includes(k) || (f.code || '').toUpperCase().includes(k));
-    return f?.id || '';
+    const k = String(v || '').trim();
+    if (!k) return { id: '', reason: 'empty_facility' };
+
+    const ku = k.toUpperCase();
+    // Exact match first (case-insensitive)
+    let f = _facs.find(f => (f.code || '').toUpperCase() === ku || f.id.toUpperCase() === ku || (f.name || '').toUpperCase() === ku);
+    if (f) return { id: f.id };
+
+    // Partial match second
+    f = _facs.find(f => (f.name || '').toUpperCase().includes(ku) || (f.code || '').toUpperCase().includes(ku));
+    if (f) return { id: f.id };
+
+    return { id: '', reason: `facility_not_found: "${k}"` };
   };
 
   const lookupProd = v => {
-    const k = String(v || '').trim().toUpperCase();
-    if (!k || k === '0') return '';
-    let m = _cat.find(m => (m.materialNumbers || []).some(x => String(typeof x === 'object' ? x.number : x).toUpperCase() === k));
-    if (m) return m.id;
-    m = _cat.find(m => m.id.toUpperCase() === k || (m.code || '').toUpperCase() === k || (m.name || '').toUpperCase() === k);
-    if (m) return m.id;
-    m = _cat.find(m => (m.name || '').toUpperCase().includes(k) || (m.code || '').toUpperCase().includes(k));
-    return m?.id || '';
+    const k = String(v || '').trim();
+    if (!k || k === '0') return { id: '', reason: 'empty_product' };
+
+    const ku = k.toUpperCase();
+    // Material number match
+    let m = _cat.find(m => (m.materialNumbers || []).some(x => String(typeof x === 'object' ? x.number : x).toUpperCase() === ku));
+    if (m) return { id: m.id };
+
+    // ID, code, or exact name match
+    m = _cat.find(m => m.id.toUpperCase() === ku || (m.code || '').toUpperCase() === ku || (m.name || '').toUpperCase() === ku);
+    if (m) return { id: m.id };
+
+    // Partial name/code match
+    m = _cat.find(m => (m.name || '').toUpperCase().includes(ku) || (m.code || '').toUpperCase().includes(ku));
+    if (m) return { id: m.id };
+
+    return { id: '', reason: `product_not_found: "${k}"` };
   };
 
   const facCode = id => _facs.find(f => f.id === id)?.code || id;
@@ -3170,18 +3186,33 @@ function openDataManagementDialog(){
             });
           }
 
-          // Validate and import
+          // Validate and import with detailed error tracking
           let created = 0, updated = 0, skipped = 0;
           const targetList = dataType === 'production' ? ds.actuals.production : ds.actuals.shipments;
+          const errors = []; // Track detailed errors
 
-          rows.forEach(row => {
+          rows.forEach((row, rowIdx) => {
             const date = parseDate(row.date);
-            const facilityId = lookupFac(row.facilityCode);
-            const productId = lookupProd(row.materialNumber);
+            const facLookup = lookupFac(row.facilityCode);
+            const prodLookup = lookupProd(row.materialNumber);
+            const facilityId = facLookup.id;
+            const productId = prodLookup.id;
             const qty = Math.ceil(row.qtyStn || 0);
 
-            if (!date || !facilityId || !productId || qty === 0) {
+            // Collect error reasons
+            let errorReasons = [];
+            if (!date) errorReasons.push('invalid date');
+            if (!facilityId) errorReasons.push(facLookup.reason || 'facility not found');
+            if (!productId) errorReasons.push(prodLookup.reason || 'product not found');
+            if (qty === 0) errorReasons.push('zero quantity');
+
+            if (errorReasons.length > 0) {
               skipped++;
+              errors.push({
+                row: rowIdx + 1,
+                data: row,
+                reasons: errorReasons
+              });
               return;
             }
 
@@ -3221,9 +3252,30 @@ function openDataManagementDialog(){
           const summary = [];
           if (created > 0) summary.push(`${created} created`);
           if (updated > 0) summary.push(`${updated} updated`);
-          if (skipped > 0) summary.push(`${skipped} skipped`);
 
-          showToast(`Import complete: ${summary.join(', ')} ✓`, 'ok');
+          let toastMsg = `Import complete: ${summary.length > 0 ? summary.join(', ') : 'no changes'}`;
+          let toastType = 'ok';
+
+          // Build detailed error message if there were skipped rows
+          if (skipped > 0) {
+            toastMsg += ` | ${skipped} rows skipped`;
+            toastType = skipped >= rows.length * 0.5 ? 'warning' : 'ok';
+
+            // Log detailed errors to console
+            if (errors.length > 0) {
+              console.group(`${dataType === 'production' ? 'Production' : 'Shipment'} Import Errors (${errors.length} rows)`);
+              errors.slice(0, 20).forEach(err => {
+                const msg = `Row ${err.row}: ${err.reasons.join(', ')} - Data: ${JSON.stringify(err.data)}`;
+                console.log(msg);
+              });
+              if (errors.length > 20) {
+                console.log(`... and ${errors.length - 20} more errors`);
+              }
+              console.groupEnd();
+            }
+          }
+
+          showToast(toastMsg + ' ✓', toastType);
         } catch (err) {
           showToast('Import failed: ' + err.message, 'danger');
           console.error(err);

@@ -3311,7 +3311,7 @@ function openDataIODialog(){
 
   // ── EXCEL IMPORT ──
   // Strategy:
-  q('dioSetupExport').onclick = () => {
+  el('dioSetupExport').onclick = () => {
     const ds  = state.official;
     // Uses shared: _cat, _facs, facCode, facName, matNums, matName
     const matName = id => __cat.find(m=>m.id===id)?.name || id;
@@ -3332,7 +3332,7 @@ function openDataIODialog(){
   };
 
   // ── SETUP UPLOAD (→ directly into Official) ──
-  q('dioSetupImport').onclick = () => {
+  el('dioSetupImport').onclick = () => {
     const inp = document.createElement('input');
     inp.type = 'file'; inp.accept = '.xlsx,.xls';
     inp.onchange = () => {
@@ -3412,7 +3412,7 @@ function openDataIODialog(){
   };
 
   // ── TRANSACTIONS DOWNLOAD (Production + Shipments, simple 4-col, from Official) ──
-  q('dioTxnExport').onclick = () => {
+  el('dioTxnExport').onclick = () => {
     // Export from active dataset (sandbox if active, otherwise official)
     const ds = isSandbox && state.sandboxes?.[sbId]?.data ? state.sandboxes[sbId].data : state.official;
     const eqName = id => ds.equipment.find(e=>e.id===id)?.name || id;
@@ -3425,7 +3425,7 @@ function openDataIODialog(){
   };
 
   // ── TRANSACTIONS UPLOAD (→ active Sandbox, date-range merge) ──
-  q('dioTxnImport').onclick = () => {
+  el('dioTxnImport').onclick = () => {
     if(state.ui.mode !== 'sandbox'){ state.ui.mode = 'sandbox'; persist(); }
     const inp = document.createElement('input');
     inp.type = 'file'; inp.accept = '.xlsx,.xls';

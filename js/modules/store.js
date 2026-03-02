@@ -3,6 +3,9 @@
 // Version: 3  (catalog restructure + transfers + BOD override + multi-facility)
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { firebaseSave, firebaseLoad, firebaseListen } from './firebase-sync.js';
+export { firebaseListen };
+
 export const STORAGE_KEY  = 'cementPlannerRebuild_v4';
 const LEGACY_KEY_V3       = 'cementPlannerRebuild_v3';
 const LEGACY_KEY_V2       = 'cementPlannerRebuild_v2';
@@ -435,8 +438,20 @@ function migrateV3ToV4(v3) {
 // PUBLIC API
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function loadState() {
+export async function loadState() {
   try {
+    // ── Try Firebase first ──
+    const remote = await firebaseLoad();
+    if (remote) {
+      const v = remote._version || 0;
+      let state = remote;
+      if (v < 3) state = migrateV2V3(remote);
+      if (v < 4) state = migrateV3ToV4(state);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      return state;
+    }
+
+    // ── Fall back to localStorage ──
     // ── Try v4 key first ──
     const raw4 = localStorage.getItem(STORAGE_KEY);
     if (raw4) {
@@ -488,6 +503,7 @@ export function loadState() {
 
 export function saveState(state) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  firebaseSave(state);
 }
 
 /**

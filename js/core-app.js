@@ -3964,16 +3964,17 @@ function openDataIODialog(){
           const sheet = n => { const ws = wb2.Sheets[n]; return ws ? XLSX.utils.sheet_to_json(ws,{defval:''}) : null; };
           // If no sandbox exists, create one automatically
           if(!state.sandboxes) state.sandboxes = {};
-          if(!state.ui.activeSandbox || !state.sandboxes[state.ui.activeSandbox]){
+          const _sbId = state.ui.activeSandboxId;
+          if(!_sbId || !state.sandboxes[_sbId]){
             const newId = 'sb_' + Date.now();
             state.sandboxes[newId] = { name:'Default Sandbox', createdAt:new Date().toISOString(), data: JSON.parse(JSON.stringify(state.official)) };
-            state.ui.activeSandbox = newId;
+            state.ui.activeSandboxId = newId;
             state.ui.mode = 'sandbox';
           }
-          const sb = state.sandboxes[state.ui.activeSandbox];
+          const sb = state.sandboxes[state.ui.activeSandboxId];
           const ds = sb.data;
           const org = state.org; const cat = state.catalog||[]; const facs = org.facilities||[];
-          const parseDate = v => { if(!v) return ''; if(v instanceof Date) return v.toISOString().slice(0,10); const s=String(v).trim(); if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10); if(/^\d{5}$/.test(s)){ const d=new Date(Math.round((+s-25569)*86400*1000)); return d.toISOString().slice(0,10); } const p=new Date(s); return isNaN(p)?s:p.toISOString().slice(0,10); };
+          const parseDate = v => { if(!v) return ''; if(v instanceof Date) return v.toISOString().slice(0,10); const s=String(v).trim(); if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10); const n=+s; if(!isNaN(n)&&n>40000&&n<60000){ const d=new Date(Math.round((n-25569)*86400*1000)); return d.toISOString().slice(0,10); } const p=new Date(s); return isNaN(p)?'':p.toISOString().slice(0,10); };
           const lookupFac = v => { const k=String(v||'').trim(); return facs.find(f=>f.code===k||f.id===k||f.name===k)?.id||''; };
           const lookupProd = v => { const k=String(v||'').trim(); if(!k||k==='0') return ''; return cat.find(m=>(m.materialNumbers||[]).some(x=>String(typeof x==='object'?x.number:x)===k)||m.id===k||m.code===k||m.name===k)?.id||''; };
           const lookupEq = v => { const k=String(v||'').trim(); return ds.equipment.find(e=>e.name===k||e.id===k||e.id.endsWith('_'+k))?.id||''; };

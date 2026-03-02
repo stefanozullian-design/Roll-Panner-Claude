@@ -1,8 +1,29 @@
-import { loadState, saveState, pushSandboxToOfficial, createSandbox, deleteSandbox, renameSandbox } from './modules/store.js';
+import { loadState, saveState, pushSandboxToOfficial, createSandbox, deleteSandbox, renameSandbox, firebaseListen } from './modules/store.js';
 import { actions, selectors, Categories, getRulesOfEngagement, upsertRuleOfEngagement, deleteRuleOfEngagement } from './modules/dataAuthority.js';
 import { buildProductionPlanView, yesterdayLocal, startOfMonth } from './modules/simEngine.js';
 
-let state = loadState();
+// State is loaded async from Firebase (falls back to localStorage)
+let state = null;
+
+async function init() {
+  // Show loading indicator
+  document.body.innerHTML += '<div id="fb-loading" style="position:fixed;top:0;left:0;right:0;bottom:0;background:#0f1117;display:flex;align-items:center;justify-content:center;z-index:9999;font-family:IBM Plex Mono,monospace;color:#7a8aa8;font-size:13px;letter-spacing:.05em">⟳ Loading from cloud...</div>';
+
+  state = await loadState();
+
+  document.getElementById('fb-loading')?.remove();
+
+  // Live listener — update state when another computer saves
+  firebaseListen(remoteState => {
+    state = remoteState;
+    render();
+    showToast('🔄 Data updated from another device', 'ok');
+  });
+
+  render();
+}
+
+init();
 
 // ── Runtime data patch: ensure actuals use new field names ──
 // Covers existing v3 data saved before the inventoryEOD→inventoryBOD rename
@@ -457,6 +478,7 @@ function showToast(msg, type='ok'){
 
 /* ─────────────────── RENDER ─────────────────── */
 function render(){
+  if(!state) return; // wait for async init
   initShell();
   ALL_TAB_KEYS.forEach(k=>{
     const p = el(`tab-${k}`);
@@ -3279,8 +3301,7 @@ function renderLogisticsPlaceholder(tabKey){
   </div>`;
 }
 
-// Boot
-render();
+// Boot handled by init() above
 
 /* ─────────────────── DATA I/O DIALOG ─────────────────── */
 function openDataIODialog(){

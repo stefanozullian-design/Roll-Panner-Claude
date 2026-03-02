@@ -20,17 +20,20 @@ const app = initializeApp(firebaseConfig);
 const db  = getFirestore(app);
 const STATE_DOC = doc(db, 'app', 'state');
 
-let _saveTimer    = null;
-let _ignoreNext   = false;   // suppress echo from our own writes
-let _onRemoteChange = null;  // callback → called when another client changes state
+// Unique ID for this browser tab — used to detect own writes
+const MY_CLIENT_ID = Math.random().toString(36).slice(2);
+
+let _saveTimer = null;
+let _lastSavedWriteId = null;  // ignore snapshots with this writeId (our own echo)
 
 // ── SAVE (debounced 1.5s to avoid hammering Firestore) ──
 export function firebaseSave(state) {
   if (_saveTimer) clearTimeout(_saveTimer);
   _saveTimer = setTimeout(async () => {
     try {
-      _ignoreNext = true;
-      await setDoc(STATE_DOC, { payload: JSON.stringify(state) });
+      const writeId = `${MY_CLIENT_ID}_${Date.now()}`;
+      _lastSavedWriteId = writeId;
+      await setDoc(STATE_DOC, { payload: JSON.stringify(state), writeId });
     } catch (err) {
       console.warn('[Firebase] save failed:', err);
     }
@@ -52,18 +55,18 @@ export async function firebaseLoad() {
   }
 }
 
-// ── LIVE LISTENER (optional — updates UI when another computer saves) ──
+// ── LIVE LISTENER — updates UI when another computer saves ──
 export function firebaseListen(callback) {
-  _onRemoteChange = callback;
   return onSnapshot(STATE_DOC, (snap) => {
-    if (_ignoreNext) { _ignoreNext = false; return; }
-    if (snap.exists()) {
-      try {
-        const state = JSON.parse(snap.data().payload);
-        if (state && _onRemoteChange) _onRemoteChange(state);
-      } catch (err) {
-        console.warn('[Firebase] parse error on snapshot:', err);
-      }
+    if (!snap.exists()) return;
+    const data = snap.data();
+    // Ignore snapshots caused by our own writes
+    if (data.writeId && data.writeId === _lastSavedWriteId) return;
+    try {
+      const state = JSON.parse(data.payload);
+      if (state) callback(state);
+    } catch (err) {
+      console.warn('[Firebase] parse error on snapshot:', err);
     }
   });
 }

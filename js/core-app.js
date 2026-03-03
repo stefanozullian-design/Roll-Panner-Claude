@@ -39,6 +39,9 @@ async function init() {
     showToast('🔄 Another device saved changes. <button onclick="window.location.reload()" style="margin-left:8px;padding:2px 8px;border-radius:4px;border:1px solid #22c55e;background:none;color:#22c55e;cursor:pointer;font-size:11px">Reload</button>', 'ok', 8000);
   });
 
+  // Expose state to global scope for debugging and export
+  window.state = state;
+
   render();
 }
 
@@ -150,7 +153,10 @@ const fmt0 = n => Number(n||0).toLocaleString(undefined, {maximumFractionDigits:
 const dateRange = (start, days) => { const a=[]; let d=new Date(start+'T00:00:00'); for(let i=0;i<days;i++){a.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1);} return a; };
 const today = () => new Date().toISOString().slice(0,10);
 
-function persist(){ saveState(state); }
+function persist(){
+  saveState(state);
+  window.state = state; // Keep global reference in sync
+}
 
 /* ─────────────────── DATA EXPORT/IMPORT ─────────────────── */
 function exportBackup() {

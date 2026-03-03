@@ -164,7 +164,8 @@
 
     /* Plan table specific */
     .plan-table {
-      width: auto;             /* Use natural width based on content (prevents column expansion) */
+      table-layout: fixed;      /* Force fixed column widths - prevents columns from expanding when siblings collapse */
+      width: 100%;
       border-collapse: collapse;
     }
     .plan-table th { padding: 5px 6px; font-size: 9px; width: 50px; }  /* Fixed column widths */
@@ -189,7 +190,6 @@
     /* table scroller */
     .table-scroll {
       overflow-x: auto;
-      min-width: max-content;  /* Maintains consistent width when months collapse - shows empty space instead of expanding columns */
     }
     .table-scroll::-webkit-scrollbar { height: 6px; width: 6px; }
     .table-scroll::-webkit-scrollbar-track { background: var(--surface); }

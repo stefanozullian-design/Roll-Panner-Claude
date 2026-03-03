@@ -205,6 +205,11 @@ function importBackup() {
   input.click();
 }
 
+// Expose export/import functions to global scope for onclick handlers
+window.exportBackup = exportBackup;
+window.exportOfficialBackup = exportOfficialBackup;
+window.importBackup = importBackup;
+
 /* ─────────────────── SHELL ─────────────────── */
 function initShell(){
   const s = selectors(state);

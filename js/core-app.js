@@ -816,6 +816,7 @@ function renderPlan(){
   });
 
   const dateHeaders = dayHeaderCells.join('');
+  const yearHeaderRow = '';  // Year headers not used in current design
   const monthHeaderRow = `<tr>${monthHeaderCells.join('')}</tr>`;
 
   // Simplified cell renderer for each date (or month summary if month is collapsed)

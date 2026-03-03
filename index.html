@@ -163,9 +163,15 @@
     .data-table .num { text-align: right; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
 
     /* Plan table specific */
-    .plan-table th { padding: 5px 6px; font-size: 9px; }
-    .plan-table td { padding: 3px 6px; }
-    .plan-table .row-header { position: sticky; left: 0; background: var(--surface); z-index: 1; white-space: nowrap; width: max-content; min-width: 180px; }
+    .plan-table {
+      width: auto;             /* Use natural width based on content (prevents column expansion) */
+      border-collapse: collapse;
+    }
+    .plan-table th { padding: 5px 6px; font-size: 9px; width: 50px; }  /* Fixed column widths */
+    .plan-table td { padding: 3px 6px; width: 50px; }  /* Fixed column widths */
+    .plan-table th.row-header,
+    .plan-table td.row-header { width: 200px; }  /* Row header fixed width */
+    .plan-table .row-header { position: sticky; left: 0; background: var(--surface); z-index: 1; white-space: nowrap; min-width: 180px; }
     .plan-table .row-label-group {
       background: var(--surface2); color: var(--muted);
       font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 600; letter-spacing: 0.1em;
@@ -181,7 +187,10 @@
     .plan-table .cell-today { border-left: 2px solid var(--accent) !important; border-right: 2px solid var(--accent) !important; }
 
     /* table scroller */
-    .table-scroll { overflow-x: auto; }
+    .table-scroll {
+      overflow-x: auto;
+      min-width: max-content;  /* Maintains consistent width when months collapse - shows empty space instead of expanding columns */
+    }
     .table-scroll::-webkit-scrollbar { height: 6px; width: 6px; }
     .table-scroll::-webkit-scrollbar-track { background: var(--surface); }
     .table-scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }

@@ -713,11 +713,44 @@ function renderPlan(){
     dateHierarchy[yyyy][yyyymm].push(d);
   });
 
-  // Initialize month collapse state (all months start expanded)
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PHASE 4: Smart date range defaults (7 days before + 2 weeks after today)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Calculate smart date range defaults
+  const addDays = (dateStr, n) => {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const smartRangeStart = addDays(todayStr, -7);  // 7 days before today
+  const smartRangeEnd = addDays(todayStr, 14);    // 2 weeks after today
+  const todayMonth = todayStr.slice(0, 7);
+
+  // Helper: check if a month overlaps with smart range
+  const isMonthInSmartRange = (yyyymm) => {
+    const [yyyy, mm] = yyyymm.split('-');
+    const monthStart = `${yyyymm}-01`;
+    const monthEnd = `${yyyy}-${mm}-${new Date(parseInt(yyyy), parseInt(mm), 0).getDate()}`;
+    // Month overlaps if: monthStart <= rangeEnd AND monthEnd >= rangeStart
+    return monthStart <= smartRangeEnd && monthEnd >= smartRangeStart;
+  };
+
+  // Initialize month collapse state with smart defaults
   const monthCollapseState = {};
+  const savedCollapseState = localStorage.getItem('planMonthCollapseState');
+  const savedState = savedCollapseState ? JSON.parse(savedCollapseState) : {};
+
   Object.entries(dateHierarchy).forEach(([yyyy, months]) => {
     Object.keys(months).forEach(yyyymm => {
-      monthCollapseState[yyyymm] = true; // true = expanded, showing days
+      // Use saved state if available, otherwise use smart defaults
+      if(savedState[yyyymm] !== undefined) {
+        monthCollapseState[yyyymm] = savedState[yyyymm];
+      } else {
+        // Smart default: expand if month is in range, collapse if outside
+        monthCollapseState[yyyymm] = isMonthInSmartRange(yyyymm);
+      }
     });
   });
 
@@ -960,6 +993,7 @@ function renderPlan(){
   </div>
   <div style="font-size:11px;color:var(--muted);padding:4px 0 16px">
     Red text = Stockout (EOD&lt;0) · Amber text = Full (EOD&gt;max) · Warn color = High (EOD&gt;75%) · Pink = weekend · Colored = equipment producing · MNT = maintenance · OOO = out of order
+    <br/><strong style="color:var(--accent);">📅 Smart defaults:</strong> Previous months collapsed by default (7d before + 2w after today) · Click month headers to expand/collapse · Your preferences are saved
   </div>`;
 
   // Simple facility collapse/expand handler
@@ -1002,7 +1036,7 @@ function renderPlan(){
     });
 
     tbody.addEventListener('click', e => {
-      // Handle month header clicks - PHASE 3
+      // Handle month header clicks - PHASE 3 & 4
       const monthHeader = e.target.closest('.collapsible-month');
       if(monthHeader) {
         e.stopPropagation();
@@ -1011,6 +1045,9 @@ function renderPlan(){
         // Toggle month collapse state
         monthCollapseState[yyyymm] = !monthCollapseState[yyyymm];
         const open = monthCollapseState[yyyymm];
+
+        // Save collapse state to localStorage - PHASE 4
+        localStorage.setItem('planMonthCollapseState', JSON.stringify(monthCollapseState));
 
         // Update icon rotation
         const icon = monthHeader.querySelector('.month-collapse-icon');
@@ -1096,7 +1133,7 @@ function renderPlan(){
 
       const expand = choice === '1' ? 'month' : choice === '2' ? 'context' : 'all';
 
-      // Collapse/expand months based on choice
+      // Collapse/expand months based on choice - PHASE 4 UPDATED
       Object.keys(monthCollapseState).forEach(yyyymm => {
         if(expand === 'all') {
           monthCollapseState[yyyymm] = true; // expand all
@@ -1111,6 +1148,9 @@ function renderPlan(){
           monthCollapseState[yyyymm] = (yyyymm === todayMonth); // expand only today's month
         }
       });
+
+      // Save month collapse state to localStorage
+      localStorage.setItem('planMonthCollapseState', JSON.stringify(monthCollapseState));
 
       // Expand facilities and families based on choice
       table.querySelectorAll('.plan-fac-header').forEach(tr => {

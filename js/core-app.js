@@ -750,10 +750,12 @@ function renderPlan(){
 
   // Build HTML rows from facility-organized unifiedRows
   let lastFacilityId = null;
+  let lastFamilyName = null;  // Track current family for child rows
   const tableRows = unifiedRows.map((r, idx) => {
     // Facility header rows - collapsible per facility
     if(r._type === 'facility-header'){
       lastFacilityId = r._facilityId;
+      lastFamilyName = null;
       const facId = r._facilityId;
       return `<tr class="plan-fac-header" data-fac="${facId}" style="cursor:pointer;user-select:none;">
         <td class="row-header" style="position:sticky;left:0;z-index:3;background:#0f1419;border:2px solid var(--border);padding:8px 12px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--accent);">
@@ -763,10 +765,14 @@ function renderPlan(){
       </tr>`;
     }
 
-    // Family header rows within facilities
+    // Family header rows within facilities - now collapsible
     if(r._type === 'family-header'){
-      return `<tr class="plan-family-header fac-child fac-${lastFacilityId}" style="display:none;">
-        <td class="row-header" style="position:sticky;left:0;z-index:2;background:rgba(15,23,42,0.9);border:1px solid var(--border);padding:6px 12px 6px 24px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--text);">${esc(r.label)}</td>
+      lastFamilyName = r._family;
+      const familyId = r._family;
+      return `<tr class="plan-family-header collapsible-family fac-child fac-${lastFacilityId}" data-family="${familyId}" data-facility="${lastFacilityId}" style="display:none;cursor:pointer;user-select:none;">
+        <td class="row-header" style="position:sticky;left:0;z-index:2;background:rgba(15,23,42,0.9);border:1px solid var(--border);padding:6px 12px 6px 24px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--text);">
+          <span class="family-collapse-icon" style="margin-right:6px;display:inline-block;transition:transform .15s;font-size:9px;">▼</span>${esc(r.label)}
+        </td>
         <td colspan="9999" style="background:rgba(15,23,42,0.5);border:1px solid var(--border);border-left:none;padding:0;"></td>
       </tr>`;
     }
@@ -774,7 +780,8 @@ function renderPlan(){
     // Subtotal rows
     if(r.kind === 'subtotal' || r._type === 'subtotal-header'){
       const cells = plan.dates.map(d => renderDayCell(r, d)).join('');
-      return `<tr class="plan-subtotal fac-child fac-${lastFacilityId}" style="display:none;border-top:1px solid var(--border);">
+      const familyClass = lastFamilyName ? ` family-child family-${lastFamilyName}` : '';
+      return `<tr class="plan-subtotal fac-child fac-${lastFacilityId}${familyClass}" style="display:none;border-top:1px solid var(--border);">
         <td class="row-header" style="position:sticky;left:0;z-index:2;background:rgba(20,28,50,0.8);font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text);padding-left:32px;">${esc(r.label)}</td>
         ${cells}
       </tr>`;
@@ -782,7 +789,8 @@ function renderPlan(){
 
     // Placeholder rows
     if(r._type === 'placeholder' || r.kind === 'placeholder'){
-      return `<tr class="plan-placeholder fac-child fac-${lastFacilityId}" style="display:none;opacity:0.6;">
+      const familyClass = lastFamilyName ? ` family-child family-${lastFamilyName}` : '';
+      return `<tr class="plan-placeholder fac-child fac-${lastFacilityId}${familyClass}" style="display:none;opacity:0.6;">
         <td class="row-header" style="position:sticky;left:0;z-index:2;background:rgba(10,13,20,0.97);font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--muted);padding-left:40px;font-style:italic;">${esc(r.label)} (no data)</td>
         <td colspan="9999"></td>
       </tr>`;
@@ -790,7 +798,8 @@ function renderPlan(){
 
     // Regular data rows
     const cells = plan.dates.map(d => renderDayCell(r, d)).join('');
-    return `<tr class="plan-data-row fac-child fac-${lastFacilityId}" style="display:none;">
+    const familyClass = lastFamilyName ? ` family-child family-${lastFamilyName}` : '';
+    return `<tr class="plan-data-row fac-child fac-${lastFacilityId}${familyClass}" style="display:none;">
       <td class="row-header" style="position:sticky;left:0;z-index:2;background:rgba(10,13,20,0.97);font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--text);padding-left:40px;" title="${esc(r.productLabel||r.label)}">${esc(r.label)}</td>
       ${cells}
     </tr>`;
@@ -849,7 +858,49 @@ function renderPlan(){
       });
     });
 
+    // Family-level collapse state (per facility)
+    const familyOpenState = {};
+    unifiedRows.forEach(r => {
+      if(r._type === 'family-header'){
+        const key = `${r._facilityId}|${r._family}`;
+        if(!familyOpenState[r._facilityId]) familyOpenState[r._facilityId] = {};
+        familyOpenState[r._facilityId][r._family] = true; // All families start expanded
+      }
+    });
+
+    // Initialize family rows display (show if facility and family are open)
+    Object.entries(familyOpenState).forEach(([facId, families]) => {
+      Object.entries(families).forEach(([familyName, isOpen]) => {
+        if(isOpen) {
+          root.querySelectorAll(`.family-child.family-${familyName}.fac-${facId}`).forEach(row => {
+            row.style.display = '';
+          });
+        }
+      });
+    });
+
     tbody.addEventListener('click', e => {
+      // Handle family header clicks
+      const familyHeader = e.target.closest('.collapsible-family');
+      if(familyHeader) {
+        e.stopPropagation();
+        const facId = familyHeader.dataset.facility;
+        const familyName = familyHeader.dataset.family;
+
+        if(!familyOpenState[facId]) familyOpenState[facId] = {};
+        familyOpenState[facId][familyName] = !familyOpenState[facId][familyName];
+        const open = familyOpenState[facId][familyName];
+
+        const icon = familyHeader.querySelector('.family-collapse-icon');
+        if(icon) icon.style.transform = open ? '' : 'rotate(-90deg)';
+
+        root.querySelectorAll(`.family-child.family-${familyName}.fac-${facId}`).forEach(row => {
+          row.style.display = open ? '' : 'none';
+        });
+        return;
+      }
+
+      // Handle facility header clicks
       const facHeader = e.target.closest('.plan-fac-header');
       if(!facHeader) return;
 

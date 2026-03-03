@@ -731,17 +731,16 @@ function renderPlan(){
       return `<td class="num" style="${baseSty}background:${color}18;font-size:10px;color:${color}" title="${esc(tip)}">${fmt0(v)}</td>`;
     }
 
-    // Inventory cells (BOD, EOD, etc.)
+    // Inventory cells (BOD, EOD, etc.) - color-coded without icons
     if(r.storageId){
       const imeta = plan.inventoryCellMeta?.[`${d}|${r.storageId}`];
       let cellStyle = baseSty + 'font-size:10px;';
-      let prefix = '';
       if(imeta){
-        if(imeta.severity==='stockout'){ cellStyle += 'background:rgba(239,68,68,0.18);color:#fca5a5;font-weight:700;'; prefix='🔴 '; }
-        else if(imeta.severity==='full'){ cellStyle += 'background:rgba(245,158,11,0.18);color:#fcd34d;font-weight:700;'; prefix='🟡 '; }
-        else if(imeta.warn==='high75'){ cellStyle += 'color:var(--warn);'; prefix='△ '; }
+        if(imeta.severity==='stockout'){ cellStyle += 'background:rgba(239,68,68,0.18);color:#fca5a5;font-weight:700;'; }
+        else if(imeta.severity==='full'){ cellStyle += 'background:rgba(245,158,11,0.18);color:#fcd34d;font-weight:700;'; }
+        else if(imeta.warn==='high75'){ cellStyle += 'color:var(--warn);'; }
       }
-      return `<td class="num" style="${cellStyle}">${prefix}${v?fmt0(v):''}</td>`;
+      return `<td class="num" style="${cellStyle}">${v?fmt0(v):''}</td>`;
     }
 
     // Default cell
@@ -837,7 +836,7 @@ function renderPlan(){
     </div>
   </div>
   <div style="font-size:11px;color:var(--muted);padding:4px 0 16px">
-    🔴 Stockout (EOD<0) · 🟡 Full (EOD>max) · △ High (EOD>75%) · Pink = weekend · Colored = equipment producing · MNT = maintenance · OOO = out of order
+    Red text = Stockout (EOD&lt;0) · Amber text = Full (EOD&gt;max) · Warn color = High (EOD&gt;75%) · Pink = weekend · Colored = equipment producing · MNT = maintenance · OOO = out of order
   </div>`;
 
   // Simple facility collapse/expand handler

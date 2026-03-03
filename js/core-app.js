@@ -732,7 +732,8 @@ function renderPlan(){
   const isMonthInSmartRange = (yyyymm) => {
     const [yyyy, mm] = yyyymm.split('-');
     const monthStart = `${yyyymm}-01`;
-    const monthEnd = `${yyyy}-${mm}-${new Date(parseInt(yyyy), parseInt(mm), 0).getDate()}`;
+    const lastDay = new Date(parseInt(yyyy), parseInt(mm), 0).getDate();
+    const monthEnd = `${yyyy}-${mm}-${String(lastDay).padStart(2, '0')}`;
     // Month overlaps if: monthStart <= rangeEnd AND monthEnd >= rangeStart
     return monthStart <= smartRangeEnd && monthEnd >= smartRangeStart;
   };

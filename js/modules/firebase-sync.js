@@ -117,14 +117,19 @@ async function _performSave(state) {
 // ── LOAD (one-time read on startup) ──
 export async function firebaseLoad() {
   try {
-    const snap = await getDoc(STATE_DOC);
+    // Add 5-second timeout to prevent hanging on bad Firebase config
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Firebase load timeout (5s)')), 5000)
+    );
+
+    const snap = await Promise.race([getDoc(STATE_DOC), timeoutPromise]);
     if (snap.exists()) {
       const raw = snap.data().payload;
       return raw ? JSON.parse(raw) : null;
     }
     return null;
   } catch (err) {
-    console.warn('[Firebase] load failed:', err);
+    console.warn('[Firebase] load failed:', err.message || err);
     return null;
   }
 }

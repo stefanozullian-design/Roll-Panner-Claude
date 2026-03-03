@@ -143,8 +143,8 @@ export function getStateStats(state) {
   const sandboxes = state.sandboxes || {};
 
   return {
-    facilities: (official.facilities || []).length,
-    products: (official.products || []).length,
+    facilities: (state.org?.facilities || []).length,  // Facilities are in org, not official
+    products: (state.catalog || []).length,            // Products are in global catalog
     equipment: (official.equipment || []).length,
     storages: (official.storages || []).length,
     recipes: (official.recipes || []).length,

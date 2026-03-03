@@ -12,15 +12,11 @@ async function init() {
 
   state = await loadState();
 
-  // Patch state after load
+  // Normalize state structure after load (migration handled in store.js:migrateV2V3)
   const _datasets = [state.official, ...Object.values(state.sandboxes||{}).map(sb=>sb?.data)].filter(Boolean);
   _datasets.forEach(ds => {
     if (!ds.actuals) ds.actuals = {};
-    if (ds.actuals.inventoryEOD !== undefined) {
-      if (!Array.isArray(ds.actuals.inventoryBOD) || ds.actuals.inventoryBOD.length === 0)
-        ds.actuals.inventoryBOD = ds.actuals.inventoryEOD;
-      delete ds.actuals.inventoryEOD;
-    }
+    // Note: inventoryEOD → inventoryBOD migration already handled by store.js migrations
     if (!Array.isArray(ds.actuals.inventoryBOD)) ds.actuals.inventoryBOD = [];
     if (!Array.isArray(ds.actuals.production))   ds.actuals.production   = [];
     if (!Array.isArray(ds.actuals.shipments))     ds.actuals.shipments    = [];

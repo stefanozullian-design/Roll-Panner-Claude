@@ -211,7 +211,6 @@ function simulateFacility(state, s, ds, facId, dates) {
     // ── Step 1: Outbound shipments (demand) ──
     // Apply demand first so cement silo headroom calculation in FM allocation
     // correctly accounts for product that will leave today.
-    const finishedProds = s.materials.filter(m => m.category === Categories.FIN && (ds.facilityProducts || []).some(fp => fp.facilityId === facId && fp.productId === m.id) || s.getFacilityProducts(facId).some(fp => fp.id === m.id));
     // Use all finished products that this facility has activated
     const facFinished = s.getFacilityProducts(facId).filter(m => m.category === Categories.FIN);
 
@@ -492,10 +491,10 @@ function simulateFacility(state, s, ds, facId, dates) {
 
   const facilityRows = []; // The new unified output
 
-  // Check if this facility should have CLINKER section (BRS and MIA only)
-  const hasClinkerSection = facId === 'BRS' || facId === 'MIA';
+  // Clinker section displays for cement plants that produce clinker
+  const hasClinkerSection = facType === 'cement_plant' && kilns.length > 0;
 
-  if (facType === 'cement_plant' && hasClinkerSection) {
+  if (hasClinkerSection) {
     // ── CLINKER section (BRS and MIA only) ──
     // Order: BOD → Consumption → Production → EOD
     facilityRows.push({ kind: 'family-header', label: 'CLINKER', _family: 'CLINKER' });
@@ -599,7 +598,7 @@ function simulateFacility(state, s, ds, facId, dates) {
     inventoryBODRows: facilityRows.filter(r => r._section === 'bod' || r.kind === 'subtotal' && r.label.includes('INV-BOD')),
     productionRows:   facilityRows.filter(r => r._section === 'prod'),
     outflowRows:      facilityRows.filter(r => r._section === 'demand' || r.label?.includes('DEMAND')),
-    inventoryEODRows: [],
+    inventoryEODRows: facilityRows.filter(r => r._section === 'eod' || r.kind === 'subtotal' && r.label.includes('INV-EOD')),
     kilns,
     fms,
     eqCellMeta,
@@ -702,7 +701,7 @@ export function buildProductionPlanView(state, startDate, days = 35) {
     productionRows:   facResults.flatMap(fr => fr.productionRows),
     inventoryBODRows: facResults.flatMap(fr => fr.inventoryBODRows),
     outflowRows:      facResults.flatMap(fr => fr.outflowRows),
-    inventoryEODRows: [],
+    inventoryEODRows: facResults.flatMap(fr => fr.inventoryEODRows),
     _debug: { facResults },
   };
 }

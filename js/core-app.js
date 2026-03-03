@@ -745,12 +745,12 @@ function renderPlan(){
 
   Object.entries(dateHierarchy).forEach(([yyyy, months]) => {
     Object.keys(months).forEach(yyyymm => {
-      // Use saved state if available, otherwise use smart defaults
+      // Use saved state if available, otherwise default to expanded
       if(savedState[yyyymm] !== undefined) {
         monthCollapseState[yyyymm] = savedState[yyyymm];
       } else {
-        // Smart default: expand if month is in range, collapse if outside
-        monthCollapseState[yyyymm] = isMonthInSmartRange(yyyymm);
+        // Default: all months expanded by default (user can click to collapse)
+        monthCollapseState[yyyymm] = true;  // true = expanded, showing individual day columns
       }
     });
   });
@@ -994,7 +994,7 @@ function renderPlan(){
   </div>
   <div style="font-size:11px;color:var(--muted);padding:4px 0 16px">
     Red text = Stockout (EOD&lt;0) · Amber text = Full (EOD&gt;max) · Warn color = High (EOD&gt;75%) · Pink = weekend · Colored = equipment producing · MNT = maintenance · OOO = out of order
-    <br/><strong style="color:var(--accent);">📅 Smart defaults:</strong> Previous months collapsed by default (7d before + 2w after today) · Click month headers to expand/collapse · Your preferences are saved
+    <br/><strong style="color:var(--accent);">📅 Month collapse:</strong> Click month headers (JAN, FEB, etc.) to toggle between day columns and monthly summary · Your preferences are saved
   </div>`;
 
   // Simple facility collapse/expand handler

@@ -1,6 +1,7 @@
 import { loadState, saveState, pushSandboxToOfficial, createSandbox, deleteSandbox, renameSandbox, firebaseListen } from './modules/store.js';
 import { actions, selectors, Categories, getRulesOfEngagement, upsertRuleOfEngagement, deleteRuleOfEngagement } from './modules/dataAuthority.js';
 import { buildProductionPlanView, yesterdayLocal, startOfMonth } from './modules/simEngine.js';
+import { exportStateAsJSON, exportOfficialOnly, importStateFromFile, getExportSummary } from './modules/dataExport.js';
 
 // State is loaded async from Firebase (falls back to localStorage)
 let state = null;
@@ -150,6 +151,59 @@ const dateRange = (start, days) => { const a=[]; let d=new Date(start+'T00:00:00
 const today = () => new Date().toISOString().slice(0,10);
 
 function persist(){ saveState(state); }
+
+/* ─────────────────── DATA EXPORT/IMPORT ─────────────────── */
+function exportBackup() {
+  const summary = getExportSummary(state);
+  const confirmed = confirm(
+    summary + '\n\n' +
+    'Click OK to download the backup as a JSON file.\n' +
+    'You can use this file to restore your data later.'
+  );
+
+  if (confirmed) {
+    const result = exportStateAsJSON(state);
+    showToast(`✅ Backup exported: ${result.filename}`, 'ok', 3000);
+  }
+}
+
+function exportOfficialBackup() {
+  const result = exportOfficialOnly(state);
+  showToast(`✅ Official dataset exported: ${result.filename}`, 'ok', 3000);
+}
+
+function importBackup() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      showToast('⏳ Importing data...', 'info', 1000);
+      const importedData = await importStateFromFile(file);
+
+      // Merge imported data with current state, preserving UI settings
+      const uiState = state.ui;
+      Object.assign(state, importedData);
+      state.ui = uiState; // Preserve UI state
+
+      // Save to localStorage and notify
+      persist();
+      showToast('✅ Data imported successfully! Reloading...', 'ok', 2000);
+
+      // Reload after a short delay to apply changes
+      setTimeout(() => window.location.reload(), 500);
+    } catch (err) {
+      console.error('[Import Error]', err);
+      showToast(`❌ Import failed: ${err.message}`, 'error', 4000);
+    }
+  };
+
+  input.click();
+}
 
 /* ─────────────────── SHELL ─────────────────── */
 function initShell(){

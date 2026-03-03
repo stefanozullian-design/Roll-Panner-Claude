@@ -778,15 +778,13 @@ function renderPlan(){
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // PHASE 3 REFACTOR: Excel-like fixed column widths
-  // Render ALL day columns always, hide/show with CSS based on collapse state
+  // PHASE 3 REFACTOR: Excel-like column structure
+  // Remove month header row, change headers to MMM-DD format, move collapse to summary
   // ═══════════════════════════════════════════════════════════════════════════
 
-  const monthHeaderCells = [];
   const dayHeaderCells = [];
 
-  // Build month headers that span all days (even when some are hidden)
-  // and build day headers with visibility classes
+  // Build day headers with MMM-DD format and summary column with collapse control
   Object.entries(dateHierarchy).forEach(([yyyy, months]) => {
     const monthKeys = Object.keys(months).sort();
 
@@ -794,30 +792,31 @@ function renderPlan(){
       const isOpen = monthCollapseState[yyyymm];
       const dates = months[yyyymm];
       const { abbr, month } = monthInfo(yyyymm);
-      const colSpan = dates.length + 1;  // +1 for the summary column
 
-      // Month header always spans all columns (days + summary)
-      monthHeaderCells.push(`<th colspan="${colSpan}" data-month="${yyyymm}" class="month-header collapsible-month" style="text-align:center;background:rgba(59,130,246,0.12);border:1px solid var(--border);cursor:pointer;user-select:none;font-size:8px;font-weight:600;color:var(--text);"><span class="month-collapse-icon" style="display:inline-block;transition:transform 0.15s;font-size:8px;">${isOpen?'▼':'▶'}</span> ${abbr}</th>`);
+      // Day headers with MMM-DD format (only render if month is expanded)
+      if(isOpen) {
+        dates.forEach(d => {
+          const isWk = isWeekendDate(d);
+          const isTd = d === todayStr;
+          const dd2 = d.slice(8, 10);
+          let sty = isWk ? wkdColStyle : '';
+          if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);background:rgba(59,130,246,0.15);';
+          const headerLabel = `${abbr}-${dd2}`;  // MMM-DD format (e.g., JAN-01)
+          dayHeaderCells.push(`<th data-date="${d}" data-month="${yyyymm}" class="day-header day-${yyyymm.replace('-','_')}" style="min-width:50px;width:50px;${sty}font-size:8px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':'color:var(--muted)'}"><div style="font-weight:700">${headerLabel}</div></th>`);
+        });
+      }
 
-      // Day headers (always rendered, shown/hidden by CSS)
-      dates.forEach(d => {
-        const isWk = isWeekendDate(d);
-        const isTd = d === todayStr;
-        const dd2 = d.slice(8, 10);
-        let sty = isWk ? wkdColStyle : '';
-        if(isTd) sty += 'border-left:2px solid var(--accent);border-right:2px solid var(--accent);background:rgba(59,130,246,0.15);';
-        dayHeaderCells.push(`<th data-date="${d}" data-month="${yyyymm}" class="day-header day-${yyyymm.replace('-','_')}" style="min-width:50px;width:50px;display:${isOpen?'':'none'};${sty}font-size:8px;${isWk?'color:rgba(239,68,68,0.65)':isTd?'color:var(--accent)':'color:var(--muted)'}"><div style="font-weight:700">${dd2}</div></th>`);
-      });
-
-      // Month summary header (always rendered, shown/hidden by CSS)
+      // Month summary header with collapse control (always rendered)
       const mmyyyy = `${yyyymm.slice(5)}-${yyyymm.slice(0,4)}`;  // MM-YYYY format
-      dayHeaderCells.push(`<th data-month="${yyyymm}" class="month-summary-col month-summary-${yyyymm.replace('-','_')}" style="min-width:50px;width:50px;display:${isOpen?'none':''};background:rgba(59,130,246,0.15);border:1px solid var(--border);font-size:8px;color:var(--text);text-align:center;font-weight:600;">${mmyyyy}</th>`);
+      dayHeaderCells.push(`<th data-month="${yyyymm}" class="month-summary-col month-summary-${yyyymm.replace('-','_')}" style="min-width:50px;width:50px;background:rgba(59,130,246,0.15);border:1px solid var(--border);font-size:8px;color:var(--text);text-align:center;font-weight:600;cursor:pointer;user-select:none;" data-yyyymm="${yyyymm}">
+        <span class="month-collapse-icon" style="display:inline-block;transition:transform 0.15s;font-size:8px;">${isOpen?'▼':'▶'}</span><br/>${mmyyyy}
+      </th>`);
     });
   });
 
   const dateHeaders = dayHeaderCells.join('');
   const yearHeaderRow = '';  // Year headers not used in current design
-  const monthHeaderRow = `<tr>${monthHeaderCells.join('')}</tr>`;
+  const monthHeaderRow = '';  // REMOVED: No longer have separate month header row
 
   // Simplified cell renderer for each date (or month summary if month is collapsed)
   const renderDayCell = (r, d, isMonthSummary = false, yyyymm = null) => {
@@ -874,7 +873,7 @@ function renderPlan(){
     return `<td class="num" style="${baseSty}font-size:10px;${r.kind==='subtotal'?'font-weight:700;':'color:var(--muted);'}">${v?fmt0(v):''}</td>`;
   };
 
-  // Helper: build cells for a row - always render all cells, use CSS to hide/show
+  // Helper: build cells for a row - conditionally render based on collapse state
   const buildRowCells = (r) => {
     let cells = '';
     Object.entries(dateHierarchy).forEach(([yyyy, months]) => {
@@ -882,18 +881,18 @@ function renderPlan(){
         const isOpen = monthCollapseState[yyyymm];
         const monthDates = months[yyyymm];
 
-        // Always render all day cells for this month
-        cells += monthDates.map(d => {
-          const dayCell = renderDayCell(r, d, false);
-          // Wrap with class to allow CSS hiding
-          const dayCellWithClass = dayCell.replace(/<td/, `<td class="day-${yyyymm.replace('-','_')}" style="display:${isOpen?'':'none'};"`);
-          return dayCellWithClass;
-        }).join('');
+        // Conditionally render day cells only if month is expanded
+        if(isOpen) {
+          cells += monthDates.map(d => {
+            const dayCell = renderDayCell(r, d, false);
+            // Add class for identification
+            return dayCell.replace(/<td/, `<td class="day-${yyyymm.replace('-','_')}" `);
+          }).join('');
+        }
 
-        // Always render month summary cell
+        // Always render month summary cell (replaces day cells when month is collapsed)
         const summaryCell = renderDayCell(r, null, true, yyyymm);
-        const summaryWithClass = summaryCell.replace(/<td/, `<td class="month-summary-${yyyymm.replace('-','_')}" style="display:${isOpen?'none':''};"`);
-        cells += summaryWithClass;
+        cells += summaryCell.replace(/<td/, `<td class="month-summary-${yyyymm.replace('-','_')}" `);
       });
     });
     return cells;
@@ -1039,31 +1038,26 @@ function renderPlan(){
     const thead = root.querySelector('.plan-table thead');
     if(thead) {
       thead.addEventListener('click', e => {
-        const monthHeader = e.target.closest('.collapsible-month');
-        if(monthHeader) {
+        const summaryHeader = e.target.closest('.month-summary-col');
+        const collapseIcon = e.target.closest('.month-collapse-icon');
+
+        // Check if click was on collapse icon or summary column
+        if(summaryHeader || collapseIcon) {
           e.stopPropagation();
-          const yyyymm = monthHeader.dataset.month;
+          const header = summaryHeader || collapseIcon.closest('.month-summary-col');
+          const yyyymm = header?.dataset.yyyymm;
 
-          // Toggle month collapse state
-          monthCollapseState[yyyymm] = !monthCollapseState[yyyymm];
-          const open = monthCollapseState[yyyymm];
+          if(yyyymm) {
+            // Toggle month collapse state
+            monthCollapseState[yyyymm] = !monthCollapseState[yyyymm];
+            const open = monthCollapseState[yyyymm];
 
-          // Save collapse state to localStorage - PHASE 4
-          localStorage.setItem('planMonthCollapseState', JSON.stringify(monthCollapseState));
+            // Save collapse state to localStorage
+            localStorage.setItem('planMonthCollapseState', JSON.stringify(monthCollapseState));
 
-          // Update icon text and rotation
-          const icon = monthHeader.querySelector('.month-collapse-icon');
-          if(icon) {
-            icon.textContent = open ? '▼' : '▶';
-            icon.style.transform = '';  // CSS will handle rotation via content
+            // **Re-render entire table to add/remove columns from DOM**
+            renderPlan();
           }
-
-          // Toggle visibility of day columns and summary column (no re-render!)
-          const dayCols = table.querySelectorAll(`.day-${yyyymm.replace('-','_')}`);
-          const summaryCols = table.querySelectorAll(`.month-summary-${yyyymm.replace('-','_')}`);
-
-          dayCols.forEach(col => col.style.display = open ? '' : 'none');
-          summaryCols.forEach(col => col.style.display = open ? 'none' : '');
         }
       });
     }

@@ -936,35 +936,71 @@ function renderPlan(){
     scroll.addEventListener('scroll',  () => { phantom.scrollLeft = scroll.scrollLeft; });
   })();
 
-  // Jump to today
+  // Jump to today with expansion options
   if(todayBtn){
     todayBtn.onclick = () => {
       const scroll = document.getElementById('planTableScroll');
       const table  = document.getElementById('planTable');
       if(!scroll || !table) return;
 
-      // Expand all facility sections
+      const todayStr = today();
+
+      // Show expansion menu (simple confirm dialog)
+      const options = 'What would you like to show?\n\n1. Today\'s month only\n2. Today + surrounding context\n3. Everything (all months/families)\n\nEnter 1, 2, or 3 (default: 3)';
+      const choice = prompt(options, '3');
+
+      if(choice === null) return; // User cancelled
+
+      const expand = choice === '1' ? 'month' : choice === '2' ? 'context' : 'all';
+
+      // Expand facilities and families based on choice
       table.querySelectorAll('.plan-fac-header').forEach(tr => {
         const facId = tr.dataset.fac;
-        tr.querySelector('.fac-collapse-icon').style.transform = '';
-        root.querySelectorAll(`.fac-child.fac-${facId}`).forEach(r => r.style.display = '');
-        facOpenState[facId] = true;
+        if(expand !== 'all') {
+          // Collapse this facility by default in 'month' mode
+          facOpenState[facId] = expand === 'context' || expand === 'all';
+        } else {
+          facOpenState[facId] = true;
+        }
+        tr.querySelector('.fac-collapse-icon').style.transform = facOpenState[facId] ? '' : 'rotate(-90deg)';
+        root.querySelectorAll(`.fac-child.fac-${facId}`).forEach(r => r.style.display = facOpenState[facId] ? '' : 'none');
+      });
+
+      // Expand families based on choice
+      table.querySelectorAll('.collapsible-family').forEach(tr => {
+        const facId = tr.dataset.facility;
+        const familyName = tr.dataset.family;
+        if(!familyOpenState[facId]) familyOpenState[facId] = {};
+
+        if(expand === 'all') {
+          familyOpenState[facId][familyName] = true;
+        } else if(expand === 'context') {
+          familyOpenState[facId][familyName] = true;
+        }
+        // 'month' mode doesn't expand families, just shows the facility
+
+        const icon = tr.querySelector('.family-collapse-icon');
+        if(icon) icon.style.transform = familyOpenState[facId][familyName] ? '' : 'rotate(-90deg)';
+        root.querySelectorAll(`.family-child.family-${familyName}.fac-${facId}`).forEach(r => {
+          r.style.display = familyOpenState[facId][familyName] ? '' : 'none';
+        });
       });
 
       // Find and scroll to today's column
-      const todayStr = today();
       let th = null;
       table.querySelectorAll('thead th[data-date]').forEach(t => { if(t.dataset.date === todayStr) th = t; });
       if(th){
-        scroll.scrollTo({ left: Math.max(0, th.offsetLeft - 200), behavior: 'smooth' });
-        // Flash today's column
-        const colIndex = th.cellIndex;
-        table.querySelectorAll(`tr > *:nth-child(${colIndex+1})`).forEach(c => {
-          const orig = c.style.background;
-          c.style.transition = 'background 0.15s';
-          c.style.background = 'rgba(59,130,246,0.2)';
-          setTimeout(() => { c.style.background = orig; setTimeout(()=>c.style.transition='',500); }, 700);
-        });
+        // Scroll with center positioning
+        scroll.scrollTo({ left: Math.max(0, th.offsetLeft - scroll.offsetWidth/2 + th.offsetWidth/2), behavior: 'smooth' });
+
+        // Highlight today's column with background
+        setTimeout(() => {
+          const colIndex = th.cellIndex;
+          table.querySelectorAll(`tr > *:nth-child(${colIndex+1})`).forEach(c => {
+            c.style.background = 'rgba(59,130,246,0.15)';
+            c.style.transition = 'background 0.3s';
+          });
+        }, 300);
       }
     };
   }

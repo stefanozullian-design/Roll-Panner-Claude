@@ -550,14 +550,21 @@ function renderPlan(){
   const todayStr = today();
 
   // Build plan using new facility-first structure from simEngine
-  const plan = buildProductionPlanView(state, SPINE_START, 90); // 90 days ahead
+  const plan = buildProductionPlanView(state, SPINE_START, 1095); // 3 years: Jan 1 2025 - Dec 31 2027
 
   // Alert extraction (same as before)
   const allAlerts = Object.entries(plan.alertSummary||{})
     .flatMap(([date,arr])=>(arr||[]).map(a=>({...a,date})));
-  const stockouts = allAlerts.filter(a=>a.severity==='stockout');
-  const overflows = allAlerts.filter(a=>a.severity==='full');
-  const warnings  = allAlerts.filter(a=>a.warn && a.severity!=='stockout' && a.severity!=='full');
+
+  // Filter alerts: exclude today and earlier, start from tomorrow onwards (no alerts for past data)
+  const tomorrowDate = new Date(todayStr+'T00:00:00');
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const tomorrowStr = tomorrowDate.toISOString().slice(0,10);
+  const filteredAlerts = allAlerts.filter(a => a.date >= tomorrowStr);
+
+  const stockouts = filteredAlerts.filter(a=>a.severity==='stockout');
+  const overflows = filteredAlerts.filter(a=>a.severity==='full');
+  const warnings  = filteredAlerts.filter(a=>a.warn && a.severity!=='stockout' && a.severity!=='full');
   let firstStockout = stockouts.length ? stockouts.reduce((min,a)=>a.date<min?a.date:min, stockouts[0].date) : null;
   const daysUntilStockout = firstStockout ? Math.max(0, Math.round((new Date(firstStockout)-new Date(todayStr))/86400000)) : null;
 

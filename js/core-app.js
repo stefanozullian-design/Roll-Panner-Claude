@@ -1036,27 +1036,37 @@ function renderPlan(){
       });
     });
 
+    // Add thead click handler for month headers (which are in thead, not tbody)
+    const thead = root.querySelector('.plan-table thead');
+    if(thead) {
+      thead.addEventListener('click', e => {
+        const monthHeader = e.target.closest('.collapsible-month');
+        if(monthHeader) {
+          e.stopPropagation();
+          const yyyymm = monthHeader.dataset.month;
+
+          // Toggle month collapse state
+          monthCollapseState[yyyymm] = !monthCollapseState[yyyymm];
+          const open = monthCollapseState[yyyymm];
+
+          // Save collapse state to localStorage - PHASE 4
+          localStorage.setItem('planMonthCollapseState', JSON.stringify(monthCollapseState));
+
+          // Update icon rotation
+          const icon = monthHeader.querySelector('.month-collapse-icon');
+          if(icon) icon.style.transform = open ? '' : 'rotate(-90deg)';
+
+          // Re-render entire table with new month state
+          renderPlan();
+        }
+      });
+    }
+
     tbody.addEventListener('click', e => {
-      // Handle month header clicks - PHASE 3 & 4
+      // Handle month header clicks in tbody would be here if needed
       const monthHeader = e.target.closest('.collapsible-month');
       if(monthHeader) {
-        e.stopPropagation();
-        const yyyymm = monthHeader.dataset.month;
-
-        // Toggle month collapse state
-        monthCollapseState[yyyymm] = !monthCollapseState[yyyymm];
-        const open = monthCollapseState[yyyymm];
-
-        // Save collapse state to localStorage - PHASE 4
-        localStorage.setItem('planMonthCollapseState', JSON.stringify(monthCollapseState));
-
-        // Update icon rotation
-        const icon = monthHeader.querySelector('.month-collapse-icon');
-        if(icon) icon.style.transform = open ? '' : 'rotate(-90deg)';
-
-        // Re-render entire table with new month state
-        renderPlan();
-        return;
+        return;  // month header is in thead, not tbody
       }
 
       // Handle family header clicks

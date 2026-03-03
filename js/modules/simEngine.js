@@ -470,7 +470,20 @@ function simulateFacility(state, s, ds, facId, dates) {
   // ── Facility-first unified rows ──
   // Facility type drives which product families and process rows appear.
   const fac         = state.org.facilities.find(f => f.id === facId);
-  const facType     = fac?.facilityType || 'terminal';
+  // Determine facility type: explicit config, or infer from equipment
+  let facType = fac?.facilityType;
+  if (!facType) {
+    // Auto-detect based on equipment configuration
+    const hasKilns = kilns.length > 0;
+    const hasFinishMills = fms.length > 0;
+    if (hasKilns) {
+      facType = 'cement_plant';  // Has kilns → full cement production
+    } else if (hasFinishMills) {
+      facType = 'grinding';       // Has finish mills only → grinding facility
+    } else {
+      facType = 'terminal';       // Default fallback
+    }
+  }
   const facFinished = s.getFacilityProducts(facId).filter(m => m.category === Categories.FIN);
   const facFinishedRows = () => facFinished.map(fp => ({
     kind: 'row', label: fp.name, productLabel: fp.name, productId: fp.id, _facilityId: facId,

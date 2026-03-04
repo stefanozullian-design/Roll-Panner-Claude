@@ -203,6 +203,41 @@
       padding: 4px 8px; border: 1px solid var(--border);
     }
 
+    /* Collapsible section styles */
+    .collapsible-section {
+      cursor: pointer;
+      user-select: none;
+      background: rgba(20,28,50,0.9) !important;
+      border-top: 1px solid var(--border) !important;
+    }
+    .collapsible-section:hover {
+      background: rgba(30,36,60,0.95) !important;
+    }
+    .collapsible-section .row-header {
+      color: var(--accent) !important;
+      font-weight: 700 !important;
+    }
+    .section-collapse-icon {
+      display: inline-block;
+      transition: transform 0.15s ease;
+      margin-right: 6px;
+      font-size: 9px;
+    }
+
+    /* Section child rows styling */
+    .section-child {
+      display: none;
+    }
+
+    /* Storage row styling with colored left border */
+    .plan-data-row[style*="border-left"] {
+      /* Border color is applied inline via style attribute */
+    }
+    .plan-data-row .row-header[style*="border-left"] {
+      background: rgba(10,13,20,0.97) !important;
+      padding-left: 40px !important;
+    }
+
     /* ── FORMS ── */
     .form-grid { display: grid; gap: 8px; }
     .form-label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; font-weight: 500; }

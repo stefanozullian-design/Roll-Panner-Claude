@@ -630,12 +630,15 @@ function simulateFacility(state, s, ds, facId, dates) {
   const bodSection = (fam, label) => {
     const rows = storagesByFamily(fam);
     if (!rows.length) return [];
+    const sectionId = `inv_bod_${fam.toUpperCase()}`;
     return [
-      { kind: 'subtotal', label, _section: 'bod',
+      { kind: 'section-header', label, _section: 'bod', _sectionId: sectionId,
         values: mkValues(d => rows.reduce((sum, st) => sum + (bodMap.get(`${d}|${st.id}`) || 0), 0)) },
       ...rows.map(st => ({ kind: 'row', storageId: st.id, label: st.name,
         productLabel: (st.allowedProductIds||[]).map(pid => s.getMaterial(pid)?.name).filter(Boolean).join(' / '),
-        values: mkValues(d => bodMap.get(`${d}|${st.id}`) || 0) })),
+        values: mkValues(d => bodMap.get(`${d}|${st.id}`) || 0),
+        _sectionId: sectionId,
+        allowedProductIds: st.allowedProductIds || [] })),
     ];
   };
 
@@ -643,12 +646,15 @@ function simulateFacility(state, s, ds, facId, dates) {
   const eodSection = (fam, label) => {
     const rows = storagesByFamily(fam);
     if (!rows.length) return [];
+    const sectionId = `inv_eod_${fam.toUpperCase()}`;
     return [
-      { kind: 'subtotal', label, _section: 'eod',
+      { kind: 'section-header', label, _section: 'eod', _sectionId: sectionId,
         values: mkValues(d => rows.reduce((sum, st) => sum + (eodMap.get(`${d}|${st.id}`) || 0), 0)) },
       ...rows.map(st => ({ kind: 'row', storageId: st.id, label: st.name,
         productLabel: (st.allowedProductIds||[]).map(pid => s.getMaterial(pid)?.name).filter(Boolean).join(' / '),
-        values: mkValues(d => eodMap.get(`${d}|${st.id}`) || 0) })),
+        values: mkValues(d => eodMap.get(`${d}|${st.id}`) || 0),
+        _sectionId: sectionId,
+        allowedProductIds: st.allowedProductIds || [] })),
     ];
   };
 

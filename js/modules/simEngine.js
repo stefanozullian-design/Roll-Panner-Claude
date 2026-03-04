@@ -474,77 +474,30 @@ function simulateFacility(state, s, ds, facId, dates) {
     }
     fms.forEach(eq => prodByEqMap.set(`${date}|${eq.id}`, fmUsed.get(eq.id) || 0));
 
-    // ── GENERIC: Multi-Facility Clinker Deduction ──
-    // Works for any facility (BRS, MIA, future) with separate kiln-FM-storage pairs
-    //
-    // LOGIC: For each FM that produced something:
-    //   1. Get what products it can produce (from equipment capabilities)
-    //   2. For each product produced that day:
-    //      - Get recipe to find clinker components
-    //      - For each clinker component, find the storage that stores it
-    //      - Deduct: production × (clinker % / 100) from that storage
-    //   3. Track consumption per FM for breakdown display
-    //
-    // This automatically routes consumption to the correct storage based on:
-    // - Equipment capabilities (which FM makes which products)
-    // - Recipe definitions (which products have which clinker components)
-    // - Storage definitions (which storage stores which clinker types)
-    // NO hardcoded equipment pairings needed - works for any facility!
+    // ── Track FM-specific clinker consumption for breakdown display ──
+    // Step 2 (FM production) already handles clinker deductions via clinkerSources
+    // This section builds the breakdown maps for UI display
 
-    // Track consumption per finish mill for display in breakdown rows
     const fmConsumptionMap = new Map(); // fmId → total consumption today
 
-    if (facId === 'BRS') console.log('[CLINKER] Processing BRS, FMs count:', fms.length, 'date:', date);
+    // Populate consumption maps by re-iterating through FM production
+    // to build the breakdown for UI display
+    fmReqLines.forEach(line => {
+      const { eqId, productId, usedQty } = line;
+      if (!productId || usedQty <= 0) return;
 
-    fms.forEach(fm => {
-      let fmTotalConsumed = 0;
+      const recipe = s.getRecipeForProduct(productId);
+      if (!recipe || !recipe.components) return;
 
-      // Get what products this FM can produce (from capabilities)
-      const caps = s.getCapsForEquipment(fm.id);
-
-      // For each product this FM is capable of producing
-      caps.forEach(cap => {
-        const productId = cap.productId;
-        // Check if this FM produced this product today
-        const prodQty = getEqProd(date, fm.id, productId);
-
-        if (prodQty > 0) {
-          // Get recipe for this product
-          const recipe = s.getRecipeForProduct(productId);
-          if (!recipe || !recipe.components) return;
-
-          // For each component in the recipe
-          recipe.components.forEach(comp => {
-            // Only care about clinker components
-            if (familyOfProduct(s, comp.materialId) !== 'CLINKER') return;
-
-            // Calculate consumption for this component
-            const compQty = prodQty * (comp.pct / 100);
-
-            // Find the storage that stores this clinker type
-            const clinkerStorage = storages.find(st =>
-              st.facilityId === facId &&
-              (st.allowedProductIds || []).includes(comp.materialId)
-            );
-
-            // DEBUG: Log what we're finding
-            console.log(`[DEBUG ${date}] FM: ${fm.id}, Product: ${productId}, ProdQty: ${prodQty}, Clinker Material: ${comp.materialId}, CompQty: ${compQty}, Storage Found: ${clinkerStorage ? clinkerStorage.id : 'NOT FOUND'}`);
-            if (!clinkerStorage) {
-              console.log(`  Available storages for ${facId}:`, storages.filter(s => s.facilityId === facId).map(s => ({ id: s.id, allowed: s.allowedProductIds })));
-            }
-
-            // Deduct from that storage
-            if (clinkerStorage) {
-              addDelta(clinkerStorage.id, -compQty);
-              fmTotalConsumed += compQty;
-            }
-          });
+      let fmClkConsumption = 0;
+      recipe.components.forEach(c => {
+        if (familyOfProduct(s, c.materialId) === 'CLINKER') {
+          fmClkConsumption += usedQty * (+c.pct || 0) / 100;
         }
       });
 
-      // Track consumption per FM for display in breakdown rows
-      if (fmTotalConsumed > 0) {
-        fmConsumptionMap.set(fm.id, fmTotalConsumed);
+      if (fmClkConsumption > 0) {
+        fmConsumptionMap.set(eqId, (fmConsumptionMap.get(eqId) || 0) + fmClkConsumption);
       }
     });
 

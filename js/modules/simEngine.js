@@ -472,6 +472,61 @@ function simulateFacility(state, s, ds, facId, dates) {
     }
     fms.forEach(eq => prodByEqMap.set(`${date}|${eq.id}`, fmUsed.get(eq.id) || 0));
 
+    // ── SPECIAL: BRS Facility Hard-Coded Clinker Deduction ──
+    // BRS has 2 specific FM-Kiln-Storage pairs that must be kept separate:
+    // BROSFM01 → consumes K1 clinker from CLK-BRSK01 ONLY
+    // BROSFM02 → consumes K2 clinker from CLK-KL02 ONLY
+    //
+    // CRITICAL: Clinker percentage is ALWAYS fetched from recipe definition, not hard-coded.
+    // Different products have different clinker requirements (e.g., IL/BULK: 84%, SPEC/BULK: 71%)
+    if (facId === 'BRS') {
+      const fm1_id = 'BROSFM01';
+      const fm1_capable_products = ['BRS_IL_BULK', 'BRS_SPEC_BULK'];
+
+      fm1_capable_products.forEach(productId => {
+        // Check if BROSFM01 produced this product today
+        const fm1_prod_qty = getEqProd(date, fm1_id, productId);
+
+        if (fm1_prod_qty > 0) {
+          // FETCH the recipe for the product being produced (don't assume)
+          const recipe = s.getRecipeForProduct(productId);
+
+          if (recipe && recipe.components) {
+            // Find K1 clinker component in this recipe
+            const clinkerComp = recipe.components.find(c => c.materialId === 'BRS_CLK_K1');
+            if (clinkerComp && clinkerComp.pct > 0) {
+              // Use the clinker percentage from the ACTUAL recipe
+              const clinker_consumed = fm1_prod_qty * (clinkerComp.pct / 100);
+              // Deduct from K1 storage ONLY
+              const clk_storage = storages.find(s => s.id === 'CLK-BRSK01');
+              if (clk_storage) addDelta(clk_storage.id, -clinker_consumed);
+            }
+          }
+        }
+      });
+
+      // Handle BROSFM02 → CLK-KL02 (BROSFM02 only produces BRS IL / BULK v2)
+      const fm2_id = 'BROSFM02';
+      const fm2_product = 'BRS_IL_BULK';
+
+      const fm2_prod_qty = getEqProd(date, fm2_id, fm2_product);
+      if (fm2_prod_qty > 0) {
+        // FETCH the recipe for BRS IL / BULK (will return v2 - highest version)
+        const recipe = s.getRecipeForProduct(fm2_product);
+        if (recipe && recipe.components) {
+          // Find K2 clinker component in this recipe
+          const clinkerComp = recipe.components.find(c => c.materialId === 'BRS_CLK_K2');
+          if (clinkerComp && clinkerComp.pct > 0) {
+            // Use the clinker percentage from the recipe
+            const clinker_consumed = fm2_prod_qty * (clinkerComp.pct / 100);
+            // Deduct from K2 storage ONLY
+            const clk_storage = storages.find(s => s.id === 'CLK-KL02');
+            if (clk_storage) addDelta(clk_storage.id, -clinker_consumed);
+          }
+        }
+      }
+    }
+
     // ── Step 3: Kiln production (cap by clinker silo headroom) ──
     const kilnUsed = new Map();
     for (const line of kilnReqLines) {

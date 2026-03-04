@@ -69,7 +69,10 @@ function familyOfProduct(s, pid) {
  * Returns rule object if found, null otherwise
  */
 function getApplicableRule(ds, facId, equipmentId, productId) {
-  return ds.logistics.rulesOfEngagement?.find(roe =>
+  // ✓ SAFETY: Handle missing logistics structure gracefully
+  if (!ds?.logistics?.rulesOfEngagement) return null;
+
+  return ds.logistics.rulesOfEngagement.find(roe =>
     roe.facilityId === facId &&
     (roe.equipmentId === equipmentId || !roe.equipmentId) &&  // specific or facility-wide
     roe.productId === productId &&

@@ -1095,11 +1095,13 @@ function renderPlan(){
       return `<td class="num" style="${cellStyle}">${v?fmt0(v):''}</td>`;
     }
 
-    // Default cell
+    // Default cell (used for CLK CONSUMPTION, KILN PRODUCTION, FM PRODUCTION, DEMAND, etc.)
     if(isMonthSummary) {
       return `<td class="num month-summary-cell" style="${baseSty}background:rgba(59,130,246,0.08);font-size:9px;font-weight:700;color:var(--text);">${v?fmt0(v):''}</td>`;
     }
-    return `<td class="num" style="${baseSty}font-size:10px;${r.kind==='subtotal'?'font-weight:700;':'color:var(--muted);'}">${v?fmt0(v):''}</td>`;
+    // For subtotal rows (CLK CONSUMPTION, DEMAND, etc.), use bold white text; for others, use muted
+    const isSummaryRow = r.kind==='subtotal' || r._section;
+    return `<td class="num" style="${baseSty}font-size:10px;${isSummaryRow?'font-weight:700;color:var(--text);':'color:var(--muted);'}">${v?fmt0(v):''}</td>`;
   };
 
   // Helper: build cells for a row - conditionally render based on collapse state

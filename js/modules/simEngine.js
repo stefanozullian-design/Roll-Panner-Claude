@@ -686,9 +686,9 @@ function simulateFacility(state, s, ds, facId, dates) {
 
     // For BRS: show BROSFM01 and BROSFM02 breakdowns
     if (facId === 'BRS') {
-      rows.push({ kind: 'row', equipmentId: 'BROSFM01', label: 'BROSFM01',
+      rows.push({ kind: 'row', rowType: 'equipment', equipmentId: 'BROSFM01', label: 'BROSFM01',
         values: mkValues(d => fm1ConsumedMap.get(d) || 0) });
-      rows.push({ kind: 'row', equipmentId: 'BROSFM02', label: 'BROSFM02',
+      rows.push({ kind: 'row', rowType: 'equipment', equipmentId: 'BROSFM02', label: 'BROSFM02',
         values: mkValues(d => fm2ConsumedMap.get(d) || 0) });
     }
     return rows;

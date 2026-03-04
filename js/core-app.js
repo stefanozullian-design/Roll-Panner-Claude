@@ -762,7 +762,201 @@ function renderPlan(){
     });
   });
 
-  // Helper: format month name and get day range
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PHASE 1: DATA PREPARATION - Campaign Visualization Helpers
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Helper: Group consecutive campaigns into blocks (same equipment, product, status)
+  // Returns array of blocks: {equipmentId, productId, status, startDate, endDate, dateCount, rateStn}
+  const groupCampaignsIntoBlocks = (campaigns, facilityId) => {
+    if (!campaigns || !campaigns.length) return [];
+
+    const filtered = campaigns
+      .filter(c => c.facilityId === facilityId)
+      .sort((a, b) =>
+        a.equipmentId.localeCompare(b.equipmentId) ||
+        a.date.localeCompare(b.date)
+      );
+
+    const blocks = [];
+    filtered.forEach(campaign => {
+      const last = blocks[blocks.length - 1];
+
+      // Check if this campaign is consecutive with the previous one
+      const isConsecutive = last &&
+        last.equipmentId === campaign.equipmentId &&
+        last.productId === campaign.productId &&
+        last.status === campaign.status &&
+        isConsecutiveDay(last.endDate, campaign.date);
+
+      if (isConsecutive) {
+        // Extend existing block
+        last.endDate = campaign.date;
+        last.dateCount++;
+      } else {
+        // Start new block
+        blocks.push({
+          equipmentId: campaign.equipmentId,
+          productId: campaign.productId,
+          status: campaign.status,
+          startDate: campaign.date,
+          endDate: campaign.date,
+          dateCount: 1,
+          rateStn: campaign.rateStn || 0
+        });
+      }
+    });
+
+    return blocks;
+  };
+
+  // Helper: Check if date2 is the next day after date1
+  const isConsecutiveDay = (date1, date2) => {
+    const d1 = new Date(date1 + 'T00:00:00');
+    const d2 = new Date(date2 + 'T00:00:00');
+    const nextDay = new Date(d1);
+    nextDay.setDate(nextDay.getDate() + 1);
+    return d2.getTime() === nextDay.getTime();
+  };
+
+  // Helper: Get cell dimensions (column width, row height, etc.)
+  // Returns: {colWidth, cellHeight, rowHeight, colPadding, rowPadding}
+  // Note: Call this after table is rendered in DOM
+  const getCellDimensions = () => {
+    const table = root.querySelector('.plan-table');
+    if (!table) return null;
+
+    const sampleHeader = table.querySelector('thead th[data-date]');
+    const sampleCell = table.querySelector('tbody td');
+    const sampleRow = table.querySelector('tbody tr');
+
+    if (!sampleHeader || !sampleCell || !sampleRow) return null;
+
+    return {
+      colWidth: sampleHeader.offsetWidth || 50,
+      cellHeight: sampleCell.offsetHeight || 30,
+      rowHeight: sampleRow.offsetHeight || 30,
+      colPadding: 6,    // from CSS: padding 5px 6px
+      rowPadding: 5
+    };
+  };
+
+  // Helper: Build date-to-column-index mapping, respecting month collapse state
+  // Returns: {date → column index in visible columns}
+  const buildDateToColIndexMap = (dateHierarchy, monthCollapseState) => {
+    const dateToColIndex = {};
+    let colIdx = 0;
+
+    Object.entries(dateHierarchy).forEach(([yyyy, months]) => {
+      Object.keys(months).sort().forEach(yyyymm => {
+        const isOpen = monthCollapseState[yyyymm];
+
+        // Always count month summary column
+        colIdx++;
+
+        // If month is expanded, count individual day columns
+        if (isOpen) {
+          const dates = months[yyyymm];
+          dates.forEach(date => {
+            dateToColIndex[date] = colIdx;
+            colIdx++;
+          });
+        }
+      });
+    });
+
+    return dateToColIndex;
+  };
+
+  // Build the mapping (will be used by drawCampaignLines)
+  const dateToColIndex = buildDateToColIndexMap(dateHierarchy, monthCollapseState);
+
+  // Helper: Get equipment row index from DOM
+  // Returns: Map of equipmentId → row index in tbody
+  const buildEquipmentRowIndexMap = () => {
+    const eqIdToRowIndex = {};
+    const tbody = root.querySelector('.plan-table tbody');
+    if (!tbody) return eqIdToRowIndex;
+
+    let rowIdx = 0;
+    tbody.querySelectorAll('tr').forEach(tr => {
+      // Try to get equipment ID from data attribute or cell content
+      const equipmentId = tr.dataset.equipmentId;
+      if (equipmentId) {
+        eqIdToRowIndex[equipmentId] = rowIdx;
+      }
+      rowIdx++;
+    });
+
+    return eqIdToRowIndex;
+  };
+
+  // Helper: Build list of visible dates (dates in currently expanded months)
+  const getVisibleDates = (dateHierarchy, monthCollapseState) => {
+    const visibleDates = [];
+
+    Object.entries(dateHierarchy).forEach(([yyyy, months]) => {
+      Object.keys(months).sort().forEach(yyyymm => {
+        if (monthCollapseState[yyyymm]) {
+          const dates = months[yyyymm];
+          visibleDates.push(...dates);
+        }
+      });
+    });
+
+    return visibleDates;
+  };
+
+  // Helper: Get visible date range (for viewport culling)
+  // Returns: {startDate, endDate} currently visible in scroll area
+  const getVisibleDateRange = (tableScroll, dateToColIndex, cellDimensions) => {
+    if (!tableScroll || !cellDimensions) {
+      return { startDate: null, endDate: null };
+    }
+
+    const scrollLeft = tableScroll.scrollLeft || 0;
+    const scrollWidth = tableScroll.offsetWidth || 0;
+    const colWidth = cellDimensions.colWidth || 50;
+    const rowHeaderWidth = 200; // sticky row header
+
+    // Convert pixel positions to approximate column indices
+    const startCol = Math.floor((scrollLeft - rowHeaderWidth) / colWidth);
+    const endCol = Math.ceil((scrollLeft + scrollWidth - rowHeaderWidth) / colWidth);
+
+    // Find corresponding dates
+    const visibleDates = getVisibleDates(dateHierarchy, monthCollapseState);
+    const startDate = visibleDates[Math.max(0, startCol)] || visibleDates[0];
+    const endDate = visibleDates[Math.min(visibleDates.length - 1, endCol)] || visibleDates[visibleDates.length - 1];
+
+    return { startDate, endDate };
+  };
+
+  // Helper: Format campaign details for tooltip display
+  // Returns: {equipment, product, rate, status, duration, dateRange}
+  const formatCampaignDetails = (block) => {
+    if (!block) return null;
+
+    const s = selectors(state);
+    const equipName = s.equipment.find(e => e.id === block.equipmentId)?.name || block.equipmentId;
+    const prodName = s.getMaterial(block.productId)?.name || block.productId || 'Unknown';
+
+    const d1 = new Date(block.startDate + 'T00:00:00');
+    const d2 = new Date(block.endDate + 'T00:00:00');
+    const startStr = d1.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const endStr = d2.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const dateRange = block.dateCount === 1 ? startStr : `${startStr} - ${endStr}`;
+
+    return {
+      equipment: equipName,
+      product: prodName,
+      rate: `${block.rateStn || 0} STn/day`,
+      status: block.status || 'unknown',
+      duration: `${block.dateCount} day${block.dateCount !== 1 ? 's' : ''}`,
+      dateRange: dateRange
+    };
+  };
+
+  // Helper: Format month name and get day range
   const monthInfo = (yyyymm) => {
     const [, m] = yyyymm.split('-');
     const names = ['', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -1040,6 +1234,247 @@ function renderPlan(){
         }
       });
     });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PHASE 2: SVG OVERLAY CREATION
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // Create SVG overlay for campaign duration lines
+    const tableScroll = root.querySelector('#planTableScroll');
+    const tableContainer = tableScroll?.parentElement;
+
+    if (tableScroll && tableContainer) {
+      // Create SVG overlay element
+      const svgOverlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svgOverlay.id = 'campaignLinesOverlay';
+      svgOverlay.style.cssText = `
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 3;
+        transform-origin: left top;
+      `;
+
+      // Insert SVG overlay before table scroll
+      tableContainer.insertBefore(svgOverlay, tableScroll);
+
+      // Update SVG dimensions based on table
+      const updateSVGDimensions = () => {
+        const table = root.querySelector('.plan-table');
+        const tbody = table?.querySelector('tbody');
+
+        if (!table || !tbody) return;
+
+        const svgWidth = table.offsetWidth || 1000;
+        const svgHeight = tbody.offsetHeight || 500;
+
+        svgOverlay.setAttribute('width', svgWidth);
+        svgOverlay.setAttribute('height', svgHeight);
+        svgOverlay.setAttribute('viewBox', `0 0 ${svgWidth} ${svgHeight}`);
+      };
+
+      // Initial dimension update
+      setTimeout(updateSVGDimensions, 0);
+
+      // Watch for table resizing
+      const resizeObserver = new ResizeObserver(() => {
+        updateSVGDimensions();
+        // Will redraw campaign lines in Phase 3
+      });
+
+      if (table) {
+        resizeObserver.observe(table);
+      }
+
+      // Store references in state for later use in Phase 3 & beyond
+      window._campaignVisualization = window._campaignVisualization || {};
+      window._campaignVisualization.svgOverlay = svgOverlay;
+      window._campaignVisualization.tableScroll = tableScroll;
+      window._campaignVisualization.updateSVGDimensions = updateSVGDimensions;
+      window._campaignVisualization.dateToColIndex = dateToColIndex;
+      window._campaignVisualization.getCellDimensions = getCellDimensions;
+      window._campaignVisualization.groupCampaignsIntoBlocks = groupCampaignsIntoBlocks;
+      window._campaignVisualization.formatCampaignDetails = formatCampaignDetails;
+      window._campaignVisualization.getVisibleDateRange = getVisibleDateRange;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PHASE 3: CAMPAIGN LINE RENDERING
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // Main function: Draw campaign duration lines
+    const drawCampaignLines = () => {
+      const svgOverlay = window._campaignVisualization?.svgOverlay;
+      if (!svgOverlay) return;
+
+      // Clear previous lines
+      svgOverlay.innerHTML = '';
+
+      // Get current facility
+      const selectedFacilityId = state.ui.selectedFacilityId;
+      if (!selectedFacilityId) return;
+
+      // Get campaign blocks for this facility
+      const campaigns = state.org.dataset.campaigns || [];
+      const campaignBlocks = groupCampaignsIntoBlocks(campaigns, selectedFacilityId);
+
+      if (campaignBlocks.length === 0) return;
+
+      const table = root.querySelector('.plan-table');
+      const tbody = table?.querySelector('tbody');
+      if (!table || !tbody) return;
+
+      const dims = getCellDimensions();
+      if (!dims) return;
+
+      // For each campaign block, draw line segments (skipping actual data dates)
+      campaignBlocks.forEach(block => {
+        // Get all dates in this campaign block
+        const blockStartDate = new Date(block.startDate + 'T00:00:00');
+        const blockEndDate = new Date(block.endDate + 'T00:00:00');
+        const blockDates = [];
+
+        for (let d = new Date(blockStartDate); d <= blockEndDate; d.setDate(d.getDate() + 1)) {
+          const dateStr = d.toISOString().slice(0, 10);
+          blockDates.push(dateStr);
+        }
+
+        if (blockDates.length === 0) return;
+
+        // Identify forecast vs actual segments
+        // A date is "actual" if equipment has actual production data
+        const dateIsActual = (date) => {
+          const cellMeta = plan.equipmentCellMeta?.[`${date}|${block.equipmentId}`];
+          return cellMeta?.source === 'actual';
+        };
+
+        // Group consecutive forecast dates into segments
+        const forecastSegments = [];
+        let currentSegment = null;
+
+        blockDates.forEach(date => {
+          const isActual = dateIsActual(date);
+
+          if (!isActual) {
+            // This is a forecast date
+            if (!currentSegment) {
+              currentSegment = [date];
+            } else {
+              currentSegment.push(date);
+            }
+          } else {
+            // This is an actual date - close current segment
+            if (currentSegment && currentSegment.length > 0) {
+              forecastSegments.push(currentSegment);
+              currentSegment = null;
+            }
+          }
+        });
+
+        // Don't forget last segment
+        if (currentSegment && currentSegment.length > 0) {
+          forecastSegments.push(currentSegment);
+        }
+
+        // Draw a line for each forecast segment
+        forecastSegments.forEach(segment => {
+          const segmentStartDate = segment[0];
+          const segmentEndDate = segment[segment.length - 1];
+
+          // Find column indices for start and end
+          const startColIdx = dateToColIndex[segmentStartDate];
+          const endColIdx = dateToColIndex[segmentEndDate];
+
+          if (startColIdx === undefined || endColIdx === undefined) {
+            // Dates might be in a collapsed month
+            return;
+          }
+
+          // Convert column indices to pixel positions
+          const colWidth = dims.colWidth || 50;
+          const rowHeaderWidth = 200; // sticky row header width
+
+          const startX = rowHeaderWidth + (startColIdx * colWidth) + colWidth / 2;
+          const endX = rowHeaderWidth + (endColIdx * colWidth) + colWidth / 2;
+
+          // Find equipment row Y position
+          const eqRows = Array.from(tbody.querySelectorAll('tr')).filter(tr => {
+            const label = tr.querySelector('.row-header')?.textContent || '';
+            return label.includes(block.equipmentId);
+          });
+
+          if (eqRows.length === 0) return;
+
+          const eqRow = eqRows[0];
+          const rowTop = eqRow.offsetTop || 0;
+          const rowHeight = eqRow.offsetHeight || 30;
+          const midlineY = rowTop + rowHeight / 2;
+
+          // Get product color
+          const s = selectors(state);
+          const productColor = (pid) => {
+            const base = ['#3b82f6','#a78bfa','#22c55e','#f59e0b','#ec4899','#06b6d4','#f97316','#84cc16'];
+            let h = 0;
+            (pid || '').split('').forEach(c => h = (h * 31 + c.charCodeAt(0)) >>> 0);
+            return base[h % base.length];
+          };
+          const color = productColor(block.productId);
+
+          // Determine line style based on status and source
+          const isActualCampaign = plan.equipmentCellMeta?.[`${segment[0]}|${block.equipmentId}`]?.source === 'actual';
+          const opacity = isActualCampaign ? 0.9 : 0.6;
+
+          let strokeDasharray = 'none';
+          if (block.status !== 'produce') {
+            strokeDasharray = '5,5'; // dashed for non-produce status
+          }
+
+          // Draw main line
+          const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          line.setAttribute('x1', startX);
+          line.setAttribute('y1', midlineY);
+          line.setAttribute('x2', endX);
+          line.setAttribute('y2', midlineY);
+          line.setAttribute('stroke', color);
+          line.setAttribute('stroke-width', '3');
+          line.setAttribute('stroke-linecap', 'round');
+          line.setAttribute('opacity', opacity);
+          if (strokeDasharray !== 'none') {
+            line.setAttribute('stroke-dasharray', strokeDasharray);
+          }
+          line.setAttribute('class', `campaign-line campaign-${block.equipmentId}`);
+          line.setAttribute('data-equipment-id', block.equipmentId);
+          line.setAttribute('data-product-id', block.productId);
+          line.setAttribute('data-status', block.status);
+          line.setAttribute('data-start-date', segmentStartDate);
+          line.setAttribute('data-end-date', segmentEndDate);
+          line.setAttribute('data-rate', block.rateStn);
+          line.style.cursor = 'pointer';
+
+          svgOverlay.appendChild(line);
+
+          // Draw endpoint circles
+          [startX, endX].forEach((x, idx) => {
+            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle.setAttribute('cx', x);
+            circle.setAttribute('cy', midlineY);
+            circle.setAttribute('r', '4');
+            circle.setAttribute('fill', color);
+            circle.setAttribute('opacity', opacity);
+            circle.setAttribute('class', 'campaign-endpoint');
+            svgOverlay.appendChild(circle);
+          });
+        });
+      });
+    };
+
+    // Call drawCampaignLines after SVG is set up
+    if (window._campaignVisualization?.svgOverlay) {
+      setTimeout(drawCampaignLines, 0);
+    }
 
     // Add thead click handler for month headers (which are in thead, not tbody)
     const thead = root.querySelector('.plan-table thead');

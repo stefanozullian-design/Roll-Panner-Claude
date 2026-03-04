@@ -49,6 +49,7 @@ function familyOfProduct(s, pid) {
       if (['CEM', 'WHT', 'ASH', 'SLAG'].includes(fam.code)) return 'CEMENT';
       if (fam.code === 'FUEL') return 'FUEL';
       if (fam.code === 'RAW')  return 'RAW';
+      if (fam.code === 'TRANSF') return 'TRANSF';
     }
   }
   // Fallback to category (v2 compat)

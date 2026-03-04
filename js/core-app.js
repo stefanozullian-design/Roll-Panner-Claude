@@ -1317,8 +1317,9 @@ function renderPlan(){
       const selectedFacilityId = state.ui.selectedFacilityId;
       if (!selectedFacilityId) return;
 
-      // Get campaign blocks for this facility
-      const campaigns = state.org.dataset.campaigns || [];
+      // Get campaign blocks for this facility (campaigns are stored in state.sandboxes[dataset].data.campaigns)
+      const selectedDataset = state.ui.selectedDataset || 'default';
+      const campaigns = state?.sandboxes?.[selectedDataset]?.data?.campaigns || [];
       const campaignBlocks = groupCampaignsIntoBlocks(campaigns, selectedFacilityId);
 
       if (campaignBlocks.length === 0) return;

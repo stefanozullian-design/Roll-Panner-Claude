@@ -494,7 +494,7 @@ function simulateFacility(state, s, ds, facId, dates) {
     // Track consumption per finish mill for display in breakdown rows
     const fmConsumptionMap = new Map(); // fmId → total consumption today
 
-    console.log(`[CLINKER DEBUG] Starting multi-facility clinker deduction for date ${date}, facility ${facId}, FMs: ${fms.map(f => f.id).join(', ')}`);
+    if (facId === 'BRS') console.log('[CLINKER] Processing BRS, FMs count:', fms.length, 'date:', date);
 
     fms.forEach(fm => {
       let fmTotalConsumed = 0;

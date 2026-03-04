@@ -315,10 +315,10 @@ function simulateFacility(state, s, ds, facId, dates) {
             .filter(st => familyOfProduct(s, (st.allowedProductIds||[])[0]) === 'CLINKER')
             .forEach(st => {
               const bod = bodMap.get(`${date}|${st.id}`) || 0;
-              const delta = delta?.get(st.id) || 0;
-              const avail = bod + delta;
-              const shipCem = shipByPid.get(cap.productId) || 0;
+              const deltaVal = delta.get(st.id) || 0;  // ✓ FIX: Use different var name to avoid shadowing
+              const avail = bod + deltaVal;
               const expS = expectedShip(date, cap.productId);
+              // coverDays = how many days of cement production this clinker can support
               const coverDays = expS > 0 ? Math.max(0, avail) / expS : 99999;
               inventoryState[st.id] = coverDays;
               inventoryState[st.name] = coverDays;  // Also by name for rule readability
@@ -442,19 +442,28 @@ function simulateFacility(state, s, ds, facId, dates) {
       fmTotal += usedQty;
       if (outSt) addDelta(outSt.id, usedQty);
 
-      // ✓ FIXED: Consume from EACH clinker storage
+      // ✓ FIXED: Consume from EACH clinker storage (respecting RoE rule filters)
       if (recipe) {
         recipe.components.forEach(c => {
           const compQty = usedQty * (+c.pct || 0) / 100;
-          // ✓ Find storage by matching allowedProductIds (recipe-aware)
-          const compSt = storages.find(st =>
-            st.facilityId === facId &&
-            (st.allowedProductIds || []).includes(c.materialId)
-          );
-          if (compSt) addDelta(compSt.id, -compQty);
+
+          // ✓ For clinker: use filtered clinkerSources to respect RoE rules
+          // For other components: find storage normally
+          let compSt = null;
           if (familyOfProduct(s, c.materialId) === 'CLINKER') {
+            // Use pre-filtered clinker sources (respects RoE allowedClinkerSources)
+            const clkSrc = clinkerSources.find(src => src.materialId === c.materialId);
+            if (clkSrc) compSt = clkSrc.storage;
             clkDerived += compQty;
+          } else {
+            // Non-clinker: find storage by matching allowedProductIds
+            compSt = storages.find(st =>
+              st.facilityId === facId &&
+              (st.allowedProductIds || []).includes(c.materialId)
+            );
           }
+
+          if (compSt) addDelta(compSt.id, -compQty);
         });
       }
     }

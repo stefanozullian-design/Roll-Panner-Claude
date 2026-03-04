@@ -1045,13 +1045,19 @@ function renderPlan(){
       if(status==='maintenance') return `<td class="num" style="${baseSty}background:rgba(245,158,11,0.2);color:#fcd34d;font-size:9px;font-style:italic;">MNT</td>`;
       if(status==='out_of_order') return `<td class="num" style="${baseSty}background:rgba(139,92,246,0.2);color:#c4b5fd;font-size:9px;">OOO</td>`;
       if(!meta || status==='idle') return `<td class="num" style="${baseSty}color:var(--muted);font-size:9px"></td>`;
-      const color = productColor(meta.productId);
       const isActual = meta.source==='actual';
       const tip = `${isActual?'✓':'📋'}: ${fmt0(meta.totalQty||0)} STn`;
-      return `<td class="num" style="${baseSty}background:${color}18;font-size:10px;color:${color}" title="${esc(tip)}">${fmt0(v)}</td>`;
+
+      // Real values (from actuals) are white, forecasted values are product-colored
+      if(isActual){
+        return `<td class="num" style="${baseSty}font-size:10px;color:var(--text);font-weight:600;" title="${esc(tip)}">${fmt0(v)}</td>`;
+      } else {
+        const color = productColor(meta.productId);
+        return `<td class="num" style="${baseSty}background:${color}18;font-size:10px;color:${color}" title="${esc(tip)}">${fmt0(v)}</td>`;
+      }
     }
 
-    // Inventory cells (BOD, EOD, etc.) - color-coded without icons
+    // Inventory cells (BOD, EOD, etc.) - color-coded based on real vs forecasted
     if(r.storageId){
       if(isMonthSummary) {
         // Month summary inventory - use same color coding as daily cells
@@ -1059,10 +1065,32 @@ function renderPlan(){
       }
       const imeta = plan.inventoryCellMeta?.[`${d}|${r.storageId}`];
       let cellStyle = baseSty + 'font-size:10px;';
-      if(imeta){
-        if(imeta.severity==='stockout'){ cellStyle += 'background:rgba(239,68,68,0.18);color:#fca5a5;font-weight:700;'; }
-        else if(imeta.severity==='full'){ cellStyle += 'background:rgba(245,158,11,0.18);color:#fcd34d;font-weight:700;'; }
-        else if(imeta.warn==='high75'){ cellStyle += 'color:var(--warn);'; }
+      const isActualInv = imeta?.source==='actual';
+
+      // Real values are white/text colored, forecasted use product colors with severity overlays
+      if(isActualInv){
+        cellStyle += 'color:var(--text);font-weight:600;';
+        // Still apply severity overlays on top
+        if(imeta.severity==='stockout'){ cellStyle = baseSty + 'font-size:10px;background:rgba(239,68,68,0.18);color:#fca5a5;font-weight:700;'; }
+        else if(imeta.severity==='full'){ cellStyle = baseSty + 'font-size:10px;background:rgba(245,158,11,0.18);color:#fcd34d;font-weight:700;'; }
+        else if(imeta.warn==='high75'){ cellStyle += 'color:var(--warn);font-weight:700;'; }
+      } else {
+        // Forecasted values use product color, with severity overlays
+        if(imeta && r.allowedProductIds && r.allowedProductIds.length > 0){
+          const productId = r.allowedProductIds[0];
+          const color = productColor(productId);
+          cellStyle = baseSty + `font-size:10px;background:${color}18;color:${color};`;
+          // Severity overlays still apply
+          if(imeta.severity==='stockout'){ cellStyle = baseSty + 'font-size:10px;background:rgba(239,68,68,0.18);color:#fca5a5;font-weight:700;'; }
+          else if(imeta.severity==='full'){ cellStyle = baseSty + 'font-size:10px;background:rgba(245,158,11,0.18);color:#fcd34d;font-weight:700;'; }
+          else if(imeta.warn==='high75'){ cellStyle += 'font-weight:700;'; }
+        } else {
+          if(imeta){
+            if(imeta.severity==='stockout'){ cellStyle += 'background:rgba(239,68,68,0.18);color:#fca5a5;font-weight:700;'; }
+            else if(imeta.severity==='full'){ cellStyle += 'background:rgba(245,158,11,0.18);color:#fcd34d;font-weight:700;'; }
+            else if(imeta.warn==='high75'){ cellStyle += 'color:var(--warn);'; }
+          }
+        }
       }
       return `<td class="num" style="${cellStyle}">${v?fmt0(v):''}</td>`;
     }
@@ -1145,8 +1173,9 @@ function renderPlan(){
       </tr>`;
     }
 
-    // Subtotal rows (legacy support)
+    // Subtotal rows (legacy support) - not part of sections
     if(r.kind === 'subtotal' || r._type === 'subtotal-header'){
+      lastSectionId = null;  // Reset section for non-section subtotals
       const cells = buildRowCells(r);
       const familyClass = lastFamilyName ? ` family-child family-${lastFamilyName}` : '';
       return `<tr class="plan-subtotal fac-child fac-${lastFacilityId}${familyClass}" style="display:none;border-top:1px solid var(--border);">

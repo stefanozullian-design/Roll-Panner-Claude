@@ -60,6 +60,70 @@ function familyOfProduct(s, pid) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// RULES OF ENGAGEMENT HELPERS — Recipe Version Selection
+// Evaluates formal rules at runtime to determine which recipe version to use
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Find the applicable RoE rule for equipment + product combination
+ * Returns rule object if found, null otherwise
+ */
+function getApplicableRule(ds, facId, equipmentId, productId) {
+  return ds.logistics.rulesOfEngagement?.find(roe =>
+    roe.facilityId === facId &&
+    (roe.equipmentId === equipmentId || !roe.equipmentId) &&  // specific or facility-wide
+    roe.productId === productId &&
+    roe.formalRule
+  ) || null;
+}
+
+/**
+ * Evaluate a formal rule at runtime given current inventory state
+ * Returns { recipeVersion, allowedClinkerSources } or null if no matching condition
+ */
+function evaluateRoERule(formalRule, inventoryState) {
+  if (!formalRule || !formalRule.rules) return null;
+
+  // Evaluate each rule in order — return the first one whose condition matches
+  for (const rule of formalRule.rules) {
+    if (!rule.conditions) {
+      // No conditions = always applies
+      return { recipeVersion: rule.then?.recipeVersion, allowedClinkerSources: rule.then?.allowedClinkerSources };
+    }
+
+    // Evaluate conditions: currently supports clinkerSourceCoverDays
+    let conditionsMet = true;
+    for (const [condType, condition] of Object.entries(rule.conditions || {})) {
+      if (condType === 'clinkerSourceCoverDays') {
+        // condition = { operand: "BRS_CLK_K1", operator: ">=", value: 3 }
+        const storageId = condition.operand;  // storage name or ID
+        const coverDays = inventoryState[storageId] || 0;
+        const value = condition.value;
+        const op = condition.operator;
+
+        let condMet = false;
+        if (op === '>=') condMet = coverDays >= value;
+        else if (op === '<=') condMet = coverDays <= value;
+        else if (op === '>') condMet = coverDays > value;
+        else if (op === '<') condMet = coverDays < value;
+        else if (op === '===') condMet = coverDays === value;
+
+        if (!condMet) {
+          conditionsMet = false;
+          break;
+        }
+      }
+    }
+
+    if (conditionsMet) {
+      return { recipeVersion: rule.then?.recipeVersion, allowedClinkerSources: rule.then?.allowedClinkerSources };
+    }
+  }
+
+  return null;  // No matching rule condition
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SINGLE-FACILITY SIMULATION
 //
 // Returns row data + cell metadata for one facility over the given date range.
@@ -226,18 +290,79 @@ function simulateFacility(state, s, ds, facId, dates) {
     });
 
     // ── Step 2: FM production (clinker-constrained) ──
+    // ✓ FIXED: Recipe-aware clinker sourcing
+    // Instead of treating all clinker as one pool, find the specific clinker storage(s)
+    // that each FM recipe requires, and check availability per-storage.
+
     const fmReqLines = [];
     fms.forEach(eq => {
       s.getCapsForEquipment(eq.id).forEach(cap => {
         const reqQty = getEqProd(date, eq.id, cap.productId);
         if (!reqQty) return;
-        const recipe    = s.getRecipeForProduct(cap.productId);
-        let clkFactor   = 0;
+
+        // ✓ NEW: Check RoE rule for this equipment + product
+        const roeRule = getApplicableRule(ds, facId, eq.id, cap.productId);
+
+        // Get recipe: use rule version if available, else highest version
+        let recipe = s.getRecipeForProduct(cap.productId);
+        let selectedRecipeVersion = null;
+        let allowedClinkerSources = null;
+
+        if (roeRule) {
+          // Build inventory state for rule evaluation (clinker cover days per storage)
+          const inventoryState = {};
+          storages
+            .filter(st => familyOfProduct(s, (st.allowedProductIds||[])[0]) === 'CLINKER')
+            .forEach(st => {
+              const bod = bodMap.get(`${date}|${st.id}`) || 0;
+              const delta = delta?.get(st.id) || 0;
+              const avail = bod + delta;
+              const shipCem = shipByPid.get(cap.productId) || 0;
+              const expS = expectedShip(date, cap.productId);
+              const coverDays = expS > 0 ? Math.max(0, avail) / expS : 99999;
+              inventoryState[st.id] = coverDays;
+              inventoryState[st.name] = coverDays;  // Also by name for rule readability
+            });
+
+          const ruleResult = evaluateRoERule(roeRule.formalRule, inventoryState);
+          if (ruleResult) {
+            selectedRecipeVersion = ruleResult.recipeVersion;
+            allowedClinkerSources = ruleResult.allowedClinkerSources;
+            // If rule specifies version, find recipe with that version
+            if (selectedRecipeVersion) {
+              const versioned = ds.recipes.find(r =>
+                r.facilityId === facId &&
+                r.productId === cap.productId &&
+                r.version === selectedRecipeVersion
+              );
+              if (versioned) recipe = versioned;
+            }
+          }
+        }
+
+        // ✓ NEW: Collect clinker sources from recipe, filtered by RoE rule
+        // Each entry: { materialId, storage, pct }
+        const clinkerSources = [];
         if (recipe) {
           recipe.components.forEach(c => {
-            if (familyOfProduct(s, c.materialId) === 'CLINKER') clkFactor += (+c.pct || 0) / 100;
+            if (familyOfProduct(s, c.materialId) === 'CLINKER') {
+              // ✓ Find storage by checking which storage accepts this exact clinker product
+              const clkStorage = storages.find(st =>
+                st.facilityId === facId &&
+                (st.allowedProductIds || []).includes(c.materialId)
+              );
+              // ✓ Only include if allowed by RoE rule (if rule exists)
+              if (clkStorage && (!allowedClinkerSources || allowedClinkerSources.includes(clkStorage.id) || allowedClinkerSources.includes(clkStorage.name))) {
+                clinkerSources.push({
+                  materialId: c.materialId,
+                  storage: clkStorage,
+                  pct: +c.pct || 0
+                });
+              }
+            }
           });
         }
+
         const outSt    = findStorageForProduct(cap.productId);
         const bodCem   = outSt ? (bodMap.get(`${date}|${outSt.id}`) || 0) : 0;
         const shipCem  = shipByPid.get(cap.productId) || 0;
@@ -247,11 +372,16 @@ function simulateFacility(state, s, ds, facId, dates) {
           : Infinity;
         const expS     = expectedShip(date, cap.productId);
         const daysCover = expS > 0 ? Math.max(0, bodCem) / expS : 99999;
-        fmReqLines.push({ eqId: eq.id, productId: cap.productId, reqQty: +reqQty, recipe, clkFactor, outSt, headroom, expShip: expS, daysCover });
+        fmReqLines.push({
+          eqId: eq.id, productId: cap.productId, reqQty: +reqQty, recipe,
+          clinkerSources,  // ✓ Filtered by RoE rule
+          selectedRecipeVersion,
+          outSt, headroom, expShip: expS, daysCover
+        });
       });
     });
 
-    // Total available clinker = BOD across all clinker storages + today's kiln req
+    // Kiln requirements (unchanged logic, still uses findStorageForProduct for output)
     const kilnReqLines = [];
     kilns.forEach(eq => {
       s.getCapsForEquipment(eq.id).forEach(cap => {
@@ -260,11 +390,6 @@ function simulateFacility(state, s, ds, facId, dates) {
         kilnReqLines.push({ eqId: eq.id, productId: cap.productId, reqQty: +qty, outSt: findStorageForProduct(cap.productId) });
       });
     });
-    const totalClkBod  = storages
-      .filter(st => familyOfProduct(s, (st.allowedProductIds || [])[0]) === 'CLINKER')
-      .reduce((acc, st) => acc + (bodMap.get(`${date}|${st.id}`) || 0), 0);
-    const totalKilnReq = kilnReqLines.reduce((a, l) => a + (+l.reqQty || 0), 0);
-    let remainingClk   = totalClkBod + totalKilnReq;
 
     // Sort FMs by urgency (lowest days of cover first)
     fmReqLines.sort((a, b) => {
@@ -275,14 +400,40 @@ function simulateFacility(state, s, ds, facId, dates) {
 
     const fmUsed = new Map();
     for (const line of fmReqLines) {
-      const { eqId, productId, reqQty, outSt, recipe, clkFactor } = line;
-      const maxByClk     = clkFactor > 0 ? Math.max(0, remainingClk / clkFactor) : Infinity;
-      const usedQty      = Math.max(0, Math.min(reqQty, line.headroom, maxByClk));
+      const { eqId, productId, reqQty, outSt, recipe, clinkerSources } = line;
+
+      // ✓ NEW: Check EACH clinker source separately for availability
+      // The FM can only produce as much as the most-constrained clinker allows
+      let maxByClk = Infinity;
+      const clkConstraintReasons = [];
+
+      clinkerSources.forEach(src => {
+        const clkBod    = bodMap.get(`${date}|${src.storage.id}`) || 0;
+        const clkDelta  = delta.get(src.storage.id) || 0;
+        const clkAvail  = clkBod + clkDelta;
+        const neededPct = src.pct / 100;
+        const maxByThisClk = neededPct > 0 ? Math.max(0, clkAvail / neededPct) : Infinity;
+
+        if (maxByThisClk < Infinity) {
+          clkConstraintReasons.push(`${s.getMaterial(src.materialId)?.code || src.materialId}: ${clkAvail.toFixed(1)}stn`);
+        }
+        maxByClk = Math.min(maxByClk, maxByThisClk);
+      });
+
+      // If no clinker sources, FM can produce unrestricted by clinker (legacy or recipe-less)
+      if (clinkerSources.length === 0) {
+        maxByClk = Infinity;
+      }
+
+      const usedQty = Math.max(0, Math.min(reqQty, line.headroom, maxByClk));
 
       if (usedQty < reqQty - 1e-6) {
         const reasons = [];
         if (line.headroom < reqQty - 1e-6) reasons.push('cement silo capacity');
-        if (maxByClk      < reqQty - 1e-6) reasons.push(`clinker scarcity (${(line.daysCover || 0).toFixed(1)}d cover)`);
+        if (maxByClk < reqQty - 1e-6) {
+          const clkInfo = clkConstraintReasons.length > 0 ? clkConstraintReasons.join(', ') : 'clinker scarcity';
+          reasons.push(`${clkInfo} (${(line.daysCover || 0).toFixed(1)}d cover)`);
+        }
         eqConstraintMeta.set(`${date}|${eqId}`, { type: 'capped', reason: reasons.join(' + ') || 'constraint', requested: reqQty, used: usedQty });
       }
       if (usedQty <= 0) { fmUsed.set(eqId, fmUsed.get(eqId) || 0); continue; }
@@ -291,14 +442,18 @@ function simulateFacility(state, s, ds, facId, dates) {
       fmTotal += usedQty;
       if (outSt) addDelta(outSt.id, usedQty);
 
+      // ✓ FIXED: Consume from EACH clinker storage
       if (recipe) {
         recipe.components.forEach(c => {
           const compQty = usedQty * (+c.pct || 0) / 100;
-          const compSt  = findStorageForProduct(c.materialId);
+          // ✓ Find storage by matching allowedProductIds (recipe-aware)
+          const compSt = storages.find(st =>
+            st.facilityId === facId &&
+            (st.allowedProductIds || []).includes(c.materialId)
+          );
           if (compSt) addDelta(compSt.id, -compQty);
           if (familyOfProduct(s, c.materialId) === 'CLINKER') {
-            clkDerived  += compQty;
-            remainingClk = Math.max(0, remainingClk - compQty);
+            clkDerived += compQty;
           }
         });
       }

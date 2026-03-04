@@ -167,16 +167,25 @@ function seed() {
     // Rules and network topology are company policy — they don't change per scenario.
     logistics: {
 
-      // Rules of Engagement — owned at regional level, one rule per facility+product pair.
-      // The agent asks for a missing rule before making a recommendation.
+      // Rules of Engagement — owned at regional level, can be facility+product or facility+equipment+product specific.
+      // Defines logistics rules (min cover days, lead times) and production constraints (recipe selection, clinker sourcing).
       rulesOfEngagement: [], // {
                              //   id,
                              //   facilityId,          // which terminal/plant this applies to
+                             //   equipmentId?,        // (optional) specific equipment this rule targets
                              //   productId,           // which product (cement, clinker, etc.)
+                             //
+                             //   // Logistics fields
                              //   minCoverDays,        // trigger threshold — request supply when cover drops below this
                              //   tradingLeadTimeDays, // how many days before arrival the team needs to act
                              //   standardVolumeStn,   // typical shipment size for this lane/mode
-                             //   priorityRank?,       // 1=highest — used when BRS must choose which terminal to serve first
+                             //   priorityRank?,       // 1=highest — used when choosing which terminal to serve first
+                             //
+                             //   // Production constraint fields (for equipment/recipe rules)
+                             //   userDescription?,    // natural language description of desired behavior
+                             //   formalRule?,         // AI-generated rule {type, targetEquipment, targetProduct, rules:[]}
+                             //                        // Evaluated at runtime to select recipe version + clinker sources
+                             //
                              //   notes?,
                              //   updatedAt,
                              //   updatedBy?

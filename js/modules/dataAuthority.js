@@ -997,11 +997,14 @@ export function upsertRuleOfEngagement(state, {
   id,
   facilityId,
   productId,
+  equipmentId = null,           // ✓ NEW: optional equipment-specific rule
   minCoverDays,
   tradingLeadTimeDays,
   standardVolumeStn,
   priorityRank = null,
   notes = '',
+  userDescription = null,       // ✓ NEW: natural language description
+  formalRule = null,            // ✓ NEW: AI-generated rule object
 }) {
   if (!facilityId || !productId) throw new Error('facilityId and productId are required');
 
@@ -1013,11 +1016,14 @@ export function upsertRuleOfEngagement(state, {
     id:                  ruleId,
     facilityId,
     productId,
+    equipmentId:         equipmentId || null,  // ✓ NEW
     minCoverDays:        +(minCoverDays        || 0),
     tradingLeadTimeDays: +(tradingLeadTimeDays || 0),
     standardVolumeStn:   +(standardVolumeStn   || 0),
     priorityRank:        priorityRank !== null ? +priorityRank : null,
     notes:               notes || '',
+    userDescription:     userDescription || null,  // ✓ NEW
+    formalRule:          formalRule || null,       // ✓ NEW
     updatedAt:           now,
   };
 

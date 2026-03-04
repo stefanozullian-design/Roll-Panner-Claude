@@ -3142,6 +3142,54 @@ function renderLogisticsRules(){
             </div>
 
           </div>
+
+          <!-- ✓ NEW: Production Constraint Fields -->
+          <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+              <input type="checkbox" id="roeEnableFormalRule" style="cursor:pointer">
+              <label class="form-label" style="margin:0;cursor:pointer;flex:1" for="roeEnableFormalRule">
+                Add Production Constraint Rule (recipe version &amp; clinker sourcing)
+              </label>
+            </div>
+
+            <div id="roeFormalRuleSection" style="display:none">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+                <div>
+                  <label class="form-label">Equipment (optional)
+                    <span style="font-weight:400;color:var(--muted);font-size:10px">— leave blank for all equipment</span>
+                  </label>
+                  <select class="form-input" id="roeEquipment">
+                    <option value="">— any equipment —</option>
+                  </select>
+                </div>
+                <div></div>
+              </div>
+
+              <div style="margin-top:12px">
+                <label class="form-label">User Description
+                  <span style="font-weight:400;color:var(--muted);font-size:10px">— describe desired behavior in natural language</span>
+                </label>
+                <textarea class="form-input" id="roeUserDescription"
+                  style="min-height:60px;font-family:'IBM Plex Mono',monospace;font-size:11px"
+                  placeholder="e.g., BROSFM01 should only use clinker from K1 storage. If K1 drops below 3 days of cover, switch to K2.">
+                </textarea>
+              </div>
+
+              <div style="margin-top:12px">
+                <label class="form-label">Formal Rule (JSON)
+                  <span style="font-weight:400;color:var(--muted);font-size:10px">— AI will generate this, or edit manually</span>
+                </label>
+                <textarea class="form-input" id="roeFormalRule"
+                  style="min-height:120px;font-family:'IBM Plex Mono',monospace;font-size:11px"
+                  placeholder='{"type":"equipmentClikerConstraint","targetEquipment":"BROSFM01","rules":[{"comment":"Always use v1","then":{"recipeVersion":"v1","allowedClinkerSources":["BRS_CLK_K1"]}}]}'>
+                </textarea>
+                <div style="font-size:11px;color:var(--muted);margin-top:4px">
+                  ℹ Valid JSON with type, targetEquipment, and rules array required
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div style="margin-top:16px;display:flex;gap:8px">
             <button class="btn btn-primary" id="roeFormSave">Save Rule</button>
             <button class="btn" id="roeFormCancel2">Cancel</button>
@@ -3167,7 +3215,27 @@ function renderLogisticsRules(){
       : '<option value="">— no products activated for this facility —</option>';
   };
 
-  facSel?.addEventListener('change', () => populateProducts(facSel.value));
+  // ✓ NEW: Populate equipment dropdown when facility changes
+  const equipSel = root.querySelector('#roeEquipment');
+  const populateEquipment = (facId, selectedEquipId='') => {
+    if (!facId) { equipSel.innerHTML = '<option value="">— select facility first —</option>'; return; }
+    const allEquip = (state.official?.equipment || []).filter(e => e.facilityId === facId);
+    equipSel.innerHTML =
+      '<option value="">— any equipment —</option>' +
+      allEquip.map(e => `<option value="${e.id}" ${e.id===selectedEquipId?'selected':''}>${esc(e.name)} (${esc(e.type)})</option>`).join('');
+  };
+
+  facSel?.addEventListener('change', () => {
+    populateProducts(facSel.value);
+    populateEquipment(facSel.value);
+  });
+
+  // ✓ NEW: Toggle formal rule section
+  const enableCheckbox = root.querySelector('#roeEnableFormalRule');
+  const formalSection = root.querySelector('#roeFormalRuleSection');
+  enableCheckbox?.addEventListener('change', () => {
+    formalSection.style.display = enableCheckbox.checked ? '' : 'none';
+  });
 
   // ── Show form ──
   const showForm = (facId='', ruleId='') => {
@@ -3181,6 +3249,7 @@ function renderLogisticsRules(){
 
     if(facId) facSel.value = facId;
     populateProducts(facSel.value, existing?.productId || '');
+    populateEquipment(facSel.value, existing?.equipmentId || '');
 
     if(existing){
       root.querySelector('#roeMinCover').value   = existing.minCoverDays   || '';
@@ -3188,12 +3257,22 @@ function renderLogisticsRules(){
       root.querySelector('#roeStdVolume').value   = existing.standardVolumeStn  || '';
       root.querySelector('#roePriority').value    = existing.priorityRank  || '';
       root.querySelector('#roeNotes').value       = existing.notes         || '';
+      // ✓ NEW: Populate formal rule fields
+      root.querySelector('#roeEnableFormalRule').checked = !!existing.formalRule;
+      formalSection.style.display = existing.formalRule ? '' : 'none';
+      root.querySelector('#roeUserDescription').value = existing.userDescription || '';
+      root.querySelector('#roeFormalRule').value = existing.formalRule ? JSON.stringify(existing.formalRule, null, 2) : '';
     } else {
       root.querySelector('#roeMinCover').value    = '';
       root.querySelector('#roeTradingLead').value = '';
       root.querySelector('#roeStdVolume').value   = '';
       root.querySelector('#roePriority').value    = '';
       root.querySelector('#roeNotes').value       = '';
+      // ✓ NEW: Reset formal rule fields
+      root.querySelector('#roeEnableFormalRule').checked = false;
+      formalSection.style.display = 'none';
+      root.querySelector('#roeUserDescription').value = '';
+      root.querySelector('#roeFormalRule').value = '';
     }
   };
 
@@ -3239,10 +3318,31 @@ function renderLogisticsRules(){
     const notes       = root.querySelector('#roeNotes').value.trim();
     const editId      = root.querySelector('#roeEditId').value || undefined;
 
+    // ✓ NEW: Get formal rule fields
+    const enableFormal   = root.querySelector('#roeEnableFormalRule').checked;
+    const equipmentId    = enableFormal ? (root.querySelector('#roeEquipment').value || null) : null;
+    const userDesc      = enableFormal ? root.querySelector('#roeUserDescription').value.trim() : '';
+    const formalRuleJson = enableFormal ? root.querySelector('#roeFormalRule').value.trim() : '';
+
     if(!facilityId){ showToast('Select a facility', 'warn'); return; }
     if(!productId){  showToast('Select a product',  'warn'); return; }
     if(!minCover || +minCover < 0){ showToast('Enter minimum cover days', 'warn'); return; }
     if(!leadTime || +leadTime < 0){ showToast('Enter trading lead time',  'warn'); return; }
+
+    // ✓ NEW: Validate formal rule if provided
+    let formalRule = null;
+    if(enableFormal && formalRuleJson){
+      try {
+        formalRule = JSON.parse(formalRuleJson);
+        if(!formalRule.type || !formalRule.rules || !Array.isArray(formalRule.rules)){
+          showToast('Formal rule must have type and rules array', 'warn');
+          return;
+        }
+      } catch(e){
+        showToast(`Invalid JSON in formal rule: ${e.message}`, 'warn');
+        return;
+      }
+    }
 
     // Check for duplicate (different id, same facility+product)
     const duplicate = rules.find(r =>
@@ -3259,11 +3359,14 @@ function renderLogisticsRules(){
       id:                  editId,
       facilityId,
       productId,
+      equipmentId:         equipmentId || null,  // ✓ NEW
       minCoverDays:        +minCover,
       tradingLeadTimeDays: +leadTime,
       standardVolumeStn:   stdVol   ? +stdVol   : 0,
       priorityRank:        priority ? +priority : null,
       notes,
+      userDescription:     userDesc || null,     // ✓ NEW
+      formalRule:          formalRule || null,   // ✓ NEW
     });
 
     persistNow();

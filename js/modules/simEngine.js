@@ -137,7 +137,8 @@ function simulateFacility(state, s, ds, facId, dates) {
   const storages = ds.storages.filter(st => st.facilityId === facId);
   const kilns    = ds.equipment.filter(e  => e.facilityId === facId && e.type === 'kiln');
   const fms      = ds.equipment.filter(e  => e.facilityId === facId && e.type === 'finish_mill');
-  const allEquip = [...kilns, ...fms];
+  const loaders  = ds.equipment.filter(e  => e.facilityId === facId && e.type === 'loader');
+  const allEquip = [...kilns, ...fms, ...loaders];
 
   // ── Pre-index actuals for O(1) lookup ──
   const invBODIndex = new Map();   // `date|storageId` → qtyStn  (physical count)
@@ -658,6 +659,22 @@ function simulateFacility(state, s, ds, facId, dates) {
     ];
   };
 
+  // Helper: TRANSF BOD storage section for Rail Transfer
+  const transfrBodSection = () => {
+    const rows = storagesByFamily('TRANSF');
+    if (!rows.length) return [];
+    const sectionId = `inv_bod_TRANSF`;
+    return [
+      { kind: 'section-header', label: '** / TRANSF / ** BOD', _section: 'bod', _sectionId: sectionId,
+        values: mkValues(d => rows.reduce((sum, st) => sum + (bodMap.get(`${d}|${st.id}`) || 0), 0)) },
+      ...rows.map(st => ({ kind: 'row', storageId: st.id, label: st.name,
+        productLabel: (st.allowedProductIds||[]).map(pid => s.getMaterial(pid)?.name).filter(Boolean).join(' / '),
+        values: mkValues(d => bodMap.get(`${d}|${st.id}`) || 0),
+        _sectionId: sectionId,
+        allowedProductIds: st.allowedProductIds || [] })),
+    ];
+  };
+
   // Helper: Consumption breakdown by finish mill (BRS facility only)
   const consumptionSection = () => {
     const rows = [];
@@ -740,6 +757,10 @@ function simulateFacility(state, s, ds, facId, dates) {
   const hasClinkerSection = facType === 'cement_plant' && kilns.length > 0;
 
   if (hasClinkerSection) {
+    // ── DEMAND section (at top level, same importance as CLINKER/CEMENT) ──
+    facilityRows.push({ kind: 'family-header', label: 'DEMAND', _family: 'DEMAND' });
+    facilityRows.push(...facFinishedRows());
+
     // ── CLINKER section (BRS and MIA only) ──
     // Order: BOD → Consumption → Production → EOD
     facilityRows.push({ kind: 'family-header', label: 'CLINKER', _family: 'CLINKER' });
@@ -770,11 +791,21 @@ function simulateFacility(state, s, ds, facId, dates) {
         values: mkValues(d => prodByEqMap.get(`${d}|${f.id}`) || 0) }));
     }
     facilityRows.push(...transferRows('CEMENT'));
-    facilityRows.push({ kind: 'subtotal', label: 'DEMAND', _section: 'demand',
-      values: mkValues(d => facFinished.reduce((sum, fp) => sum + (shipMap.get(`${d}|${fp.id}`) || 0), 0)) });
-    facilityRows.push(...facFinishedRows());
+
+    // ── RAIL TRANSFER section (subtotal level under CEMENT, same importance as FM PRODUCTION) ──
+    if (loaders.length || storagesByFamily('TRANSF').length) {
+      facilityRows.push({ kind: 'subtotal', label: 'RAIL TRANSFER', _section: 'rail',
+        values: mkValues(d => 0) }); // Placeholder for future calculation
+      facilityRows.push(...transfrBodSection());
+      loaders.forEach(l => facilityRows.push({ kind: 'row', rowType: 'equipment', equipmentId: l.id, label: l.name,
+        values: mkValues(d => 0) })); // Placeholder for future calculation
+    }
 
   } else if (facType === 'grinding' && hasClinkerSection) {
+    // ── DEMAND section (at top level, same importance as CLINKER/CEMENT) ──
+    facilityRows.push({ kind: 'family-header', label: 'DEMAND', _family: 'DEMAND' });
+    facilityRows.push(...facFinishedRows());
+
     // ── CLINKER section (no kiln) — only for designated facilities ──
     facilityRows.push({ kind: 'family-header', label: 'CLINKER', _family: 'CLINKER' });
     facilityRows.push(...bodSection('CLINKER', 'CLK INV-BOD'));
@@ -792,9 +823,15 @@ function simulateFacility(state, s, ds, facId, dates) {
         values: mkValues(d => prodByEqMap.get(`${d}|${f.id}`) || 0) }));
     }
     facilityRows.push(...transferRows('CEMENT'));
-    facilityRows.push({ kind: 'subtotal', label: 'DEMAND', _section: 'demand',
-      values: mkValues(d => facFinished.reduce((sum, fp) => sum + (shipMap.get(`${d}|${fp.id}`) || 0), 0)) });
-    facilityRows.push(...facFinishedRows());
+
+    // ── RAIL TRANSFER section (subtotal level under CEMENT, same importance as FM PRODUCTION) ──
+    if (loaders.length || storagesByFamily('TRANSF').length) {
+      facilityRows.push({ kind: 'subtotal', label: 'RAIL TRANSFER', _section: 'rail',
+        values: mkValues(d => 0) }); // Placeholder for future calculation
+      facilityRows.push(...transfrBodSection());
+      loaders.forEach(l => facilityRows.push({ kind: 'row', rowType: 'equipment', equipmentId: l.id, label: l.name,
+        values: mkValues(d => 0) })); // Placeholder for future calculation
+    }
 
   } else {
     // ── TERMINAL: finished products only ──

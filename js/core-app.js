@@ -2706,9 +2706,19 @@ function openDailyActualsDialog(preselectedFacId){
     host.querySelector('#saveActualsBtn').onclick = ev => {
       ev.preventDefault();
       const date = host.querySelector('#actualsDate').value;
-      const inventoryRows  = [...host.querySelectorAll('.inv-input')].map(i=>({storageId:i.dataset.storage,productId:i.dataset.product,qtyStn:+i.value||0})).filter(r=>r.productId);
-      const productionRows = [...host.querySelectorAll('.prod-input')].map(i=>({equipmentId:i.dataset.equipment,productId:i.dataset.product,qtyStn:+i.value||0}));
-      const shipmentRows   = [...host.querySelectorAll('.ship-input')].map(i=>({productId:i.dataset.product,qtyStn:+i.value||0}));
+      // ✓ FIX: Only include rows where field has a value (blank = don't change existing value)
+      // Before: +i.value||0 would convert empty "" to 0, overwriting existing inventory
+      // Now: Filter out rows where value is blank - they won't be submitted, so existing values preserved
+      const inventoryRows  = [...host.querySelectorAll('.inv-input')]
+        .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields
+        .map(i=>({storageId:i.dataset.storage,productId:i.dataset.product,qtyStn:+i.value}))
+        .filter(r=>r.productId);
+      const productionRows = [...host.querySelectorAll('.prod-input')]
+        .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields
+        .map(i=>({equipmentId:i.dataset.equipment,productId:i.dataset.product,qtyStn:+i.value}));
+      const shipmentRows   = [...host.querySelectorAll('.ship-input')]
+        .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields
+        .map(i=>({productId:i.dataset.product,qtyStn:+i.value}));
       a.saveDailyActuals({date, inventoryRows, productionRows, shipmentRows});
       persist(); renderDemand(); renderPlan(); showToast(`Actuals saved for ${activeFacId} ✓`);
     };

@@ -68,11 +68,11 @@ function familyOfProduct(s, pid) {
  * Find the applicable RoE rule for equipment + product combination
  * Returns rule object if found, null otherwise
  */
-function getApplicableRule(ds, facId, equipmentId, productId) {
+function getApplicableRule(logistics, facId, equipmentId, productId) {
   // ✓ SAFETY: Handle missing logistics structure gracefully
-  if (!ds?.logistics?.rulesOfEngagement) return null;
+  if (!logistics?.rulesOfEngagement) return null;
 
-  return ds.logistics.rulesOfEngagement.find(roe =>
+  return logistics.rulesOfEngagement.find(roe =>
     roe.facilityId === facId &&
     (roe.equipmentId === equipmentId || !roe.equipmentId) &&  // specific or facility-wide
     roe.productId === productId &&
@@ -304,7 +304,7 @@ function simulateFacility(state, s, ds, facId, dates) {
         if (!reqQty) return;
 
         // ✓ NEW: Check RoE rule for this equipment + product
-        const roeRule = getApplicableRule(ds, facId, eq.id, cap.productId);
+        const roeRule = getApplicableRule(state.logistics, facId, eq.id, cap.productId);
 
         // Get recipe: use rule version if available, else highest version
         let recipe = s.getRecipeForProduct(cap.productId);

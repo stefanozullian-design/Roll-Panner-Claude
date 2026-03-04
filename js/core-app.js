@@ -3108,6 +3108,47 @@ function renderLogisticsRules(){
               </select>
             </div>
 
+          </div>
+
+          <!-- ✓ NEW: Elements Panel for Drag-and-Drop -->
+          <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
+            <div style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;margin-bottom:8px;letter-spacing:0.5px">
+              Available Elements (Drag into rule)
+            </div>
+
+            <!-- Products Section -->
+            <div style="margin-bottom:12px">
+              <button type="button" class="elements-section-header" data-section="products"
+                style="background:none;border:none;color:var(--accent);font-weight:600;font-size:12px;cursor:pointer;padding:4px 0;display:flex;align-items:center;gap:6px">
+                <span style="display:inline-block;width:12px;text-align:center">▶</span>
+                <span>Products</span>
+              </button>
+              <div class="elements-panel" id="elementsProducts" style="display:none;margin-top:6px"></div>
+            </div>
+
+            <!-- Equipment Section -->
+            <div style="margin-bottom:12px">
+              <button type="button" class="elements-section-header" data-section="equipment"
+                style="background:none;border:none;color:var(--accent);font-weight:600;font-size:12px;cursor:pointer;padding:4px 0;display:flex;align-items:center;gap:6px">
+                <span style="display:inline-block;width:12px;text-align:center">▶</span>
+                <span>Equipment</span>
+              </button>
+              <div class="elements-panel" id="elementsEquipment" style="display:none;margin-top:6px"></div>
+            </div>
+
+            <!-- Storage Section -->
+            <div style="margin-bottom:12px">
+              <button type="button" class="elements-section-header" data-section="storage"
+                style="background:none;border:none;color:var(--accent);font-weight:600;font-size:12px;cursor:pointer;padding:4px 0;display:flex;align-items:center;gap:6px">
+                <span style="display:inline-block;width:12px;text-align:center">▶</span>
+                <span>Storage</span>
+              </button>
+              <div class="elements-panel" id="elementsStorage" style="display:none;margin-top:6px"></div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:640px;margin-top:16px">
+
             <div>
               <label class="form-label">Minimum Cover Days *
                 <span style="font-weight:400;color:var(--muted);font-size:10px">— trigger threshold</span>
@@ -3167,12 +3208,13 @@ function renderLogisticsRules(){
 
               <div style="margin-top:12px">
                 <label class="form-label">User Description
-                  <span style="font-weight:400;color:var(--muted);font-size:10px">— describe desired behavior in natural language</span>
+                  <span style="font-weight:400;color:var(--muted);font-size:10px">— drag elements + type natural language</span>
                 </label>
-                <textarea class="form-input" id="roeUserDescription"
-                  style="min-height:60px;font-family:'IBM Plex Mono',monospace;font-size:11px"
-                  placeholder="e.g., BROSFM01 should only use clinker from K1 storage. If K1 drops below 3 days of cover, switch to K2.">
-                </textarea>
+                <div class="form-input description-input" id="roeUserDescription"
+                  contenteditable="true"
+                  style="min-height:80px;padding:12px;overflow-y:auto"
+                  data-placeholder="Drag equipment/product/storage here and describe your rule…">
+                </div>
               </div>
 
               <div style="margin-top:12px">
@@ -3225,9 +3267,132 @@ function renderLogisticsRules(){
       allEquip.map(e => `<option value="${e.id}" ${e.id===selectedEquipId?'selected':''}>${esc(e.name)} (${esc(e.type)})</option>`).join('');
   };
 
+  // ✓ NEW: Populate elements panels (products, equipment, storage) for drag-and-drop
+  const populateElementsPanels = (facId) => {
+    if (!facId) {
+      root.querySelector('#elementsProducts').innerHTML = '';
+      root.querySelector('#elementsEquipment').innerHTML = '';
+      root.querySelector('#elementsStorage').innerHTML = '';
+      return;
+    }
+
+    const ds = state.official;
+    const catalog2 = state.catalog || [];
+
+    // Products
+    const activated = (ds.facilityProducts || [])
+      .filter(fp => fp.facilityId === facId)
+      .map(fp => fp.productId);
+    const prods = catalog2.filter(p => activated.includes(p.id));
+    root.querySelector('#elementsProducts').innerHTML = prods.map(p =>
+      `<button type="button" class="element-chip" draggable="true" data-element-type="product" data-element-id="${esc(p.id)}">${esc(p.name)}</button>`
+    ).join('');
+
+    // Equipment
+    const allEquip = (ds.equipment || []).filter(e => e.facilityId === facId);
+    root.querySelector('#elementsEquipment').innerHTML = allEquip.map(e =>
+      `<button type="button" class="element-chip" draggable="true" data-element-type="equipment" data-element-id="${esc(e.id)}">${esc(e.name)}</button>`
+    ).join('');
+
+    // Storage
+    const allStorage = (ds.storages || []).filter(s => s.facilityId === facId);
+    root.querySelector('#elementsStorage').innerHTML = allStorage.map(s =>
+      `<button type="button" class="element-chip" draggable="true" data-element-type="storage" data-element-id="${esc(s.id)}">${esc(s.name)}</button>`
+    ).join('');
+  };
+
   facSel?.addEventListener('change', () => {
     populateProducts(facSel.value);
     populateEquipment(facSel.value);
+    populateElementsPanels(facSel.value);
+  });
+
+  // ✓ NEW: Drag-and-Drop Event Handlers
+  const descriptionInput = root.querySelector('#roeUserDescription');
+
+  // Handle dragstart from element chips
+  root.addEventListener('dragstart', (e) => {
+    if (e.target.classList.contains('element-chip')) {
+      e.dataTransfer.effectAllowed = 'copy';
+      e.dataTransfer.setData('elementType', e.target.dataset.elementType);
+      e.dataTransfer.setData('elementId', e.target.dataset.elementId);
+      e.dataTransfer.setData('elementName', e.target.textContent);
+      e.target.classList.add('dragging');
+    }
+  });
+
+  root.addEventListener('dragend', (e) => {
+    if (e.target.classList.contains('element-chip')) {
+      e.target.classList.remove('dragging');
+    }
+  });
+
+  // Handle drag over and drop into description field
+  descriptionInput?.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    descriptionInput.classList.add('drag-over');
+  });
+
+  descriptionInput?.addEventListener('dragleave', (e) => {
+    if (e.target === descriptionInput) {
+      descriptionInput.classList.remove('drag-over');
+    }
+  });
+
+  descriptionInput?.addEventListener('drop', (e) => {
+    e.preventDefault();
+    descriptionInput.classList.remove('drag-over');
+
+    const elementType = e.dataTransfer.getData('elementType');
+    const elementId = e.dataTransfer.getData('elementId');
+    const elementName = e.dataTransfer.getData('elementName');
+
+    if (!elementType || !elementId) return;
+
+    // Create chip element
+    const chip = document.createElement('span');
+    chip.className = 'description-chip';
+    chip.dataset.elementId = elementId;
+    chip.dataset.elementType = elementType;
+    chip.innerHTML = `${esc(elementName)} <button type="button" class="remove-chip" data-remove-chip="1">×</button>`;
+
+    // Handle chip removal
+    const removeBtn = chip.querySelector('[data-remove-chip]');
+    removeBtn.addEventListener('click', (e2) => {
+      e2.preventDefault();
+      e2.stopPropagation();
+      chip.remove();
+    });
+
+    // Insert chip at cursor position
+    const sel = window.getSelection();
+    if (sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      range.insertNode(chip);
+      range.setStartAfter(chip);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } else {
+      descriptionInput.appendChild(chip);
+    }
+
+    // Add space after chip
+    descriptionInput.appendChild(document.createTextNode(' '));
+    descriptionInput.focus();
+  });
+
+  // ✓ NEW: Toggle collapsible element sections
+  root.querySelectorAll('.elements-section-header').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const section = btn.dataset.section;
+      const panel = root.querySelector(`#elements${section.charAt(0).toUpperCase() + section.slice(1)}`);
+      const isOpen = panel.style.display !== 'none';
+      panel.style.display = isOpen ? 'none' : '';
+      btn.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+    });
   });
 
   // ✓ NEW: Toggle formal rule section
@@ -3250,6 +3415,7 @@ function renderLogisticsRules(){
     if(facId) facSel.value = facId;
     populateProducts(facSel.value, existing?.productId || '');
     populateEquipment(facSel.value, existing?.equipmentId || '');
+    populateElementsPanels(facSel.value);  // ✓ NEW: Populate elements panels
 
     if(existing){
       root.querySelector('#roeMinCover').value   = existing.minCoverDays   || '';
@@ -3260,7 +3426,71 @@ function renderLogisticsRules(){
       // ✓ NEW: Populate formal rule fields
       root.querySelector('#roeEnableFormalRule').checked = !!existing.formalRule;
       formalSection.style.display = existing.formalRule ? '' : 'none';
-      root.querySelector('#roeUserDescription').value = existing.userDescription || '';
+
+      // ✓ NEW: Reconstruct description with chips (for editing)
+      descriptionInput.innerHTML = '';
+      if (existing.userDescription) {
+        // Parse description string with [TYPE:ID] markers and reconstruct chips + text
+        const text = existing.userDescription;
+        const chipRegex = /\[([A-Z_]+):([^\]]+)\]/g;
+        let lastIdx = 0;
+        let match;
+
+        // Get facility data for name lookups
+        const facilityId = facSel.value;
+        const facilityData = state.org.facilities.find(f => f.id === facilityId);
+        const facilityProducts = state.official.facilityProducts?.filter(fp => fp.facilityId === facilityId) || [];
+        const facilityEquipment = state.official.equipment?.filter(e => e.facilityId === facilityId) || [];
+        const facilityStorages = state.official.storages?.filter(st => st.facilityId === facilityId) || [];
+
+        while ((match = chipRegex.exec(text)) !== null) {
+          // Add text before chip
+          if (match.index > lastIdx) {
+            descriptionInput.appendChild(document.createTextNode(text.slice(lastIdx, match.index)));
+          }
+
+          const elementType = match[1].toLowerCase(); // e.g., 'equipment' from 'EQUIPMENT'
+          const elementId = match[2];
+
+          // Find element name from facility data (products, equipment, storage)
+          let elementName = elementId; // fallback to ID if name not found
+          if (elementType === 'product') {
+            const prod = catalog.find(c => c.id === elementId);
+            if (prod) elementName = prod.name;
+          } else if (elementType === 'equipment') {
+            const eq = facilityEquipment.find(e => e.id === elementId);
+            if (eq) elementName = eq.name;
+          } else if (elementType === 'storage') {
+            const st = facilityStorages.find(s => s.id === elementId);
+            if (st) elementName = st.name;
+          }
+
+          // Create and insert chip
+          const chip = document.createElement('span');
+          chip.className = 'description-chip';
+          chip.dataset.elementId = elementId;
+          chip.dataset.elementType = elementType;
+          chip.innerHTML = `${esc(elementName)} <button type="button" class="remove-chip" data-remove-chip="1">×</button>`;
+
+          // Re-attach remove handlers
+          const removeBtn = chip.querySelector('[data-remove-chip]');
+          removeBtn.addEventListener('click', (e2) => {
+            e2.preventDefault();
+            e2.stopPropagation();
+            chip.remove();
+          });
+
+          descriptionInput.appendChild(chip);
+          descriptionInput.appendChild(document.createTextNode(' '));
+          lastIdx = chipRegex.lastIndex;
+        }
+
+        // Add remaining text after last chip
+        if (lastIdx < text.length) {
+          descriptionInput.appendChild(document.createTextNode(text.slice(lastIdx)));
+        }
+      }
+
       root.querySelector('#roeFormalRule').value = existing.formalRule ? JSON.stringify(existing.formalRule, null, 2) : '';
     } else {
       root.querySelector('#roeMinCover').value    = '';
@@ -3271,7 +3501,7 @@ function renderLogisticsRules(){
       // ✓ NEW: Reset formal rule fields
       root.querySelector('#roeEnableFormalRule').checked = false;
       formalSection.style.display = 'none';
-      root.querySelector('#roeUserDescription').value = '';
+      descriptionInput.innerHTML = '';  // ✓ NEW: Clear contenteditable
       root.querySelector('#roeFormalRule').value = '';
     }
   };
@@ -3321,7 +3551,26 @@ function renderLogisticsRules(){
     // ✓ NEW: Get formal rule fields
     const enableFormal   = root.querySelector('#roeEnableFormalRule').checked;
     const equipmentId    = enableFormal ? (root.querySelector('#roeEquipment').value || null) : null;
-    const userDesc      = enableFormal ? root.querySelector('#roeUserDescription').value.trim() : '';
+
+    // ✓ NEW: Extract description from contenteditable div (mixed text + chip elements)
+    let userDesc = '';
+    if (enableFormal) {
+      const descDiv = root.querySelector('#roeUserDescription');
+      descDiv.childNodes.forEach(node => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          userDesc += node.textContent;
+        } else if (node.classList && node.classList.contains('description-chip')) {
+          const elementId = node.dataset.elementId;
+          const elementType = node.dataset.elementType;
+          // Store as [TYPE:ID] marker for later deserialization
+          userDesc += `[${elementType.toUpperCase()}:${elementId}]`;
+          // Add space to preserve text flow
+          userDesc += ' ';
+        }
+      });
+      userDesc = userDesc.trim();
+    }
+
     const formalRuleJson = enableFormal ? root.querySelector('#roeFormalRule').value.trim() : '';
 
     if(!facilityId){ showToast('Select a facility', 'warn'); return; }

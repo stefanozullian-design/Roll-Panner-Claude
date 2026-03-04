@@ -442,6 +442,124 @@
     .roe-stat-value { font-size: 12px; font-weight: 700; color: var(--text); font-family: 'IBM Plex Mono', monospace; }
     .roe-rule-notes { font-size: 11px; color: var(--muted); flex: 1; }
     .roe-rule-actions { display: flex; gap: 4px; margin-left: auto; }
+
+    /* ✓ NEW: Elements Panel & Drag-and-Drop Styles */
+    .elements-panel {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 0;
+    }
+
+    .element-chip {
+      padding: 6px 12px;
+      background: var(--accent);
+      color: #1a1a2e;
+      border-radius: 16px;
+      cursor: move;
+      user-select: none;
+      font-size: 12px;
+      font-weight: 600;
+      transition: opacity .2s, transform .1s;
+      border: none;
+      outline: none;
+    }
+
+    .element-chip:hover {
+      opacity: 0.85;
+      transform: scale(1.02);
+    }
+
+    .element-chip.dragging {
+      opacity: 0.5;
+    }
+
+    /* Description Input (contenteditable) */
+    .description-input {
+      display: block;
+      width: 100%;
+      min-height: 80px;
+      padding: 12px;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 4px;
+      background: rgba(255,255,255,0.02);
+      color: #fff;
+      font-family: inherit;
+      font-size: 14px;
+      outline: none;
+      transition: border-color .2s, background .2s;
+      overflow-y: auto;
+      word-wrap: break-word;
+      white-space: pre-wrap;
+    }
+
+    .description-input:focus {
+      border-color: var(--accent);
+      background: rgba(255,255,255,0.04);
+    }
+
+    .description-input.drag-over {
+      border-color: var(--accent);
+      background: rgba(var(--accent-rgb), 0.08);
+    }
+
+    .description-input:empty:before {
+      content: attr(data-placeholder);
+      color: var(--muted);
+      pointer-events: none;
+    }
+
+    /* Chips Inside Description */
+    .description-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      margin: 0 2px;
+      background: var(--accent);
+      color: #1a1a2e;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .description-chip .remove-chip {
+      margin-left: 2px;
+      background: none;
+      border: none;
+      color: #1a1a2e;
+      cursor: pointer;
+      font-weight: bold;
+      padding: 0;
+      width: 16px;
+      height: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity .2s;
+    }
+
+    .description-chip .remove-chip:hover {
+      opacity: 0.7;
+    }
+
+    .elements-section-header {
+      transition: color .2s;
+    }
+
+    .elements-section-header:hover {
+      color: var(--accent-light, #ffd700);
+    }
+
+    .elements-section-header[aria-expanded="true"] span:first-child {
+      transform: rotate(90deg);
+    }
+
+    .elements-section-header span:first-child {
+      transition: transform .2s;
+      display: inline-block;
+    }
   </style>
 </head>
 <body>

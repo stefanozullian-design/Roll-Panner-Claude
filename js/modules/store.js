@@ -169,36 +169,7 @@ function seed() {
 
       // Rules of Engagement — owned at regional level, can be facility+product or facility+equipment+product specific.
       // Defines logistics rules (min cover days, lead times) and production constraints (recipe selection, clinker sourcing).
-      rulesOfEngagement: [
-        // ✓ TEST RULE: Force BROSFM01 to use BRS IL/BULK v1 (K1 clinker only)
-        {
-          id: 'brs-brosfm01-v1-rule',
-          facilityId: 'BRS',
-          equipmentId: 'BROSFM01',
-          productId: 'BRS_IL_BULK',
-          minCoverDays: 7,
-          tradingLeadTimeDays: 0,
-          standardVolumeStn: 0,
-          userDescription: 'BROSFM01 must use BRS IL/BULK v1 and only K1 clinker from BRSK01 kiln',
-          formalRule: {
-            type: 'equipmentClikerConstraint',
-            targetEquipment: 'BROSFM01',
-            targetProduct: 'BRS_IL_BULK',
-            rules: [
-              {
-                comment: 'Always use v1 (K1 clinker only)',
-                then: {
-                  recipeVersion: 'v1',
-                  allowedClinkerSources: ['CLK-BRSK01']  // Only K1 clinker storage
-                }
-              }
-            ]
-          },
-          notes: 'Test rule for multi-kiln inventory fix',
-          updatedAt: new Date().toISOString(),
-          updatedBy: 'system-test'
-        }
-      ], // {
+      rulesOfEngagement: [], // {
          //   id,
          //   facilityId,          // which terminal/plant this applies to
          //   equipmentId?,        // (optional) specific equipment this rule targets

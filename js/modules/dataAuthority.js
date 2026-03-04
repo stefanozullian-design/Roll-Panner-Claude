@@ -709,7 +709,7 @@ export function actions(state) {
     // ────────────────────────────────────────────────────────────────────────
 
     upsertEquipment({ id, name, type }) {
-      const prefix  = type === 'kiln' ? 'K' : type === 'finish_mill' ? 'FM' : type === 'raw_mill' ? 'RM' : 'EQ';
+      const prefix  = type === 'kiln' ? 'K' : type === 'finish_mill' ? 'FM' : type === 'raw_mill' ? 'RM' : type === 'loader' ? 'LDR' : type === 'switch' ? 'SW' : 'EQ';
       const n       = (name || '').trim() || `${prefix}${1 + ds.equipment.filter(e => e.facilityId === primaryFacId && e.type === type).length}`;
       const nextId  = id || `${primaryFacId}_${slug(n)}`;
       const row     = { id: nextId, facilityId: primaryFacId, name: n, type };

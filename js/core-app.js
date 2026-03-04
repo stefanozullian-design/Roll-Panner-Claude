@@ -2645,9 +2645,9 @@ function renderFlow(){
   const s = selectors(state);
   const a = actions(state);
 
-  const eqTypeLabel = t => ({kiln:'Kiln',finish_mill:'Finish Mill',raw_mill:'Raw Mill',unloader:'Unloader'}[t]||t);
+  const eqTypeLabel = t => ({kiln:'Kiln',finish_mill:'Finish Mill',raw_mill:'Raw Mill',unloader:'Unloader',loader:'Loader',switch:'Rail Switch'}[t]||t);
   const eqTypePill = t => {
-    const map = {kiln:'pill-amber',finish_mill:'pill-blue',raw_mill:'pill-gray',unloader:'pill-teal'};
+    const map = {kiln:'pill-amber',finish_mill:'pill-blue',raw_mill:'pill-gray',unloader:'pill-teal',loader:'pill-green',switch:'pill-purple'};
     return `<span class="pill ${map[t]||'pill-gray'}">${eqTypeLabel(t)}</span>`;
   };
 
@@ -2671,7 +2671,7 @@ function renderFlow(){
           <form id="eqForm" class="form-grid" style="grid-template-columns:1fr 1fr;margin-bottom:16px">
             <input type="hidden" name="id">
             <div><label class="form-label">Name *</label><input class="form-input" name="name" placeholder="e.g. Kiln 1" required></div>
-            <div><label class="form-label">Type *</label><select class="form-input" name="type"><option value="kiln">Kiln</option><option value="finish_mill">Finish Mill</option><option value="raw_mill">Raw Mill</option><option value="unloader">Unloader</option></select></div>
+            <div><label class="form-label">Type *</label><select class="form-input" name="type"><option value="kiln">Kiln</option><option value="finish_mill">Finish Mill</option><option value="raw_mill">Raw Mill</option><option value="unloader">Unloader</option><option value="loader">Loader</option><option value="switch">Rail Switch</option></select></div>
             <div style="grid-column:1/-1;display:flex;gap:8px">
               <button type="submit" id="saveEqBtn" class="btn btn-primary">Save</button>
               <button type="button" id="cancelEqEdit" class="btn hidden">Cancel</button>

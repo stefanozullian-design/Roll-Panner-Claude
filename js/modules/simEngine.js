@@ -227,6 +227,8 @@ function simulateFacility(state, s, ds, facId, dates) {
   const kilnProdMap     = new Map();  // date → total
   const fmProdMap       = new Map();  // date → total
   const clkConsumedMap  = new Map();  // date → total clinker consumed by FMs
+  const fm1ConsumedMap  = new Map();  // date → BROSFM01 clinker consumption (BRS only)
+  const fm2ConsumedMap  = new Map();  // date → BROSFM02 clinker consumption (BRS only)
   const prodByEqMap     = new Map();  // `date|eqId` → qty
   const eqCellMeta      = new Map();  // `date|eqId` → { source, status, productId, ... }
   const eqConstraintMeta= new Map();  // `date|eqId` → { type, reason, ... }
@@ -482,6 +484,7 @@ function simulateFacility(state, s, ds, facId, dates) {
     if (facId === 'BRS') {
       const fm1_id = 'BROSFM01';
       const fm1_capable_products = ['BRS_IL_BULK', 'BRS_SPEC_BULK'];
+      let fm1_total_consumed = 0;
 
       fm1_capable_products.forEach(productId => {
         // Check if BROSFM01 produced this product today
@@ -497,6 +500,7 @@ function simulateFacility(state, s, ds, facId, dates) {
             if (clinkerComp && clinkerComp.pct > 0) {
               // Use the clinker percentage from the ACTUAL recipe
               const clinker_consumed = fm1_prod_qty * (clinkerComp.pct / 100);
+              fm1_total_consumed += clinker_consumed;
               // Deduct from K1 storage ONLY
               const clk_storage = storages.find(s => s.id === 'CLK-BRSK01');
               if (clk_storage) addDelta(clk_storage.id, -clinker_consumed);
@@ -508,6 +512,7 @@ function simulateFacility(state, s, ds, facId, dates) {
       // Handle BROSFM02 → CLK-KL02 (BROSFM02 only produces BRS IL / BULK v2)
       const fm2_id = 'BROSFM02';
       const fm2_product = 'BRS_IL_BULK';
+      let fm2_total_consumed = 0;
 
       const fm2_prod_qty = getEqProd(date, fm2_id, fm2_product);
       if (fm2_prod_qty > 0) {
@@ -519,12 +524,17 @@ function simulateFacility(state, s, ds, facId, dates) {
           if (clinkerComp && clinkerComp.pct > 0) {
             // Use the clinker percentage from the recipe
             const clinker_consumed = fm2_prod_qty * (clinkerComp.pct / 100);
+            fm2_total_consumed += clinker_consumed;
             // Deduct from K2 storage ONLY
             const clk_storage = storages.find(s => s.id === 'CLK-KL02');
             if (clk_storage) addDelta(clk_storage.id, -clinker_consumed);
           }
         }
       }
+
+      // Track consumption separately for display in breakdown rows
+      fm1ConsumedMap.set(date, fm1_total_consumed);
+      fm2ConsumedMap.set(date, fm2_total_consumed);
     }
 
     // ── Step 3: Kiln production (cap by clinker silo headroom) ──
@@ -654,6 +664,36 @@ function simulateFacility(state, s, ds, facId, dates) {
     ];
   };
 
+  // Helper: EOD subtotal + storage children for a family (shows per-storage EOD breakdown)
+  const eodSection = (fam, label) => {
+    const rows = storagesByFamily(fam);
+    if (!rows.length) return [];
+    return [
+      { kind: 'subtotal', label, _section: 'eod',
+        values: mkValues(d => rows.reduce((sum, st) => sum + (eodMap.get(`${d}|${st.id}`) || 0), 0)) },
+      ...rows.map(st => ({ kind: 'row', storageId: st.id, label: st.name,
+        productLabel: (st.allowedProductIds||[]).map(pid => s.getMaterial(pid)?.name).filter(Boolean).join(' / '),
+        values: mkValues(d => eodMap.get(`${d}|${st.id}`) || 0) })),
+    ];
+  };
+
+  // Helper: Consumption breakdown by finish mill (BRS facility only)
+  const consumptionSection = () => {
+    const rows = [];
+    // Total consumption
+    rows.push({ kind: 'subtotal', label: 'CLK CONSUMPTION', _section: 'consumption',
+      values: mkValues(d => clkConsumedMap.get(d) || 0) });
+
+    // For BRS: show BROSFM01 and BROSFM02 breakdowns
+    if (facId === 'BRS') {
+      rows.push({ kind: 'row', equipmentId: 'BROSFM01', label: 'BROSFM01',
+        values: mkValues(d => fm1ConsumedMap.get(d) || 0) });
+      rows.push({ kind: 'row', equipmentId: 'BROSFM02', label: 'BROSFM02',
+        values: mkValues(d => fm2ConsumedMap.get(d) || 0) });
+    }
+    return rows;
+  };
+
   // Helper: transfer rows for a given family's products
   const transferRows = (fam) => {
     const famStorages = storagesByFamily(fam);
@@ -725,8 +765,7 @@ function simulateFacility(state, s, ds, facId, dates) {
     facilityRows.push(...bodSection('CLINKER', 'CLK INV-BOD'));
 
     // Clinker consumption (derived from FM production × recipe clinker %)
-    facilityRows.push({ kind: 'subtotal', label: 'CLK CONSUMPTION', _section: 'consumption',
-      values: mkValues(d => clkConsumedMap.get(d) || 0) });
+    facilityRows.push(...consumptionSection());
 
     // Kiln production (total and by kiln)
     if (kilns.length) {
@@ -737,15 +776,8 @@ function simulateFacility(state, s, ds, facId, dates) {
     }
     facilityRows.push(...transferRows('CLINKER'));
 
-    // Clinker EOD (BOD + Production - Consumption)
-    facilityRows.push({ kind: 'subtotal', label: 'CLK INV-EOD', _section: 'eod',
-      values: mkValues(d => {
-        const clinkerStorages = storages.filter(st => familyOfProduct(s, (st.allowedProductIds||[])[0]) === 'CLINKER');
-        const bod = clinkerStorages.reduce((sum, st) => sum + (bodMap.get(`${d}|${st.id}`) || 0), 0);
-        const prod = kilnProdMap.get(d) || 0;
-        const cons = clkConsumedMap.get(d) || 0;
-        return bod + prod - cons;
-      }) });
+    // Clinker EOD (BOD + Production - Consumption) - with per-storage breakdown
+    facilityRows.push(...eodSection('CLINKER', 'CLK INV-EOD'));
 
     // ── CEMENT section ──
     facilityRows.push({ kind: 'family-header', label: 'CEMENT', _family: 'CEMENT' });
@@ -765,16 +797,9 @@ function simulateFacility(state, s, ds, facId, dates) {
     // ── CLINKER section (no kiln) — only for designated facilities ──
     facilityRows.push({ kind: 'family-header', label: 'CLINKER', _family: 'CLINKER' });
     facilityRows.push(...bodSection('CLINKER', 'CLK INV-BOD'));
-    facilityRows.push({ kind: 'subtotal', label: 'CLK CONSUMPTION', _section: 'consumption',
-      values: mkValues(d => clkConsumedMap.get(d) || 0) });
+    facilityRows.push(...consumptionSection());
     facilityRows.push(...transferRows('CLINKER'));
-    facilityRows.push({ kind: 'subtotal', label: 'CLK INV-EOD', _section: 'eod',
-      values: mkValues(d => {
-        const clinkerStorages = storages.filter(st => familyOfProduct(s, (st.allowedProductIds||[])[0]) === 'CLINKER');
-        const bod = clinkerStorages.reduce((sum, st) => sum + (bodMap.get(`${d}|${st.id}`) || 0), 0);
-        const cons = clkConsumedMap.get(d) || 0;
-        return bod - cons;
-      }) });
+    facilityRows.push(...eodSection('CLINKER', 'CLK INV-EOD'));
 
     // ── CEMENT section ──
     facilityRows.push({ kind: 'family-header', label: 'CEMENT', _family: 'CEMENT' });

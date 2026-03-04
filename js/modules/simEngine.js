@@ -494,6 +494,8 @@ function simulateFacility(state, s, ds, facId, dates) {
     // Track consumption per finish mill for display in breakdown rows
     const fmConsumptionMap = new Map(); // fmId → total consumption today
 
+    console.log(`[CLINKER DEBUG] Starting multi-facility clinker deduction for date ${date}, facility ${facId}, FMs: ${fms.map(f => f.id).join(', ')}`);
+
     fms.forEach(fm => {
       let fmTotalConsumed = 0;
 
@@ -526,11 +528,9 @@ function simulateFacility(state, s, ds, facId, dates) {
             );
 
             // DEBUG: Log what we're finding
-            if (date === '2025-01-02') {
-              console.log(`[DEBUG ${date}] FM: ${fm.id}, Product: ${productId}, ProdQty: ${prodQty}, Clinker Material: ${comp.materialId}, CompQty: ${compQty}, Storage Found: ${clinkerStorage ? clinkerStorage.id : 'NOT FOUND'}`);
-              if (!clinkerStorage) {
-                console.log(`  Available storages for ${facId}:`, storages.filter(s => s.facilityId === facId).map(s => ({ id: s.id, allowed: s.allowedProductIds })));
-              }
+            console.log(`[DEBUG ${date}] FM: ${fm.id}, Product: ${productId}, ProdQty: ${prodQty}, Clinker Material: ${comp.materialId}, CompQty: ${compQty}, Storage Found: ${clinkerStorage ? clinkerStorage.id : 'NOT FOUND'}`);
+            if (!clinkerStorage) {
+              console.log(`  Available storages for ${facId}:`, storages.filter(s => s.facilityId === facId).map(s => ({ id: s.id, allowed: s.allowedProductIds })));
             }
 
             // Deduct from that storage

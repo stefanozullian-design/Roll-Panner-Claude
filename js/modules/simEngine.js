@@ -525,6 +525,14 @@ function simulateFacility(state, s, ds, facId, dates) {
               (st.allowedProductIds || []).includes(comp.materialId)
             );
 
+            // DEBUG: Log what we're finding
+            if (date === '2025-01-02') {
+              console.log(`[DEBUG ${date}] FM: ${fm.id}, Product: ${productId}, ProdQty: ${prodQty}, Clinker Material: ${comp.materialId}, CompQty: ${compQty}, Storage Found: ${clinkerStorage ? clinkerStorage.id : 'NOT FOUND'}`);
+              if (!clinkerStorage) {
+                console.log(`  Available storages for ${facId}:`, storages.filter(s => s.facilityId === facId).map(s => ({ id: s.id, allowed: s.allowedProductIds })));
+              }
+            }
+
             // Deduct from that storage
             if (clinkerStorage) {
               addDelta(clinkerStorage.id, -compQty);

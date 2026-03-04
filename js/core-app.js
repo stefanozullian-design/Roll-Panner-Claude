@@ -1476,6 +1476,357 @@ function renderPlan(){
       setTimeout(drawCampaignLines, 0);
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PHASE 4-6: SCROLL SYNC, DYNAMIC REDRAW, AND EVENT HANDLING
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // Phase 5: Scroll Synchronization
+    // Sync SVG overlay position with table scroll
+    if (tableScroll) {
+      const syncSVGScroll = () => {
+        const svgOverlay = window._campaignVisualization?.svgOverlay;
+        if (svgOverlay) {
+          svgOverlay.style.transform = `translateX(-${tableScroll.scrollLeft}px)`;
+        }
+      };
+
+      tableScroll.addEventListener('scroll', syncSVGScroll);
+
+      // Also redraw lines on scroll (with debounce)
+      let scrollTimeout;
+      tableScroll.addEventListener('scroll', () => {
+        clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(drawCampaignLines, 100);
+      });
+    }
+
+    // Phase 6a: Re-render campaign lines when month collapse changes
+    // Store original month handler and enhance it
+    const originalMonthClickHandler = (e) => {
+      const summaryHeader = e.target.closest('.month-summary-col');
+      const collapseIcon = e.target.closest('.month-collapse-icon');
+
+      if (summaryHeader || collapseIcon) {
+        e.stopPropagation();
+        const header = summaryHeader || collapseIcon.closest('.month-summary-col');
+        const yyyymm = header?.dataset.yyyymm;
+
+        if (yyyymm) {
+          monthCollapseState[yyyymm] = !monthCollapseState[yyyymm];
+          localStorage.setItem('planMonthCollapseState', JSON.stringify(monthCollapseState));
+
+          // Re-render entire table (this will recreate everything including SVG)
+          renderPlan();
+        }
+      }
+    };
+
+    // Phase 6b: Redraw lines when facility changes
+    const observeFacilityChange = () => {
+      // Watch for facility selector changes
+      const facilitySelector = root.querySelector('select[id*="facility"], [id*="facilitySelector"]');
+      if (facilitySelector) {
+        facilitySelector.addEventListener('change', () => {
+          setTimeout(drawCampaignLines, 100);
+        });
+      }
+    };
+
+    observeFacilityChange();
+
+    // Phase 6c: Redraw lines on window resize
+    let resizeTimeout;
+    const onWindowResize = () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        window._campaignVisualization?.updateSVGDimensions?.();
+        drawCampaignLines();
+      }, 200);
+    };
+
+    window.addEventListener('resize', onWindowResize);
+
+    // Phase 6d: Watch for table structure changes (via MutationObserver)
+    if (tbody) {
+      const mutationObserver = new MutationObserver(() => {
+        // Redraw lines if table DOM changes
+        setTimeout(drawCampaignLines, 50);
+      });
+
+      // Only watch for row additions/removals, not text content changes
+      mutationObserver.observe(tbody, {
+        childList: true,
+        subtree: false
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PHASE 7: TOOLTIP INTERACTION
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // Create tooltip container
+    const tooltipEl = document.createElement('div');
+    tooltipEl.id = 'campaignTooltip';
+    tooltipEl.style.cssText = `
+      position: fixed;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      color: var(--text);
+      z-index: 1000;
+      pointer-events: none;
+      display: none;
+      max-width: 220px;
+      white-space: nowrap;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    `;
+    document.body.appendChild(tooltipEl);
+
+    // Hover handlers for campaign lines
+    const svgOverlay = window._campaignVisualization?.svgOverlay;
+    if (svgOverlay) {
+      svgOverlay.addEventListener('mouseover', (e) => {
+        const line = e.target.closest('.campaign-line');
+        if (!line) return;
+
+        // Get campaign details from line attributes
+        const equipmentId = line.getAttribute('data-equipment-id');
+        const productId = line.getAttribute('data-product-id');
+        const status = line.getAttribute('data-status');
+        const startDate = line.getAttribute('data-start-date');
+        const endDate = line.getAttribute('data-end-date');
+        const rate = line.getAttribute('data-rate');
+
+        // Create a fake block object for formatting
+        const fakeBlock = {
+          equipmentId,
+          productId,
+          status,
+          startDate,
+          endDate,
+          rateStn: parseFloat(rate),
+          dateCount: (new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24) + 1
+        };
+
+        const details = formatCampaignDetails(fakeBlock);
+        if (details) {
+          // Build tooltip content
+          const tooltipHTML = `
+            <strong style="color: var(--accent)">${details.equipment}</strong><br/>
+            <span style="color: var(--muted)">Product:</span> ${details.product}<br/>
+            <span style="color: var(--muted)">Rate:</span> ${details.rate}<br/>
+            <span style="color: var(--muted)">Status:</span> ${details.status}<br/>
+            <span style="color: var(--muted)">Duration:</span> ${details.duration}<br/>
+            <span style="color: var(--muted)">Dates:</span> ${details.dateRange}
+          `;
+
+          tooltipEl.innerHTML = tooltipHTML;
+          tooltipEl.style.display = 'block';
+
+          // Position tooltip near cursor
+          document.addEventListener('mousemove', (moveEvent) => {
+            const offsetX = 10;
+            const offsetY = 10;
+            tooltipEl.style.left = (moveEvent.clientX + offsetX) + 'px';
+            tooltipEl.style.top = (moveEvent.clientY + offsetY) + 'px';
+          });
+
+          // Highlight line on hover
+          line.setAttribute('stroke-width', '5');
+          line.setAttribute('opacity', Math.min(1, (parseFloat(line.getAttribute('opacity')) || 0.7) + 0.2));
+        }
+      });
+
+      svgOverlay.addEventListener('mouseout', (e) => {
+        const line = e.target.closest('.campaign-line');
+        if (!line) return;
+
+        // Hide tooltip
+        tooltipEl.style.display = 'none';
+
+        // Reset line style
+        const originalOpacity = line.getAttribute('data-original-opacity') ||
+          (plan.equipmentCellMeta?.[`${line.getAttribute('data-start-date')}|${line.getAttribute('data-equipment-id')}`]?.source === 'actual' ? 0.9 : 0.6);
+        line.setAttribute('stroke-width', '3');
+        line.setAttribute('opacity', originalOpacity);
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PHASE 8: PERFORMANCE OPTIMIZATIONS AND CLEANUP
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // Create optimized redraw function with viewport culling
+    const drawCampaignLinesOptimized = () => {
+      const svgOverlay = window._campaignVisualization?.svgOverlay;
+      if (!svgOverlay) return;
+
+      // Get visible date range for viewport culling
+      const tableScroll = window._campaignVisualization?.tableScroll;
+      const visibleRange = getVisibleDateRange(tableScroll, dateToColIndex, getCellDimensions());
+
+      // Clear SVG
+      svgOverlay.innerHTML = '';
+
+      const selectedFacilityId = state.ui.selectedFacilityId;
+      if (!selectedFacilityId) return;
+
+      const campaigns = state.org.dataset.campaigns || [];
+      const campaignBlocks = groupCampaignsIntoBlocks(campaigns, selectedFacilityId);
+
+      // Filter blocks: only draw if at least partially visible
+      const visibleBlocks = campaignBlocks.filter(block => {
+        if (!visibleRange.startDate || !visibleRange.endDate) return true; // No culling if range unknown
+
+        // Block is visible if it overlaps with visible date range
+        return block.endDate >= visibleRange.startDate && block.startDate <= visibleRange.endDate;
+      });
+
+      if (visibleBlocks.length === 0) return;
+
+      const table = root.querySelector('.plan-table');
+      const tbody = table?.querySelector('tbody');
+      if (!table || !tbody) return;
+
+      const dims = getCellDimensions();
+      if (!dims) return;
+
+      // Draw lines for visible blocks only
+      visibleBlocks.forEach(block => {
+        const blockStartDate = new Date(block.startDate + 'T00:00:00');
+        const blockEndDate = new Date(block.endDate + 'T00:00:00');
+        const blockDates = [];
+
+        for (let d = new Date(blockStartDate); d <= blockEndDate; d.setDate(d.getDate() + 1)) {
+          const dateStr = d.toISOString().slice(0, 10);
+          blockDates.push(dateStr);
+        }
+
+        if (blockDates.length === 0) return;
+
+        const dateIsActual = (date) => {
+          const cellMeta = plan.equipmentCellMeta?.[`${date}|${block.equipmentId}`];
+          return cellMeta?.source === 'actual';
+        };
+
+        const forecastSegments = [];
+        let currentSegment = null;
+
+        blockDates.forEach(date => {
+          const isActual = dateIsActual(date);
+
+          if (!isActual) {
+            if (!currentSegment) {
+              currentSegment = [date];
+            } else {
+              currentSegment.push(date);
+            }
+          } else {
+            if (currentSegment && currentSegment.length > 0) {
+              forecastSegments.push(currentSegment);
+              currentSegment = null;
+            }
+          }
+        });
+
+        if (currentSegment && currentSegment.length > 0) {
+          forecastSegments.push(currentSegment);
+        }
+
+        // Draw lines for each segment
+        forecastSegments.forEach(segment => {
+          const segmentStartDate = segment[0];
+          const segmentEndDate = segment[segment.length - 1];
+
+          const startColIdx = dateToColIndex[segmentStartDate];
+          const endColIdx = dateToColIndex[segmentEndDate];
+
+          if (startColIdx === undefined || endColIdx === undefined) return;
+
+          const colWidth = dims.colWidth || 50;
+          const rowHeaderWidth = 200;
+
+          const startX = rowHeaderWidth + (startColIdx * colWidth) + colWidth / 2;
+          const endX = rowHeaderWidth + (endColIdx * colWidth) + colWidth / 2;
+
+          const eqRows = Array.from(tbody.querySelectorAll('tr')).filter(tr => {
+            const label = tr.querySelector('.row-header')?.textContent || '';
+            return label.includes(block.equipmentId);
+          });
+
+          if (eqRows.length === 0) return;
+
+          const eqRow = eqRows[0];
+          const rowTop = eqRow.offsetTop || 0;
+          const rowHeight = eqRow.offsetHeight || 30;
+          const midlineY = rowTop + rowHeight / 2;
+
+          const productColor = (pid) => {
+            const base = ['#3b82f6','#a78bfa','#22c55e','#f59e0b','#ec4899','#06b6d4','#f97316','#84cc16'];
+            let h = 0;
+            (pid || '').split('').forEach(c => h = (h * 31 + c.charCodeAt(0)) >>> 0);
+            return base[h % base.length];
+          };
+          const color = productColor(block.productId);
+          const isActualCampaign = plan.equipmentCellMeta?.[`${segment[0]}|${block.equipmentId}`]?.source === 'actual';
+          const opacity = isActualCampaign ? 0.9 : 0.6;
+
+          let strokeDasharray = 'none';
+          if (block.status !== 'produce') {
+            strokeDasharray = '5,5';
+          }
+
+          // Draw line
+          const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          line.setAttribute('x1', startX);
+          line.setAttribute('y1', midlineY);
+          line.setAttribute('x2', endX);
+          line.setAttribute('y2', midlineY);
+          line.setAttribute('stroke', color);
+          line.setAttribute('stroke-width', '3');
+          line.setAttribute('stroke-linecap', 'round');
+          line.setAttribute('opacity', opacity);
+          if (strokeDasharray !== 'none') {
+            line.setAttribute('stroke-dasharray', strokeDasharray);
+          }
+          line.setAttribute('class', `campaign-line campaign-${block.equipmentId}`);
+          line.setAttribute('data-equipment-id', block.equipmentId);
+          line.setAttribute('data-product-id', block.productId);
+          line.setAttribute('data-status', block.status);
+          line.setAttribute('data-start-date', segmentStartDate);
+          line.setAttribute('data-end-date', segmentEndDate);
+          line.setAttribute('data-rate', block.rateStn);
+          line.style.cursor = 'pointer';
+
+          svgOverlay.appendChild(line);
+
+          // Draw endpoint circles
+          [startX, endX].forEach((x) => {
+            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle.setAttribute('cx', x);
+            circle.setAttribute('cy', midlineY);
+            circle.setAttribute('r', '4');
+            circle.setAttribute('fill', color);
+            circle.setAttribute('opacity', opacity);
+            circle.setAttribute('class', 'campaign-endpoint');
+            svgOverlay.appendChild(circle);
+          });
+        });
+      });
+    };
+
+    // Replace drawCampaignLines with optimized version
+    window._campaignVisualization = window._campaignVisualization || {};
+    window._campaignVisualization.drawCampaignLines = drawCampaignLinesOptimized;
+
+    // Add cleanup: Remove tooltip on page change
+    window.addEventListener('beforeunload', () => {
+      document.getElementById('campaignTooltip')?.remove();
+    });
+
     // Add thead click handler for month headers (which are in thead, not tbody)
     const thead = root.querySelector('.plan-table thead');
     if(thead) {

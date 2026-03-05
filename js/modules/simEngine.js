@@ -279,7 +279,6 @@ function simulateFacility(state, s, ds, facId, dates) {
             const accumulates = netChange > 0;
             console.log(`[RESTART] ${date} | ${eqId} | Demand=${avgConsumption.toFixed(1)} | Prod=${maxProd.toFixed(1)} | NetChange=${netChange > 0 ? '+' : ''}${netChange.toFixed(1)} (${accumulates ? 'FILL' : 'DRAIN'}) | Headroom=${headroom.toFixed(0)}/${requiredHeadroom.toFixed(0)} | ${reason} | ${canRestart ? '✓ALLOW' : '✗DENY'}`);
           }
-          }
 
           if (!canRestart) {
             return false; // Cannot restart yet, buffer not sufficient

@@ -347,21 +347,39 @@ function simulateFacility(state, s, ds, facId, dates) {
           }
         }
 
-        // ✓ NEW: Collect clinker sources from recipe, filtered by RoE rule
+        // ✓ HARD-CODED: Collect clinker sources using facility-specific product→storage mapping
         // Each entry: { materialId, storage, pct }
         const clinkerSources = [];
         if (recipe) {
           recipe.components.forEach(c => {
             if (familyOfProduct(s, c.materialId) === 'CLINKER') {
-              // ✓ Find storage by checking which storage accepts this exact clinker product
-              const clkStorage = storages.find(st =>
-                st.facilityId === facId &&
-                (st.allowedProductIds || []).includes(c.materialId)
-              );
-              // ✓ Only include if allowed by RoE rule (if rule exists)
-              if (clkStorage && (!allowedClinkerSources || allowedClinkerSources.includes(clkStorage.id) || allowedClinkerSources.includes(clkStorage.name))) {
+              let clkStorage = null;
+              const clkProductId = c.materialId;  // e.g., "BRS_CLK_K1" or "BRS_CLK_K2"
+
+              // ✓ Use hard-coded mapping: clinker product → storage
+              // This ensures FM01 (which uses BRS_CLK_K1) goes to K1 storage
+              //           and FM02 (which uses BRS_CLK_K2) goes to K2 storage
+              const facMapping = clinkerProductStorageMap[facId];
+              if (facMapping && facMapping[clkProductId]) {
+                // Find storage by ID using the hard-coded mapping
+                const targetStorageId = facMapping[clkProductId];
+                clkStorage = storages.find(st =>
+                  st.facilityId === facId &&
+                  st.id === targetStorageId
+                );
+              }
+
+              // Fallback: if hard-coded mapping not found, use first available storage with this product
+              if (!clkStorage) {
+                clkStorage = storages.find(st =>
+                  st.facilityId === facId &&
+                  (st.allowedProductIds || []).includes(clkProductId)
+                );
+              }
+
+              if (clkStorage) {
                 clinkerSources.push({
-                  materialId: c.materialId,
+                  materialId: clkProductId,
                   storage: clkStorage,
                   pct: +c.pct || 0
                 });
@@ -753,6 +771,19 @@ function simulateFacility(state, s, ds, facId, dates) {
   }));
 
   const facilityRows = []; // The new unified output
+
+  // ✓ HARD-CODED: Clinker product to storage routing (replaces RoE for now)
+  // Maps specific clinker products to their storage IDs based on which kiln produced them
+  // This ensures FM01 consumes from K1's storage and FM02 from K2's storage
+  const clinkerProductStorageMap = {
+    'BRS': {
+      'BRS_CLK_K1': 'CLK-BRSK01',
+      'BRS_CLK_K2': 'CLK-BRSK02'
+    },
+    'MIA': {
+      'MIA_CLK_K1': 'CLK-MIAK01'
+    }
+  };
 
   // Clinker section displays for cement plants that produce clinker
   const hasClinkerSection = facType === 'cement_plant' && kilns.length > 0;

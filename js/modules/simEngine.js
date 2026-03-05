@@ -537,6 +537,17 @@ function simulateFacility(state, s, ds, facId, dates) {
     for (const line of fmReqLines) {
       const { eqId, productId, reqQty, outSt, recipe, clinkerSources } = line;
 
+      // ✓ NEW: Check if equipment is allowed to run based on run/idle rules
+      const fm = fms.find(e => e.id === eqId);
+      if (fm && !canEquipmentRun(date, eqId, 'finish_mill')) {
+        eqConstraintMeta.set(`${date}|${eqId}`, {
+          type: 'idle',
+          reason: 'equipment idle (run/idle rules)',
+          requested: reqQty, used: 0,
+        });
+        continue; // Skip this FM for this date
+      }
+
       // ✓ NEW: Check EACH clinker source separately for availability
       // The FM can only produce as much as the most-constrained clinker allows
       let maxByClk = Infinity;
@@ -612,6 +623,58 @@ function simulateFacility(state, s, ds, facId, dates) {
     }
     fms.forEach(eq => prodByEqMap.set(`${date}|${eq.id}`, fmUsed.get(eq.id) || 0));
 
+    // ✓ NEW: Track run/idle state transitions for FMs after production calculation
+    fms.forEach(eq => {
+      const produced = fmUsed.get(eq.id) || 0;
+      const rule = RulesOfEngagement?.getRunIdleRule('finish_mill');
+      if (!rule) return;
+
+      const stateKey = `${date}|${eq.id}`;
+      const prevStateKey = idx > 0 ? `${dates[idx - 1]}|${eq.id}` : null;
+      const prevState = prevStateKey ? equipmentRunState.get(prevStateKey) : null;
+
+      let runState;
+      if (!prevState) {
+        // First day: equipment starts from 'idle' state
+        runState = { status: 'idle', runDaysSoFar: 0, idleDaysSoFar: 0, reason: 'initial' };
+      } else {
+        runState = { ...prevState }; // Copy previous state
+      }
+
+      // Update state based on production
+      if (produced > 0) {
+        // Equipment is producing (running)
+        if (runState.status === 'off') {
+          runState.status = 'on'; // Restarting
+          runState.runDaysSoFar = 1;
+          runState.idleDaysSoFar = 0;
+          runState.reason = 'restarted';
+          console.log(`[RUN/IDLE] ${date} | FM=${eq.id} | Status=ON | RunDays=1 | Reason=restarted from idle`);
+        } else {
+          runState.runDaysSoFar++;
+          runState.reason = 'running';
+        }
+      } else {
+        // Equipment not producing (idle or constrained)
+        if (runState.status === 'on' && runState.runDaysSoFar >= rule.minRunDays) {
+          runState.status = 'off'; // Can idle (min run duration satisfied)
+          runState.idleDaysSoFar = 1;
+          runState.runDaysSoFar = 0;
+          runState.reason = 'idle (min run complete)';
+          console.log(`[RUN/IDLE] ${date} | FM=${eq.id} | Status=OFF | IdleDays=1 | Reason=minimum run complete`);
+        } else if (runState.status === 'off') {
+          runState.idleDaysSoFar++;
+          runState.reason = 'idle';
+        } else {
+          // Still running, hasn't hit min yet
+          runState.runDaysSoFar++;
+          runState.reason = `running (${runState.runDaysSoFar}/${rule.minRunDays} days)`;
+        }
+      }
+
+      equipmentRunState.set(stateKey, runState);
+    });
+
     // ── Track FM-specific clinker consumption for breakdown display ──
     // Step 2 (FM production) already handles clinker deductions via clinkerSources
     // This section builds the breakdown maps for UI display
@@ -676,10 +739,56 @@ function simulateFacility(state, s, ds, facId, dates) {
       console.log(`[CLK CONSUMPTION] ${date}: Total=${total.toFixed(1)}, FM01=${fm1.toFixed(1)}, FM02=${fm2.toFixed(1)}, Sum=${(fm1+fm2).toFixed(1)}`);
     }
 
+    // ✓ NEW: Calculate rolling 10-day average consumption for equipment restart conditions
+    // Update average consumption based on production output (consumption is derived from production)
+    fms.forEach(eq => {
+      const produced = fmUsed.get(eq.id) || 0;
+      const startIdx = Math.max(0, idx - 9); // Last 10 days including today
+      let sumProduction = produced; // Today's production
+
+      for (let i = startIdx; i < idx; i++) {
+        const prevDate = dates[i];
+        const prevProd = prodByEqMap.get(`${prevDate}|${eq.id}`) || 0;
+        sumProduction += prevProd;
+      }
+
+      const daysCount = Math.min(idx + 1, 10); // Number of days in rolling window
+      const avgProduction = daysCount > 0 ? sumProduction / daysCount : 0;
+      equipmentAvgConsumption.set(eq.id, avgProduction);
+    });
+
+    kilns.forEach(eq => {
+      const produced = kilnUsed.get(eq.id) || 0;
+      const startIdx = Math.max(0, idx - 9); // Last 10 days including today
+      let sumProduction = produced; // Today's production
+
+      for (let i = startIdx; i < idx; i++) {
+        const prevDate = dates[i];
+        const prevProd = prodByEqMap.get(`${prevDate}|${eq.id}`) || 0;
+        sumProduction += prevProd;
+      }
+
+      const daysCount = Math.min(idx + 1, 10); // Number of days in rolling window
+      const avgProduction = daysCount > 0 ? sumProduction / daysCount : 0;
+      equipmentAvgConsumption.set(eq.id, avgProduction);
+    });
+
     // ── Step 3: Kiln production (cap by clinker silo headroom) ──
     const kilnUsed = new Map();
     for (const line of kilnReqLines) {
       const { eqId, productId, reqQty, outSt } = line;
+
+      // ✓ NEW: Check if kiln is allowed to run based on run/idle rules
+      const kiln = kilns.find(e => e.id === eqId);
+      if (kiln && !canEquipmentRun(date, eqId, 'kiln')) {
+        eqConstraintMeta.set(`${date}|${eqId}`, {
+          type: 'idle',
+          reason: 'equipment idle (run/idle rules)',
+          requested: reqQty, used: 0,
+        });
+        continue; // Skip this kiln for this date
+      }
+
       let usedQty = reqQty;
       if (outSt) {
         const maxCap = Number(outSt.maxCapacityStn);
@@ -705,6 +814,58 @@ function simulateFacility(state, s, ds, facId, dates) {
       if (outSt) addDelta(outSt.id, usedQty);
     }
     kilns.forEach(eq => prodByEqMap.set(`${date}|${eq.id}`, kilnUsed.get(eq.id) || 0));
+
+    // ✓ NEW: Track run/idle state transitions for kilns after production calculation
+    kilns.forEach(eq => {
+      const produced = kilnUsed.get(eq.id) || 0;
+      const rule = RulesOfEngagement?.getRunIdleRule('kiln');
+      if (!rule) return;
+
+      const stateKey = `${date}|${eq.id}`;
+      const prevStateKey = idx > 0 ? `${dates[idx - 1]}|${eq.id}` : null;
+      const prevState = prevStateKey ? equipmentRunState.get(prevStateKey) : null;
+
+      let runState;
+      if (!prevState) {
+        // First day: equipment starts from 'idle' state
+        runState = { status: 'idle', runDaysSoFar: 0, idleDaysSoFar: 0, reason: 'initial' };
+      } else {
+        runState = { ...prevState }; // Copy previous state
+      }
+
+      // Update state based on production
+      if (produced > 0) {
+        // Equipment is producing (running)
+        if (runState.status === 'off') {
+          runState.status = 'on'; // Restarting
+          runState.runDaysSoFar = 1;
+          runState.idleDaysSoFar = 0;
+          runState.reason = 'restarted';
+          console.log(`[RUN/IDLE] ${date} | Kiln=${eq.id} | Status=ON | RunDays=1 | Reason=restarted from idle`);
+        } else {
+          runState.runDaysSoFar++;
+          runState.reason = 'running';
+        }
+      } else {
+        // Equipment not producing (idle or constrained)
+        if (runState.status === 'on' && runState.runDaysSoFar >= rule.minRunDays) {
+          runState.status = 'off'; // Can idle (min run duration satisfied)
+          runState.idleDaysSoFar = 1;
+          runState.runDaysSoFar = 0;
+          runState.reason = 'idle (min run complete)';
+          console.log(`[RUN/IDLE] ${date} | Kiln=${eq.id} | Status=OFF | IdleDays=1 | Reason=minimum run complete`);
+        } else if (runState.status === 'off') {
+          runState.idleDaysSoFar++;
+          runState.reason = 'idle';
+        } else {
+          // Still running, hasn't hit min yet
+          runState.runDaysSoFar++;
+          runState.reason = `running (${runState.runDaysSoFar}/${rule.minRunDays} days)`;
+        }
+      }
+
+      equipmentRunState.set(stateKey, runState);
+    });
 
     // ── Step 4: Transfers IN / OUT ──
     // Already indexed above; apply net delta per storage

@@ -452,6 +452,9 @@ function simulateFacility(state, s, ds, facId, dates) {
 
       const usedQty = Math.max(0, Math.min(reqQty, line.headroom, maxByClk));
 
+      // ✓ Store usedQty back into line so breakdown calculation uses actual production, not requirement
+      line.actualUsedQty = usedQty;
+
       if (usedQty < reqQty - 1e-6) {
         const reasons = [];
         if (line.headroom < reqQty - 1e-6) reasons.push('cement silo capacity');
@@ -502,12 +505,18 @@ function simulateFacility(state, s, ds, facId, dates) {
 
     // Populate consumption maps by re-iterating through FM production
     // to build the breakdown for UI display
+    // ✓ Use actualUsedQty (after constraints) not original requirement
+    let debugFM1Total = 0, debugFM2Total = 0;
     fmReqLines.forEach(line => {
-      const { eqId, productId, usedQty } = line;
+      const { eqId, productId, actualUsedQty } = line;
+      const usedQty = actualUsedQty || 0;  // Use stored actual production, fallback to 0
       if (!productId || usedQty <= 0) return;
 
       const recipe = s.getRecipeForProduct(productId);
-      if (!recipe || !recipe.components) return;
+      if (!recipe || !recipe.components) {
+        // console.log(`[FM CONSUMPTION DEBUG] ${date}: ${eqId} - NO RECIPE for ${productId}`);
+        return;
+      }
 
       let fmClkConsumption = 0;
       recipe.components.forEach(c => {
@@ -518,8 +527,20 @@ function simulateFacility(state, s, ds, facId, dates) {
 
       if (fmClkConsumption > 0) {
         fmConsumptionMap.set(eqId, (fmConsumptionMap.get(eqId) || 0) + fmClkConsumption);
+        if (eqId.includes('FM01')) debugFM1Total += fmClkConsumption;
+        if (eqId.includes('FM02')) debugFM2Total += fmClkConsumption;
       }
     });
+
+    // ✓ DIAGNOSTIC: Show FM consumption calculation
+    if (facId === 'BRS') {
+      const fm1 = fmConsumptionMap.get('BROSFM01') || 0;
+      const fm2 = fmConsumptionMap.get('BROSFM02') || 0;
+      const total = clkConsumedMap.get(date) || 0;
+      if (date === '2026-01-01' || date === '2026-01-02' || date === '2026-01-05') {
+        console.log(`[FM CONSUMPTION] ${date}: FM01=${fm1.toFixed(1)}, FM02=${fm2.toFixed(1)}, Sum=${(fm1+fm2).toFixed(1)}, Total=${total.toFixed(1)}, Match=${((fm1+fm2)===total ? 'YES' : 'NO')}`);
+      }
+    }
 
     // For display: Store consumption per FM in facility-specific maps (if needed for custom UI)
     // BRS uses fm1ConsumedMap and fm2ConsumedMap - populate them if FM IDs match
@@ -531,6 +552,14 @@ function simulateFacility(state, s, ds, facId, dates) {
       }
       // Future facilities can add similar patterns or use a facility config map
     });
+
+    // ✓ DIAGNOSTIC: Log consumption breakdown for debugging
+    if (facId === 'BRS' && ['2026-01-01', '2026-01-02', '2026-01-05'].includes(date)) {
+      const fm1 = fm1ConsumedMap.get(date) || 0;
+      const fm2 = fm2ConsumedMap.get(date) || 0;
+      const total = clkConsumedMap.get(date) || 0;
+      console.log(`[CLK CONSUMPTION] ${date}: Total=${total.toFixed(1)}, FM01=${fm1.toFixed(1)}, FM02=${fm2.toFixed(1)}, Sum=${(fm1+fm2).toFixed(1)}`);
+    }
 
     // ── Step 3: Kiln production (cap by clinker silo headroom) ──
     const kilnUsed = new Map();

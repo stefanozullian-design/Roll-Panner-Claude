@@ -111,13 +111,13 @@ const RulesOfEngagement = {
     {
       equipmentType: 'kiln',
       minRunDays: 15,
-      minIdleDays: 3,  // ← PAUSED: Kilns must stay idle 3+ days before restart (was 0)
+      minIdleDays: 0,  // ← PAUSED: Disabled (allowing immediate restart check)
       restartCondition: {
         type: 'inventoryBuffer',
         bufferDays: 15,
         description: 'Restart when storage has 15+ days buffer before hitting max capacity'
       },
-      reason: 'Kilns are expensive to start/stop; require longer run times for efficiency. Minimum 3-day idle prevents restart cycling.'
+      reason: 'Kilns are expensive to start/stop; require longer run times for efficiency.'
     },
     {
       equipmentType: 'finish_mill',

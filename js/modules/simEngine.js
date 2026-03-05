@@ -243,28 +243,11 @@ function simulateFacility(state, s, ds, facId, dates) {
         const eq = s.equipment.find(e => e.id === eqId);
         if (!eq) return false;
 
-        // Get the CORRECT output storage for this equipment type
-        // Kilns output to CLINKER storage, Finish Mills output to CEMENT storage
-        let storageForEq;
-        if (eqType === 'kiln') {
-          // Kilns output clinker
-          storageForEq = storages.find(st =>
-            st.facilityId === s.id &&
-            (st.allowedProductIds || []).some(pid => familyOfProduct(s, pid) === 'CLINKER')
-          );
-        } else if (eqType === 'finish_mill') {
-          // Finish mills output cement
-          storageForEq = storages.find(st =>
-            st.facilityId === s.id &&
-            (st.allowedProductIds || []).some(pid => familyOfProduct(s, pid) === 'CEMENT')
-          );
-        } else {
-          // Generic: find storage with products this equipment can produce
-          storageForEq = storages.find(st =>
-            st.facilityId === s.id &&
-            (st.allowedProductIds || []).some(pid => getEqProd(date, eqId, pid) > 0)
-          );
-        }
+        // Get the relevant storage for this equipment
+        const storageForEq = storages.find(st =>
+          st.facilityId === s.id &&
+          (st.allowedProductIds || []).some(pid => getEqProd(date, eqId, pid) > 0)
+        );
 
         if (storageForEq) {
           const maxCap = storageForEq.maxCapacity || 10000;

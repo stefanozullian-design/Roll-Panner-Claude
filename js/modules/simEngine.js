@@ -259,6 +259,12 @@ function simulateFacility(state, s, ds, facId, dates) {
             maxCap, bod, avgConsumption, maxProd, rule.restartCondition.bufferDays
           );
 
+          // ✓ DIAGNOSTIC: Log restart buffer calculation
+          if (facId === 'BRS' && (eqId.includes('BRSKL') || eqId.includes('FM'))) {
+            const bufferDays = avgConsumption > maxProd ? (maxCap - bod) / (avgConsumption - maxProd) : 999;
+            console.log(`[RESTART BUFFER] ${date} | ${eqId} | Type=${eqType} | MaxCap=${maxCap} | BOD=${bod.toFixed(1)} | AvgConsump=${avgConsumption.toFixed(1)} | MaxProd=${maxProd.toFixed(1)} | BufferDays=${bufferDays.toFixed(1)} | Required=${rule.restartCondition.bufferDays} | CanRestart=${canRestart}`);
+          }
+
           if (!canRestart) {
             return false; // Cannot restart yet, buffer not sufficient
           }

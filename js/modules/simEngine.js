@@ -914,7 +914,7 @@ function simulateFacility(state, s, ds, facId, dates) {
       equipmentAvgConsumption.set(eq.id, avgDemand);
 
       // ✓ DIAGNOSTIC: Show what demand is being used with detailed breakdown
-      if (facId === 'BRS' && eq.id && eq.id.includes('BRSKL')) {
+      if (facId === 'BRS' && eq.id && (eq.id.includes('BRSKO') || eq.id.includes('BRSKL'))) {
         console.log(`[KILN DEMAND] ${date} | ${eq.id} | Storage=${targetStorageId} | SumConsumption=${sumConsumption.toFixed(1)} STn over ${daysCount} days | AvgDemand=${avgDemand.toFixed(1)} STn/day`);
       }
     });

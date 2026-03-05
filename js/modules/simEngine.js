@@ -585,8 +585,8 @@ function simulateFacility(state, s, ds, facId, dates) {
 
     // ✓ DIAGNOSTIC: Show FM consumption calculation
     if (facId === 'BRS') {
-      const fm1 = fmConsumptionMap.get('BROSFM01') || 0;
-      const fm2 = fmConsumptionMap.get('BROSFM02') || 0;
+      const fm1 = fmConsumptionMap.get('BRS_BRSFM01') || 0;
+      const fm2 = fmConsumptionMap.get('BRS_BRSFM02') || 0;
       const total = clkConsumedMap.get(date) || 0;
       if (date === '2026-01-01' || date === '2026-01-02' || date === '2026-01-05') {
         console.log(`[FM CONSUMPTION] ${date}: FM01=${fm1.toFixed(1)}, FM02=${fm2.toFixed(1)}, Sum=${(fm1+fm2).toFixed(1)}, Total=${total.toFixed(1)}, Match=${((fm1+fm2)===total ? 'YES' : 'NO')}`);
@@ -783,9 +783,9 @@ function simulateFacility(state, s, ds, facId, dates) {
 
     // For BRS: show BROSFM01 and BROSFM02 breakdowns
     if (facId === 'BRS') {
-      rows.push({ kind: 'row', rowType: 'equipment', equipmentId: 'BROSFM01', label: 'BROSFM01',
+      rows.push({ kind: 'row', rowType: 'equipment', equipmentId: 'BRS_BRSFM01', label: 'BROSFM01',
         values: mkValues(d => fm1ConsumedMap.get(d) || 0) });
-      rows.push({ kind: 'row', rowType: 'equipment', equipmentId: 'BROSFM02', label: 'BROSFM02',
+      rows.push({ kind: 'row', rowType: 'equipment', equipmentId: 'BRS_BRSFM02', label: 'BROSFM02',
         values: mkValues(d => fm2ConsumedMap.get(d) || 0) });
     }
     return rows;

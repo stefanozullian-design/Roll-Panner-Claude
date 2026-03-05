@@ -329,6 +329,25 @@ function simulateFacility(state, s, ds, facId, dates) {
         let selectedRecipeVersion = null;
         let allowedClinkerSources = null;
 
+        // ✓ HARD-CODED: Recipe version selection for BRS facility FM equipment
+        // FM01 uses recipe v1 (BRS_CLK_K1), FM02 uses recipe v2 (BRS_CLK_K2)
+        if (facId === 'BRS' && cap.productId === 'region_FL|BRS_IL_12_BULK') {
+          if (eq.id === 'BROSFM01') {
+            selectedRecipeVersion = 1;
+          } else if (eq.id === 'BROSFM02') {
+            selectedRecipeVersion = 2;
+          }
+          // Find recipe with selected version
+          if (selectedRecipeVersion) {
+            const versioned = ds.recipes.find(r =>
+              r.facilityId === facId &&
+              r.productId === cap.productId &&
+              r.version === selectedRecipeVersion
+            );
+            if (versioned) recipe = versioned;
+          }
+        }
+
         if (roeRule) {
           // Build inventory state for rule evaluation (clinker cover days per storage)
           const inventoryState = {};

@@ -260,10 +260,11 @@ function simulateFacility(state, s, ds, facId, dates) {
             maxCap, bod, avgConsumption, maxProd
           );
 
-          // ✓ DIAGNOSTIC: Log restart buffer calculation with both conditions
+          // ✓ DIAGNOSTIC: Log restart buffer calculation with both conditions DETAILED
           if (facId === 'BRS' && (eqId.includes('BRSKL') || eqId.includes('FM'))) {
             const headroom = maxCap - bod;
             const requiredHeadroom = 2 * maxProd; // 2-day safety buffer
+            const netChange = maxProd - avgConsumption;
 
             let reason = '';
             // Condition 1: Is demand > production?
@@ -272,9 +273,12 @@ function simulateFacility(state, s, ds, facId, dates) {
 
             // Condition 2: Is headroom >= 2x max production?
             const headroomCondition = headroom >= requiredHeadroom;
-            reason += headroomCondition ? ' ✓Cond2(Headroom≥2xProd)' : ` ✗Cond2(${headroom.toFixed(0)}<${requiredHeadroom.toFixed(0)})`;
+            reason += headroomCondition ? ' ✓Cond2(Headroom≥2xProd)' : ` ✗Cond2(Headroom=${headroom.toFixed(0)}<Required=${requiredHeadroom.toFixed(0)})`;
 
-            console.log(`[RESTART BUFFER] ${date} | ${eqId} | AvgDemand=${avgConsumption.toFixed(1)} | MaxProd=${maxProd.toFixed(1)} | Headroom=${headroom.toFixed(1)} | Required=${requiredHeadroom.toFixed(1)} | ${reason} | CanRestart=${canRestart}`);
+            console.log(`[RESTART BUFFER DETAILED] ${date} | ${eqId}`);
+            console.log(`  Demand: ${avgConsumption.toFixed(1)} STn/day | Prod: ${maxProd.toFixed(1)} | NetChange: ${netChange.toFixed(1)} (${netChange > 0 ? 'ACCUMULATE' : 'DRAIN'})`);
+            console.log(`  Headroom: ${headroom.toFixed(1)} | Required: ${requiredHeadroom.toFixed(1)}`);
+            console.log(`  ${reason} | Result: ${canRestart ? 'ALLOW RESTART' : 'DENY RESTART'}`);
           }
 
           if (!canRestart) {
@@ -875,9 +879,9 @@ function simulateFacility(state, s, ds, facId, dates) {
       const avgDemand = daysCount > 0 ? sumConsumption / daysCount : 0;
       equipmentAvgConsumption.set(eq.id, avgDemand);
 
-      // ✓ DIAGNOSTIC: Show what demand is being used
+      // ✓ DIAGNOSTIC: Show what demand is being used with detailed breakdown
       if (facId === 'BRS' && eq.id && eq.id.includes('BRSKL')) {
-        console.log(`[KILN DEMAND] ${date} | ${eq.id} | Storage=${targetStorageId} | AvgDemand=${avgDemand.toFixed(1)} STn/day (clinker consumed by mills)`);
+        console.log(`[KILN DEMAND] ${date} | ${eq.id} | Storage=${targetStorageId} | SumConsumption=${sumConsumption.toFixed(1)} STn over ${daysCount} days | AvgDemand=${avgDemand.toFixed(1)} STn/day`);
       }
     });
 

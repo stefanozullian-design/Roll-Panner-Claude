@@ -3159,7 +3159,7 @@ function openForecastToolDialog(){
 function openCampaignDialog(){
   const s = selectors(state); const a = actions(state);
   const host = el('campaignDialog');
-  const eqs = s.equipment.filter(e=>['kiln','finish_mill'].includes(e.type));
+  const eqs = s.equipment.filter(e=>['kiln','finish_mill','loader'].includes(e.type));
   const todayStr = yesterdayLocal();
 
   // Build compact campaign list: group consecutive same-eq/status/product rows into blocks
@@ -3237,7 +3237,7 @@ function openCampaignDialog(){
         </div>
 
         <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:end;margin-top:12px;">
-          <div><label class="form-label">Rate (STn/day)</label><input class="form-input text-mono" type="number" step="0.1" id="campRate" value="0"></div>
+          <div><label class="form-label" id="campRateLabel">Rate (STn/day)</label><input class="form-input text-mono" type="number" step="0.1" id="campRate" value="0"></div>
           <button class="btn btn-primary" id="campApply" style="height:36px">Apply Block</button>
           <button class="btn" id="campClearRange" style="height:36px">Clear Range</button>
         </div>
@@ -3277,30 +3277,50 @@ function openCampaignDialog(){
     return {value:avgTrimmed(vals),source,points:vals.length};
   };
 
-  const writeRate = v => { if(!isFinite(v)) return; q('campRate').value=String(Math.round(v*10)/10); q('campRateEcho').textContent=`${fmt(v)} STn/d`; };
+  const writeRate = v => {
+    if(!isFinite(v)) return;
+    const eqId=q('campEq').value;
+    const eq = s.equipment.find(e=>e.id===eqId);
+    const isLoader = eq?.type === 'loader';
+    const displayValue = isLoader ? Math.round(v/112*10)/10 : v;
+    const unit = isLoader ? 'cars/d' : 'STn/d';
+    q('campRate').value=String(displayValue);
+    q('campRateEcho').textContent=`${fmt(displayValue)} ${unit}`;
+  };
   const renderHelpers = () => {
     const eqId=q('campEq').value; const status=q('campStatus').value; const productId=q('campProduct').value; const startDate=q('campStart').value;
+    const eq=s.equipment.find(e=>e.id===eqId); const isLoader=eq?.type==='loader';
     const cap=s.getCapsForEquipment(eqId).find(c=>c.productId===productId);
     rateCache.cap=cap?.maxRateStpd??null;
-    q('campCapRate').textContent=isFinite(rateCache.cap)?`${fmt(rateCache.cap)} STn/d`:'—';
-    if(status!=='produce'||!productId){ q('campRateAssist').style.opacity='0.5'; q('campRollSource').textContent='—'; ['7','15','30'].forEach(k=>q('campRoll'+k).textContent='—'); q('campRateEcho').textContent=`${fmt(+q('campRate').value||0)} STn/d`; return; }
+    const capDisplay=isLoader?Math.round(rateCache.cap/112*10)/10:rateCache.cap;
+    const capUnit=isLoader?'cars/d':'STn/d';
+    q('campCapRate').textContent=isFinite(rateCache.cap)?`${fmt(capDisplay)} ${capUnit}`:'—';
+    if(status!=='produce'||!productId){ q('campRateAssist').style.opacity='0.5'; q('campRollSource').textContent='—'; ['7','15','30'].forEach(k=>q('campRoll'+k).textContent='—'); q('campRateEcho').textContent=`${fmt(+q('campRate').value||0)} ${capUnit}`; return; }
     q('campRateAssist').style.opacity='1';
     const r7=computeRolling(eqId,productId,startDate,7); const r15=computeRolling(eqId,productId,startDate,15); const r30=computeRolling(eqId,productId,startDate,30);
     rateCache.r7=r7.value; rateCache.r15=r15.value; rateCache.r30=r30.value;
-    q('campRoll7').textContent=isFinite(r7.value)?`${fmt(r7.value)} (${r7.points})`:'N/A';
-    q('campRoll15').textContent=isFinite(r15.value)?`${fmt(r15.value)} (${r15.points})`:'N/A';
-    q('campRoll30').textContent=isFinite(r30.value)?`${fmt(r30.value)} (${r30.points})`:'N/A';
+    const fmt7=isLoader?Math.round(r7.value/112*10)/10:r7.value;
+    const fmt15=isLoader?Math.round(r15.value/112*10)/10:r15.value;
+    const fmt30=isLoader?Math.round(r30.value/112*10)/10:r30.value;
+    q('campRoll7').textContent=isFinite(r7.value)?`${fmt(fmt7)} (${r7.points})`:'N/A';
+    q('campRoll15').textContent=isFinite(r15.value)?`${fmt(fmt15)} (${r15.points})`:'N/A';
+    q('campRoll30').textContent=isFinite(r30.value)?`${fmt(fmt30)} (${r30.points})`:'N/A';
     q('campRollSource').textContent=[r7,r15,r30].find(x=>x.source&&x.source!=='none')?.source||'none';
-    q('campRateEcho').textContent=`${fmt(+q('campRate').value||0)} STn/d`;
+    const unit=isLoader?'cars/d':'STn/d';
+    q('campRateEcho').textContent=`${fmt(+q('campRate').value||0)} ${unit}`;
   };
 
   const refreshProducts = () => {
     const eqId=q('campEq').value; const status=q('campStatus').value;
+    const eq = s.equipment.find(e=>e.id===eqId);
+    const isLoader = eq?.type === 'loader';
+    const rateUnit = isLoader ? 'Cars/day' : 'STn/day';
+    q('campRateLabel').textContent = `Rate (${rateUnit})`;
     const caps=s.getCapsForEquipment(eqId);
     q('campProduct').innerHTML=caps.map(c=>`<option value="${c.productId}">${esc(s.getMaterial(c.productId)?.name||c.productId)} @ ${fmt0(c.maxRateStpd)} STn/d</option>`).join('');
     q('campProductWrap').style.display=status==='produce'?'':'none';
     q('campRate').disabled=status!=='produce';
-    if(status==='produce'){ const firstCap=caps[0]; if(firstCap&&isFinite(+firstCap.maxRateStpd)) q('campRate').value=String(+firstCap.maxRateStpd||0); } else q('campRate').value='0';
+    if(status==='produce'){ const firstCap=caps[0]; if(firstCap&&isFinite(+firstCap.maxRateStpd)) q('campRate').value=String(isLoader ? +firstCap.maxRateStpd/112 : +firstCap.maxRateStpd||0); } else q('campRate').value='0';
     renderHelpers();
   };
 
@@ -3332,11 +3352,11 @@ function openCampaignDialog(){
   };
 
   q('campEq').onchange=refreshProducts; q('campStatus').onchange=refreshProducts;
-  q('campProduct').onchange=()=>{ const eqId=q('campEq').value; const cap=s.getCapsForEquipment(eqId).find(c=>c.productId===q('campProduct').value); if(cap&&isFinite(+cap.maxRateStpd)) q('campRate').value=String(+cap.maxRateStpd||0); renderHelpers(); };
+  q('campProduct').onchange=()=>{ const eqId=q('campEq').value; const eq=s.equipment.find(e=>e.id===eqId); const isLoader=eq?.type==='loader'; const cap=s.getCapsForEquipment(eqId).find(c=>c.productId===q('campProduct').value); if(cap&&isFinite(+cap.maxRateStpd)) q('campRate').value=String(isLoader?Math.round(+cap.maxRateStpd/112*10)/10:+cap.maxRateStpd||0); renderHelpers(); };
   q('campStart').onchange=()=>dateCalc('start');
   q('campEnd').onchange=()=>dateCalc('end');
   q('campDuration').oninput=()=>dateCalc('duration');
-  q('campRate').oninput=()=>q('campRateEcho').textContent=`${fmt(+q('campRate').value||0)} STn/d`;
+  q('campRate').oninput=()=>{ const eqId=q('campEq').value; const eq=s.equipment.find(e=>e.id===eqId); const isLoader=eq?.type==='loader'; const unit=isLoader?'cars/d':'STn/d'; q('campRateEcho').textContent=`${fmt(+q('campRate').value||0)} ${unit}`; };
   q('campUseCap').onclick=()=>writeRate(rateCache.cap); q('campUse7').onclick=()=>writeRate(rateCache.r7); q('campUse15').onclick=()=>writeRate(rateCache.r15); q('campUse30').onclick=()=>writeRate(rateCache.r30);
   // Init duration from default start/end
   dateCalc('end');
@@ -3534,7 +3554,7 @@ function openCampaignDialog(){
 
   q('campClose').onclick=()=>host.classList.remove('open');
   host.onclick=e=>{ if(e.target===host) host.classList.remove('open'); };
-  q('campApply').onclick=e=>{ e.preventDefault(); const payload={equipmentId:q('campEq').value,status:q('campStatus').value,productId:q('campProduct').value,startDate:q('campStart').value,endDate:q('campEnd').value,rateStn:+q('campRate').value||0}; if(payload.status==='produce'&&!payload.productId){q('campMsg').textContent='Select a product.';return;} a.saveCampaignBlock(payload); persist(); q('campMsg').textContent='✓ Campaign block applied'; renderPlan(); openCampaignDialog(); showToast('Campaign applied ✓'); };
+  q('campApply').onclick=e=>{ e.preventDefault(); const eqId=q('campEq').value; const eq=s.equipment.find(ee=>ee.id===eqId); const isLoader=eq?.type==='loader'; const rateValue=+q('campRate').value||0; const payload={equipmentId:eqId,status:q('campStatus').value,productId:q('campProduct').value,startDate:q('campStart').value,endDate:q('campEnd').value,rateStn:isLoader?rateValue*112:rateValue}; if(payload.status==='produce'&&!payload.productId){q('campMsg').textContent='Select a product.';return;} a.saveCampaignBlock(payload); persist(); q('campMsg').textContent='✓ Campaign block applied'; renderPlan(); openCampaignDialog(); showToast('Campaign applied ✓'); };
   q('campClearRange').onclick=e=>{ e.preventDefault(); a.deleteCampaignRange({equipmentId:q('campEq').value,startDate:q('campStart').value,endDate:q('campEnd').value}); persist(); q('campMsg').textContent='✓ Range cleared'; renderPlan(); openCampaignDialog(); };
 }
 

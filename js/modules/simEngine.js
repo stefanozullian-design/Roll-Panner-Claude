@@ -255,11 +255,11 @@ function simulateFacility(state, s, ds, facId, dates) {
   // Maps specific clinker products to their storage IDs based on which kiln produced them
   const clinkerProductStorageMap = {
     'BRS': {
-      'BRS_CLK_K1': 'CLK-BRSK01',
-      'BRS_CLK_K2': 'CLK-BRSK02'
+      'BRS_CLK_K1': 'BRSK01',
+      'BRS_CLK_K2': 'BRSK02'
     },
     'MIA': {
-      'MIA_CLK_K1': 'CLK-MIAK01'
+      'MIA_CLK_K1': 'MIAK01'
     }
   };
 

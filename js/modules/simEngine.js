@@ -769,22 +769,6 @@ function simulateFacility(state, s, ds, facId, dates) {
       equipmentAvgConsumption.set(eq.id, avgProduction);
     });
 
-    kilns.forEach(eq => {
-      const produced = kilnUsed.get(eq.id) || 0;
-      const startIdx = Math.max(0, idx - 9); // Last 10 days including today
-      let sumProduction = produced; // Today's production
-
-      for (let i = startIdx; i < idx; i++) {
-        const prevDate = dates[i];
-        const prevProd = prodByEqMap.get(`${prevDate}|${eq.id}`) || 0;
-        sumProduction += prevProd;
-      }
-
-      const daysCount = Math.min(idx + 1, 10); // Number of days in rolling window
-      const avgProduction = daysCount > 0 ? sumProduction / daysCount : 0;
-      equipmentAvgConsumption.set(eq.id, avgProduction);
-    });
-
     // ── Step 3: Kiln production (cap by clinker silo headroom) ──
     const kilnUsed = new Map();
     for (const line of kilnReqLines) {
@@ -832,6 +816,23 @@ function simulateFacility(state, s, ds, facId, dates) {
       if (outSt) addDelta(outSt.id, usedQty);
     }
     kilns.forEach(eq => prodByEqMap.set(`${date}|${eq.id}`, kilnUsed.get(eq.id) || 0));
+
+    // ✓ NEW: Calculate rolling 10-day average consumption for kilns (AFTER kilnUsed is populated)
+    kilns.forEach(eq => {
+      const produced = kilnUsed.get(eq.id) || 0;
+      const startIdx = Math.max(0, idx - 9); // Last 10 days including today
+      let sumProduction = produced; // Today's production
+
+      for (let i = startIdx; i < idx; i++) {
+        const prevDate = dates[i];
+        const prevProd = prodByEqMap.get(`${prevDate}|${eq.id}`) || 0;
+        sumProduction += prevProd;
+      }
+
+      const daysCount = Math.min(idx + 1, 10); // Number of days in rolling window
+      const avgProduction = daysCount > 0 ? sumProduction / daysCount : 0;
+      equipmentAvgConsumption.set(eq.id, avgProduction);
+    });
 
     // ✓ NEW: Track run/idle state transitions for kilns after production calculation
     kilns.forEach(eq => {

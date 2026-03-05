@@ -304,7 +304,7 @@ function simulateFacility(state, s, ds, facId, dates) {
           );
 
           // ✓ DIAGNOSTIC: Log restart buffer calculation with both conditions DETAILED
-          if (facId === 'BRS' && (eqId.includes('BRSKL') || eqId.includes('FM'))) {
+          if (facId === 'BRS' && (eqId.includes('BRSKL') || eqId.includes('BRSKO') || eqId.includes('FM'))) {
             const headroom = maxCap - bod;
             const requiredHeadroom = 2 * maxProd; // 2-day safety buffer
             const netChange = maxProd - avgConsumption;
@@ -323,6 +323,9 @@ function simulateFacility(state, s, ds, facId, dates) {
             console.log(`[RESTART] ${date} | ${eqId} | Demand=${avgConsumption.toFixed(1)} | Prod=${maxProd.toFixed(1)} | NetChange=${netChange > 0 ? '+' : ''}${netChange.toFixed(1)} (${accumulates ? 'FILL' : 'DRAIN'}) | Headroom=${headroom.toFixed(0)}/${requiredHeadroom.toFixed(0)} | ${reason} | ${canRestart ? '✓ALLOW' : '✗DENY'}`);
           }
 
+          if (facId === 'BRS' && (eqId.includes('BRSKL') || eqId.includes('BRSKO'))) {
+            console.log(`[DEBUG RESTART] ${date} | ${eqId} | CanRestart=${canRestart} | MaxCap=${maxCap} | BOD=${bod} | HeadRoom=${(maxCap - bod)}`);
+          }
           if (!canRestart) {
             return false; // Cannot restart yet, buffer not sufficient
           }
@@ -960,10 +963,16 @@ function simulateFacility(state, s, ds, facId, dates) {
           runState.idleDaysSoFar = 1;
           runState.runDaysSoFar = 0;
           runState.reason = 'stopped (buffer rule governs restart)';
+          if (eqType === 'kiln' && eq.id && (eq.id.includes('BRSKO') || eq.id.includes('BRSKL'))) {
+            console.log(`[RUN/IDLE] ${date} | Kiln=${eq.id} | Status=OFF | IdleDays=1 | Reason=stopped due to production constraint`);
+          }
         } else if (runState.status === 'off') {
           // Already OFF, continue OFF
           runState.idleDaysSoFar++;
           runState.reason = 'offline (waiting for buffer)';
+          if (eqType === 'kiln' && eq.id && (eq.id.includes('BRSKO') || eq.id.includes('BRSKL'))) {
+            console.log(`[RUN/IDLE] ${date} | Kiln=${eq.id} | Status=OFF | IdleDays=${runState.idleDaysSoFar} | Reason=continuing offline`);
+          }
         }
       }
 

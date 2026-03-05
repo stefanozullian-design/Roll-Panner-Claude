@@ -334,8 +334,10 @@ function simulateFacility(state, s, ds, facId, dates) {
         if (facId === 'BRS' && cap.productId === 'region_FL|BRS_IL_12_BULK') {
           if (eq.id === 'BRS_BRSFM01') {
             selectedRecipeVersion = 1;
+            console.log(`[RECIPE SELECTION] ${date} | Equipment=${eq.id} | Forcing recipe v${selectedRecipeVersion}`);
           } else if (eq.id === 'BRS_BRSFM02') {
             selectedRecipeVersion = 2;
+            console.log(`[RECIPE SELECTION] ${date} | Equipment=${eq.id} | Forcing recipe v${selectedRecipeVersion}`);
           }
           // Find recipe with selected version
           if (selectedRecipeVersion) {
@@ -344,7 +346,12 @@ function simulateFacility(state, s, ds, facId, dates) {
               r.productId === cap.productId &&
               r.version === selectedRecipeVersion
             );
-            if (versioned) recipe = versioned;
+            if (versioned) {
+              recipe = versioned;
+              console.log(`[RECIPE SELECTION] ${date} | Equipment=${eq.id} | Recipe updated to v${recipe.version}`);
+            } else {
+              console.log(`[RECIPE SELECTION] ${date} | Equipment=${eq.id} | NO RECIPE FOUND for v${selectedRecipeVersion}`);
+            }
           }
         }
 

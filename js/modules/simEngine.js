@@ -288,6 +288,14 @@ function simulateFacility(state, s, ds, facId, dates) {
           const avgConsumption = equipmentAvgConsumption.get(eqId) || 0;
           const maxProd = getEqProd(date, eqId, Array.from(campaignIndex.keys()).find(k => k.includes(eqId))?.split('|')[2]) || 0;
 
+          // ✓ DEBUG: Log all values on specific date for debugging
+          if (facId === 'BRS' && eqId.includes('BRSKL')) {
+            console.log(`[DEBUG RESTART] ${date} | ${eqId}`);
+            console.log(`  StorageFound: ${storageForEq.id} (MaxCap=${maxCap})`);
+            console.log(`  BOD=${bod.toFixed(1)}, AvgDemand=${avgConsumption.toFixed(1)}, MaxProd=${maxProd.toFixed(1)}`);
+            console.log(`  IdleStatus: ${runState?.status}, IdleDays: ${runState?.idleDaysSoFar}/${rule.minIdleDays}`);
+          }
+
           // ✓ FIXED: Pass only 4 parameters (fixed 3× buffer in function)
           const canRestart = RulesOfEngagement.canRestartBasedOnBuffer(
             maxCap, bod, avgConsumption, maxProd

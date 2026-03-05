@@ -197,7 +197,11 @@ const RulesOfEngagement = {
    * SINGLE RULE: Equipment restart ONLY based on buffer space available
    *
    * Kiln can ONLY restart when:
-   * - Available headroom >= 15 days of production capacity
+   * - Available headroom >= 80% of max storage capacity
+   *
+   * This adapts to each silo's actual size:
+   * - 20,000 STn silo → requires 16,000 STn headroom (6.4 days @ 2,500/day)
+   * - 30,000 STn silo → requires 24,000 STn headroom (9.6 days @ 2,500/day)
    *
    * This is the ONLY rule affecting restart decision.
    * No demand checks, no run/idle duration requirements.
@@ -206,21 +210,21 @@ const RulesOfEngagement = {
    * @param {number} currentBODInventory - Beginning of day inventory (STn)
    * @param {number} avgDemand - (NOT USED - kept for compatibility)
    * @param {number} maxProductionCapacity - Equipment max production rate (STn/day)
-   * @returns {boolean} True only if headroom >= 15 days of production
+   * @returns {boolean} True only if headroom >= 80% of max capacity
    */
   canRestartBasedOnBuffer(maxStorageCapacity, currentBODInventory, avgDemand, maxProductionCapacity) {
     // Check if we have valid input
     if (maxStorageCapacity <= 0) return true;
 
     const availableHeadroom = maxStorageCapacity - currentBODInventory;
-    const requiredHeadroom = 15 * maxProductionCapacity;  // 15 days of buffer
+    const requiredHeadroom = 0.80 * maxStorageCapacity;  // 80% of max capacity
 
-    // ✓ ONLY RULE: Is there 15 days of headroom?
+    // ✓ ONLY RULE: Is there 80% headroom available?
     if (availableHeadroom < requiredHeadroom) {
-      return false; // DENY: Not enough buffer (< 15 days)
+      return false; // DENY: Not enough buffer (< 80%)
     }
 
-    return true; // ALLOW: Has 15+ days of buffer space
+    return true; // ALLOW: Has sufficient buffer (>= 80% of capacity)
   },
 
   /**

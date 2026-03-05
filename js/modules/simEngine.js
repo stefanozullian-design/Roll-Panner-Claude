@@ -163,6 +163,10 @@ function simulateFacility(state, s, ds, facId, dates) {
   );
   const findStorageForProduct = pid => storageByProduct.get(pid);
 
+  // ── Storage family helpers ──
+  const storageFamily = st => familyOfProduct(s, (st.allowedProductIds || [])[0]);
+  const storagesByFamily = fam => storages.filter(st => storageFamily(st) === fam);
+
   const transferDeltaIndex = new Map(); // `date|storageId` → net delta
   ds.actuals.transfers.forEach(r => {
     if (r.productId) {
@@ -1134,9 +1138,6 @@ function simulateFacility(state, s, ds, facId, dates) {
 
   // ── Build row objects ──
   const mkValues = getter => Object.fromEntries(dates.map(d => [d, getter(d)]));
-
-  const storageFamily = st => familyOfProduct(s, (st.allowedProductIds || [])[0]);
-  const storagesByFamily = fam => storages.filter(st => storageFamily(st) === fam);
 
   // Helper: BOD subtotal + storage children for a family
   const bodSection = (fam, label) => {

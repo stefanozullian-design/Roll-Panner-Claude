@@ -167,6 +167,11 @@ function simulateFacility(state, s, ds, facId, dates) {
   const storageFamily = st => familyOfProduct(s, (st.allowedProductIds || [])[0]);
   const storagesByFamily = fam => storages.filter(st => storageFamily(st) === fam);
 
+  // ── Rail Transfer storage helper (identified by categoryHint containing "transfer") ──
+  const railTransferStorages = () => storages.filter(st =>
+    st.categoryHint && st.categoryHint.toLowerCase().includes('transfer')
+  );
+
   const transferDeltaIndex = new Map(); // `date|storageId` → net delta
   ds.actuals.transfers.forEach(r => {
     if (r.productId) {
@@ -1173,7 +1178,7 @@ function simulateFacility(state, s, ds, facId, dates) {
 
   // Helper: TRANSF BOD storage section for Rail Transfer
   const transfrBodSection = () => {
-    const rows = storagesByFamily('TRANSF');
+    const rows = railTransferStorages();
     if (!rows.length) return [];
     const sectionId = `inv_bod_TRANSF`;
 
@@ -1209,7 +1214,7 @@ function simulateFacility(state, s, ds, facId, dates) {
 
   // Helper: Rail Loading section (daily loading activity by product)
   const railLoadingSection = () => {
-    const rows = storagesByFamily('TRANSF');
+    const rows = railTransferStorages();
     if (!rows.length) return [];
     const sectionId = `rail_load_TRANSF`;
 
@@ -1249,7 +1254,7 @@ function simulateFacility(state, s, ds, facId, dates) {
 
   // Helper: Rail Pickup section (daily switch pickup activity by product)
   const railPickupSection = () => {
-    const rows = storagesByFamily('TRANSF');
+    const rows = railTransferStorages();
     if (!rows.length) return [];
     const sectionId = `rail_pickup_TRANSF`;
 
@@ -1289,7 +1294,7 @@ function simulateFacility(state, s, ds, facId, dates) {
 
   // Helper: Rail Transfer EOD section (Ending Inventory by product)
   const railEodSection = () => {
-    const rows = storagesByFamily('TRANSF');
+    const rows = railTransferStorages();
     if (!rows.length) return [];
     const sectionId = `inv_eod_TRANSF`;
 
@@ -1445,12 +1450,12 @@ function simulateFacility(state, s, ds, facId, dates) {
     facilityRows.push(...transferRows('CEMENT'));
 
     // ── RAIL TRANSFER section (process family: BOD → Loading → Pickup → EOD) ──
-    if (storagesByFamily('TRANSF').length) {
+    if (railTransferStorages().length) {
       facilityRows.push({ kind: 'subtotal', label: 'RAIL TRANSFER', _section: 'rail',
         values: mkValues(d => {
           // Sum all rail loading for this date
           let total = 0;
-          storagesByFamily('TRANSF').forEach(st => {
+          railTransferStorages().forEach(st => {
             st.allowedProductIds?.forEach(pid => {
               total += railLoadingMap.get(`${d}|${pid}`) || 0;
             });
@@ -1488,12 +1493,12 @@ function simulateFacility(state, s, ds, facId, dates) {
     facilityRows.push(...transferRows('CEMENT'));
 
     // ── RAIL TRANSFER section (process family: BOD → Loading → Pickup → EOD) ──
-    if (storagesByFamily('TRANSF').length) {
+    if (railTransferStorages().length) {
       facilityRows.push({ kind: 'subtotal', label: 'RAIL TRANSFER', _section: 'rail',
         values: mkValues(d => {
           // Sum all rail loading for this date
           let total = 0;
-          storagesByFamily('TRANSF').forEach(st => {
+          railTransferStorages().forEach(st => {
             st.allowedProductIds?.forEach(pid => {
               total += railLoadingMap.get(`${d}|${pid}`) || 0;
             });

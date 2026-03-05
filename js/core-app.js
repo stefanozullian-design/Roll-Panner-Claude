@@ -1175,13 +1175,16 @@ function renderPlan(){
       </tr>`;
     }
 
-    // Subtotal rows (legacy support) - not part of sections
+    // Subtotal rows (legacy support) - now collapsible with consistent color & expand/collapse arrows
     if(r.kind === 'subtotal' || r._type === 'subtotal-header'){
       lastSectionId = null;  // Reset section for non-section subtotals
       const cells = buildRowCells(r);
       const familyClass = lastFamilyName ? ` family-child family-${lastFamilyName}` : '';
-      return `<tr class="plan-subtotal fac-child fac-${lastFacilityId}${familyClass}" style="display:none;border-top:1px solid var(--border);">
-        <td class="row-header" style="position:sticky;left:0;z-index:2;background:rgba(20,28,50,0.8);font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text);padding-left:32px;">${esc(r.label)}</td>
+      const subtotalId = r.label.replace(/\s+/g, '-').toLowerCase();
+      return `<tr class="plan-subtotal collapsible-subtotal fac-child fac-${lastFacilityId}${familyClass}" data-subtotal="${subtotalId}" style="display:none;border-top:1px solid var(--border);cursor:pointer;user-select:none;">
+        <td class="row-header" style="position:sticky;left:0;z-index:2;background:rgba(20,28,50,0.9);font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);padding-left:32px;">
+          <span class="subtotal-collapse-icon" style="margin-right:6px;display:inline-block;transition:transform .15s;font-size:9px;">▼</span>${esc(r.label)}
+        </td>
         ${cells}
       </tr>`;
     }
@@ -1315,6 +1318,33 @@ function renderPlan(){
       }
     });
 
+    // SUBTOTAL-LEVEL COLLAPSE STATE
+    // ──────────────────────────────────────────────────────────────────────────
+
+    // Subtotal-level collapse state (collapsible CLK CONSUMPTION, KILN PRODUCTION, FM PRODUCTION, etc.)
+    const subtotalOpenState = {};
+    unifiedRows.forEach(r => {
+      if(r.kind === 'subtotal' || r._type === 'subtotal-header'){
+        const subtotalId = r.label.replace(/\s+/g, '-').toLowerCase();
+        if(!subtotalOpenState[subtotalId]) subtotalOpenState[subtotalId] = true; // All subtotals start expanded
+      }
+    });
+
+    // Initialize subtotal child rows display (show if subtotal is open)
+    Object.entries(subtotalOpenState).forEach(([subtotalId, isOpen]) => {
+      if(isOpen) {
+        // Find the subtotal header and show all rows until next subtotal of same level
+        const headers = root.querySelectorAll(`.collapsible-subtotal[data-subtotal="${subtotalId}"]`);
+        headers.forEach(header => {
+          let nextRow = header.nextElementSibling;
+          while(nextRow && !nextRow.classList.contains('collapsible-subtotal') && !nextRow.classList.contains('plan-family-header')) {
+            nextRow.style.display = '';
+            nextRow = nextRow.nextElementSibling;
+          }
+        });
+      }
+    });
+
     // Section collapse/expand click handler
     root.querySelectorAll('.collapsible-section').forEach(header => {
       header.addEventListener('click', (e) => {
@@ -1333,6 +1363,32 @@ function renderPlan(){
 
         // Rotate icon
         const icon = header.querySelector('.section-collapse-icon');
+        if(icon) {
+          icon.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(-90deg)';
+        }
+      });
+    });
+
+    // Subtotal collapse/expand click handler
+    root.querySelectorAll('.collapsible-subtotal').forEach(header => {
+      header.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const subtotalId = header.getAttribute('data-subtotal');
+        if(!subtotalId) return;
+
+        // Toggle subtotal state
+        subtotalOpenState[subtotalId] = !subtotalOpenState[subtotalId];
+        const isOpen = subtotalOpenState[subtotalId];
+
+        // Show/hide subtotal child rows (equipment/storage rows under this subtotal)
+        let nextRow = header.nextElementSibling;
+        while(nextRow && !nextRow.classList.contains('collapsible-subtotal') && !nextRow.classList.contains('plan-family-header')) {
+          nextRow.style.display = isOpen ? '' : 'none';
+          nextRow = nextRow.nextElementSibling;
+        }
+
+        // Rotate icon
+        const icon = header.querySelector('.subtotal-collapse-icon');
         if(icon) {
           icon.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(-90deg)';
         }

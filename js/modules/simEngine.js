@@ -260,16 +260,21 @@ function simulateFacility(state, s, ds, facId, dates) {
             maxCap, bod, avgConsumption, maxProd
           );
 
-          // ✓ DIAGNOSTIC: Log restart buffer calculation (NEW LOGIC)
+          // ✓ DIAGNOSTIC: Log restart buffer calculation with both conditions
           if (facId === 'BRS' && (eqId.includes('BRSKL') || eqId.includes('FM'))) {
-            const netChange = maxProd - avgConsumption; // Production - Demand
             const headroom = maxCap - bod;
-            const requiredHeadroom = netChange < 0 ? 3 * maxProd : 0;
+            const requiredHeadroom = 2 * maxProd; // 2-day safety buffer
+
             let reason = '';
-            if (netChange > 0) reason = 'DENY: would overflow';
-            else if (netChange < 0) reason = `${headroom.toFixed(1)} >= ${requiredHeadroom.toFixed(1)} buffer? ${headroom >= requiredHeadroom ? 'YES' : 'NO'}`;
-            else reason = 'balanced, allow restart';
-            console.log(`[RESTART BUFFER] ${date} | ${eqId} | NetChange=${netChange.toFixed(1)} | Headroom=${headroom.toFixed(1)} | MaxProd=${maxProd.toFixed(1)} | AvgDemand=${avgConsumption.toFixed(1)} | ${reason} | CanRestart=${canRestart}`);
+            // Condition 1: Is demand > production?
+            const demandCondition = avgConsumption > maxProd;
+            reason += demandCondition ? '✓Cond1(Demand>Prod)' : '✗Cond1(Demand≤Prod)';
+
+            // Condition 2: Is headroom >= 2x max production?
+            const headroomCondition = headroom >= requiredHeadroom;
+            reason += headroomCondition ? ' ✓Cond2(Headroom≥2xProd)' : ` ✗Cond2(${headroom.toFixed(0)}<${requiredHeadroom.toFixed(0)})`;
+
+            console.log(`[RESTART BUFFER] ${date} | ${eqId} | AvgDemand=${avgConsumption.toFixed(1)} | MaxProd=${maxProd.toFixed(1)} | Headroom=${headroom.toFixed(1)} | Required=${requiredHeadroom.toFixed(1)} | ${reason} | CanRestart=${canRestart}`);
           }
 
           if (!canRestart) {

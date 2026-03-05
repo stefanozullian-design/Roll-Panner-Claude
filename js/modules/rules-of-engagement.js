@@ -194,35 +194,37 @@ const RulesOfEngagement = {
   },
 
   /**
-   * Calculate if equipment can restart based on inventory buffer calculation
-   * Formula: (Max Storage Capacity - Current BOD Inventory) / (Avg 10-day consumption - Max Production capacity) >= required buffer days
+   * Calculate if equipment can restart based on two conditions:
+   * 1. Avg 10-day demand must be HIGHER than max production (not based on one data point)
+   * 2. Available headroom must be at least 2x max production capacity (2-day safety buffer)
    * @param {number} maxStorageCapacity - Silo max capacity (STn)
    * @param {number} currentBODInventory - Beginning of day inventory (STn)
-   * @param {number} avgLast10DaysConsumption - Rolling 10-day average consumption (STn/day)
+   * @param {number} avgDemand - Rolling 10-day average demand (STn/day)
    * @param {number} maxProductionCapacity - Equipment max production rate (STn/day)
-   * @param {number} requiredBufferDays - Minimum buffer days required (default 15)
-   * @returns {boolean} True if equipment can restart
+   * @returns {boolean} True if both conditions are met for restart
    */
   canRestartBasedOnBuffer(maxStorageCapacity, currentBODInventory, avgDemand, maxProductionCapacity) {
     // Check if we have valid input
     if (maxStorageCapacity <= 0) return true;
 
     const availableHeadroom = maxStorageCapacity - currentBODInventory;
-    const netChange = maxProductionCapacity - avgDemand;
 
-    // ✓ FIXED: If production > demand: Equipment would INCREASE inventory (storage would grow)
-    if (netChange > 0) {
-      return false; // DENY restart - would cause storage overflow
+    // ✓ CONDITION 1: Is demand high enough to justify restart?
+    // Check 10-day average (not just one data point)
+    // Equipment should only restart if downstream demand is higher than production capacity
+    if (avgDemand <= maxProductionCapacity) {
+      return false; // DENY restart - demand too low, production would exceed demand and overflow storage
     }
 
-    // If production < demand: Equipment would DECREASE inventory (storage would drain)
-    if (netChange < 0) {
-      const requiredHeadroom = 3 * maxProductionCapacity; // Require 3 days of buffer
-      return availableHeadroom >= requiredHeadroom;
+    // ✓ CONDITION 2: Is there enough safety buffer headroom?
+    // Require at least 2 days worth of max production capacity as buffer
+    const requiredHeadroom = 2 * maxProductionCapacity;
+    if (availableHeadroom < requiredHeadroom) {
+      return false; // DENY restart - insufficient headroom before hitting max capacity
     }
 
-    // If production == demand: Equipment maintains inventory level
-    return true; // Allow restart - no accumulation or depletion
+    // Both conditions satisfied
+    return true; // ALLOW restart - demand is high AND sufficient buffer exists
   },
 
   /**

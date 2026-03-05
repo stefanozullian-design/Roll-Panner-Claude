@@ -952,17 +952,17 @@ function simulateFacility(state, s, ds, facId, dates) {
       } else {
         // Equipment not producing (idle or constrained by storage)
         // ✓ SIMPLIFIED: No minRunDays check - only buffer rule applies
-        if (runState.status === 'on') {
-          // Equipment was running but stopped (due to storage constraint or other reason)
-          // Transition to idle immediately - buffer rule will control restart
+        if (runState.status === 'on' || runState.status === 'idle') {
+          // Equipment was running/idle but stopped (due to storage constraint or other reason)
+          // Transition to OFF immediately - buffer rule will control restart
           runState.status = 'off';
           runState.idleDaysSoFar = 1;
           runState.runDaysSoFar = 0;
           runState.reason = 'stopped (buffer rule governs restart)';
         } else if (runState.status === 'off') {
-          // Already idle, continue idle
+          // Already OFF, continue OFF
           runState.idleDaysSoFar++;
-          runState.reason = 'idle';
+          runState.reason = 'offline (waiting for buffer)';
         }
       }
 

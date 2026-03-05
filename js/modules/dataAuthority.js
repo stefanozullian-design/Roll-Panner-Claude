@@ -238,7 +238,7 @@ export function selectors(state) {
     actualsForDate: date => ({
       inv:      ds.actuals.inventoryBOD.filter(r => r.date === date && facilityIds.includes(r.facilityId)),
       prod:     ds.actuals.production.filter(r => r.date === date && facilityIds.includes(r.facilityId)),
-      rail:     ds.actuals.railTransfers.filter(r => r.date === date && facilityIds.includes(r.facilityId)),
+      rail:     (ds.actuals.railTransfers || []).filter(r => r.date === date && facilityIds.includes(r.facilityId)),
       ship:     ds.actuals.shipments.filter(r => r.date === date && facilityIds.includes(r.facilityId)),
       transfer: ds.actuals.transfers.filter(r =>
         r.date === date &&
@@ -775,6 +775,8 @@ export function actions(state) {
 
     saveDailyActuals({ date, facilityId, inventoryRows, productionRows, railTransferRows, shipmentRows }) {
       const fid = facilityId || primaryFacId;
+      // Ensure railTransfers array exists (for backward compat with existing data)
+      if (!ds.actuals.railTransfers) ds.actuals.railTransfers = [];
       // Clear existing actuals for this date + facility
       ds.actuals.inventoryBOD = ds.actuals.inventoryBOD.filter(r => !(r.date === date && r.facilityId === fid));
       ds.actuals.production   = ds.actuals.production.filter(r =>   !(r.date === date && r.facilityId === fid));

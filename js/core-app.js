@@ -3636,11 +3636,11 @@ function openDailyActualsDialog(preselectedFacId){
         const mats = s.materials.filter(m => ld.some(eq => canEqProd(eq.id, m.id)));
         if (!mats.length) return '<div class="text-muted" style="font-size:12px;padding:12px;text-align:center">No transfer products for loaders</div>';
         return '<table class="data-table" style="min-width:max-content"><thead><tr>' +
-          '<th style="min-width:160px;position:sticky;left:0;background:#0a0d14;z-index:3">Equipment</th>' +
-          mats.map(m=>'<th style="min-width:90px">'+esc(m.code||m.name.slice(0,10))+'</th>').join('') +
+          '<th style="min-width:160px;position:sticky;left:0;background:#0a0d14;z-index:3;color:#ffffff">Equipment</th>' +
+          mats.map(m=>'<th style="min-width:90px;color:#ffffff">'+esc(m.code||m.name.slice(0,10))+'</th>').join('') +
           '</tr></thead><tbody>' +
           ld.map(eq =>
-            '<tr><td style="font-weight:600;position:sticky;left:0;background:var(--surface2);z-index:2">' +
+            '<tr><td style="font-weight:600;position:sticky;left:0;background:var(--surface2);z-index:2;color:#ffffff">' +
             esc(eq.name)+' <span class="pill pill-gray" style="font-size:9px">'+eq.type+'</span></td>' +
             mats.map(m => canEqProd(eq.id,m.id)
               ? '<td><input class="cell-input rail-input" data-type="loading" data-equipment="'+eq.id+'" data-product="'+m.id+'" value="'+(railMap.get(eq.id+'|'+m.id)??'')+'"></td>'
@@ -3695,17 +3695,17 @@ function openDailyActualsDialog(preselectedFacId){
         ${finishMillsTableHTML}
       </div>
 
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">3a. Rail Loading (STn)</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#ffffff;margin-bottom:8px">3a. Rail Loading (STn)</div>
       <div class="table-scroll" style="margin-bottom:20px;max-height:200px;border-radius:8px;overflow-x:auto;overflow-y:auto;border:1px solid var(--border)">
         ${railTableHTML}
       </div>
 
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">3b. Switch Pickup (STn)</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#ffffff;margin-bottom:8px">3b. Switch Pickup (STn)</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin-bottom:20px">
         ${(() => {
           const railProds = s.materials.filter(m => s.dataset.equipment.some(eq => eq.facilityId === activeFacId && canEqProd(eq.id, m.id)));
           return railProds.map(m =>
-            `<div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">${esc(m.name)}</label>` +
+            `<div><label style="display:block;font-size:11px;color:#ffffff;margin-bottom:4px">${esc(m.name)}</label>` +
             `<input class="cell-input rail-input" data-type="pickup" data-product="${m.id}" style="width:100%" placeholder="0" value="">` +
             `</div>`
           ).join('');

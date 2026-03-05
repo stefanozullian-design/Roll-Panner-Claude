@@ -222,6 +222,53 @@ function simulateFacility(state, s, ds, facId, dates) {
     return (camp && (camp.status || 'produce') === 'produce') ? (camp.rateStn ?? 0) : 0;
   };
 
+  // Check if equipment can run based on Rules of Engagement (run/idle constraints)
+  const canEquipmentRun = (date, eqId, eqType) => {
+    if (typeof RulesOfEngagement === 'undefined') return true; // No rules defined
+
+    const rule = RulesOfEngagement.getRunIdleRule(eqType);
+    if (!rule) return true; // No rule for this equipment type
+
+    const stateKey = `${date}|${eqId}`;
+    const runState = equipmentRunState.get(stateKey);
+
+    // If equipment is currently idle, check minimum idle duration
+    if (runState && runState.status === 'off') {
+      if (runState.idleDaysSoFar < rule.minIdleDays) {
+        return false; // Still within minimum idle period
+      }
+
+      // Check restart condition (inventory buffer)
+      if (rule.restartCondition.type === 'inventoryBuffer') {
+        const eq = s.equipment.find(e => e.id === eqId);
+        if (!eq) return false;
+
+        // Get the relevant storage for this equipment
+        const storageForEq = storages.find(st =>
+          st.facilityId === s.id &&
+          (st.allowedProductIds || []).some(pid => getEqProd(date, eqId, pid) > 0)
+        );
+
+        if (storageForEq) {
+          const maxCap = storageForEq.maxCapacity || 10000;
+          const bod = bodMap.get(`${date}|${storageForEq.id}`) || 0;
+          const avgConsumption = equipmentAvgConsumption.get(eqId) || 0;
+          const maxProd = getEqProd(date, eqId, Array.from(campaignIndex.keys()).find(k => k.includes(eqId))?.split('|')[2]) || 0;
+
+          const canRestart = RulesOfEngagement.canRestartBasedOnBuffer(
+            maxCap, bod, avgConsumption, maxProd, rule.restartCondition.bufferDays
+          );
+
+          if (!canRestart) {
+            return false; // Cannot restart yet, buffer not sufficient
+          }
+        }
+      }
+    }
+
+    return true; // Equipment can run
+  };
+
   // ── Output maps ──
   const bodMap          = new Map();  // `date|storageId` → qty
   const eodMap          = new Map();  // `date|storageId` → qty
@@ -236,6 +283,10 @@ function simulateFacility(state, s, ds, facId, dates) {
   const eqConstraintMeta= new Map();  // `date|eqId` → { type, reason, ... }
   const invCellMeta     = new Map();  // `date|storageId` → { severity, warn, eod, ... }
   const alertsByDate    = new Map();  // date → alert[]
+
+  // Equipment run/idle state tracking (Rules of Engagement)
+  const equipmentRunState = new Map();  // `date|equipmentId` → { status: 'on'|'off', runDaysSoFar: n, idleDaysSoFar: n, reason: string }
+  const equipmentAvgConsumption = new Map();  // `equipmentId` → rolling 10-day average consumption
 
   // ────────────────────────────────────────────────────────────────────────
   // Seed BOD for day 0 — use physical count if available, else 0

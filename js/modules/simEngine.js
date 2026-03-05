@@ -251,19 +251,20 @@ function simulateFacility(state, s, ds, facId, dates) {
 
         if (eqType === 'kiln') {
           // For kilns: Extract equipment number and find matching storage
-          // E.g., BROSKL01 → find storage matching BRSK01, BROSKL02 → BRSK02
-          // Also try with full facility prefix: BRS_BRSKL01 → BRS_BRS_INV_CLK_BRSK01
-          const eqNumMatch = eqId.match(/(\d{2})$/); // Extract last 2 digits
+          // E.g., BRS_BRSKO1 → find storage matching BRSK01, BRS_BRSKO2 → BRSK02
+          // Also try with full facility prefix: BRS_BRS_INV_CLK_BRSK01
+          const eqNumMatch = eqId.match(/(\d+)$/); // Extract trailing digits
           if (eqNumMatch) {
-            const eqNum = eqNumMatch[1]; // e.g., "01"
+            const eqNum = eqNumMatch[1]; // e.g., "1" or "01"
+            const eqNumPadded = eqNum.padStart(2, '0'); // Ensure 2 digits: "1" → "01"
             // Try exact match: storage ID contains BRSK01
             storageForEq = storages.find(st =>
-              st.facilityId === facId && st.id && st.id.includes(`BRSK${eqNum}`)
+              st.facilityId === facId && st.id && st.id.includes(`BRSK${eqNumPadded}`)
             );
             // If not found, try matching pattern with INV
             if (!storageForEq) {
               storageForEq = storages.find(st =>
-                st.facilityId === facId && st.id && st.id.match(new RegExp(`CLK_BRSK${eqNum}`))
+                st.facilityId === facId && st.id && st.id.match(new RegExp(`CLK_BRSK${eqNumPadded}`))
               );
             }
           }
@@ -290,7 +291,7 @@ function simulateFacility(state, s, ds, facId, dates) {
           const maxProd = getEqProd(date, eqId, Array.from(campaignIndex.keys()).find(k => k.includes(eqId))?.split('|')[2]) || 0;
 
           // ✓ DEBUG: Log all values on specific date for debugging
-          if (facId === 'BRS' && eqId.includes('BRSKL')) {
+          if (facId === 'BRS' && (eqId.includes('BRSKO') || eqId.includes('BRSKL'))) {
             console.log(`[DEBUG RESTART] ${date} | ${eqId}`);
             console.log(`  StorageFound: ${storageForEq.id} (MaxCap=${maxCap})`);
             console.log(`  BOD=${bod.toFixed(1)}, AvgDemand=${avgConsumption.toFixed(1)}, MaxProd=${maxProd.toFixed(1)}`);

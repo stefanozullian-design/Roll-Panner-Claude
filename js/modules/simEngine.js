@@ -251,6 +251,18 @@ function simulateFacility(state, s, ds, facId, dates) {
     bodMap.set(`${startDate}|${st.id}`, countToday ?? countYest ?? 0);
   });
 
+  // ✓ HARD-CODED: Clinker product to storage routing (replaces RoE for now)
+  // Maps specific clinker products to their storage IDs based on which kiln produced them
+  const clinkerProductStorageMap = {
+    'BRS': {
+      'BRS_CLK_K1': 'CLK-BRSK01',
+      'BRS_CLK_K2': 'CLK-BRSK02'
+    },
+    'MIA': {
+      'MIA_CLK_K1': 'CLK-MIAK01'
+    }
+  };
+
   // ────────────────────────────────────────────────────────────────────────
   // MAIN DATE LOOP
   // ────────────────────────────────────────────────────────────────────────
@@ -800,19 +812,6 @@ function simulateFacility(state, s, ds, facId, dates) {
   }));
 
   const facilityRows = []; // The new unified output
-
-  // ✓ HARD-CODED: Clinker product to storage routing (replaces RoE for now)
-  // Maps specific clinker products to their storage IDs based on which kiln produced them
-  // This ensures FM01 consumes from K1's storage and FM02 from K2's storage
-  const clinkerProductStorageMap = {
-    'BRS': {
-      'BRS_CLK_K1': 'CLK-BRSK01',
-      'BRS_CLK_K2': 'CLK-BRSK02'
-    },
-    'MIA': {
-      'MIA_CLK_K1': 'CLK-MIAK01'
-    }
-  };
 
   // Clinker section displays for cement plants that produce clinker
   const hasClinkerSection = facType === 'cement_plant' && kilns.length > 0;

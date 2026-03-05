@@ -329,19 +329,15 @@ function simulateFacility(state, s, ds, facId, dates) {
         let selectedRecipeVersion = null;
         let allowedClinkerSources = null;
 
-        // ✓ HARD-CODED: Recipe version selection for BRS facility FM equipment
-        // FM01 uses recipe v1 (BRS_CLK_K1), FM02 uses recipe v2 (BRS_CLK_K2)
-        console.log(`[RECIPE CHECK] ${date} | facId=${facId} | eq.id=${eq.id} | cap.productId=${cap.productId}`);
-        if (facId === 'BRS' && cap.productId === 'region_FL|BRS_IL_12_BULK') {
-          if (eq.id === 'BRS_BRSFM01') {
-            selectedRecipeVersion = 1;
-            console.log(`[RECIPE SELECTION] ${date} | Equipment=${eq.id} | Forcing recipe v${selectedRecipeVersion}`);
-          } else if (eq.id === 'BRS_BRSFM02') {
-            selectedRecipeVersion = 2;
-            console.log(`[RECIPE SELECTION] ${date} | Equipment=${eq.id} | Forcing recipe v${selectedRecipeVersion}`);
-          }
-          // Find recipe with selected version
-          if (selectedRecipeVersion) {
+        // ✓ RULES OF ENGAGEMENT: Apply recipe version selection from centralized rules
+        // Checks RulesOfEngagement for facility-specific recipe routing logic
+        if (typeof RulesOfEngagement !== 'undefined') {
+          const ruleVersion = RulesOfEngagement.getRecipeVersion(facId, cap.productId, eq.id);
+          if (ruleVersion) {
+            selectedRecipeVersion = ruleVersion;
+            console.log(`[RULES OF ENGAGEMENT] ${date} | Equipment=${eq.id} | Recipe version from rules: v${selectedRecipeVersion}`);
+
+            // Find recipe with selected version
             const versioned = ds.recipes.find(r =>
               r.facilityId === facId &&
               r.productId === cap.productId &&
@@ -349,9 +345,9 @@ function simulateFacility(state, s, ds, facId, dates) {
             );
             if (versioned) {
               recipe = versioned;
-              console.log(`[RECIPE SELECTION] ${date} | Equipment=${eq.id} | Recipe updated to v${recipe.version}`);
+              console.log(`[RULES OF ENGAGEMENT] ${date} | Equipment=${eq.id} | Recipe updated to v${recipe.version}`);
             } else {
-              console.log(`[RECIPE SELECTION] ${date} | Equipment=${eq.id} | NO RECIPE FOUND for v${selectedRecipeVersion}`);
+              console.log(`[RULES OF ENGAGEMENT] ${date} | Equipment=${eq.id} | NO RECIPE FOUND for v${selectedRecipeVersion}`);
             }
           }
         }
@@ -397,13 +393,30 @@ function simulateFacility(state, s, ds, facId, dates) {
               let clkStorage = null;
               const clkProductId = c.materialId;  // e.g., "BRS_CLK_K1" or "BRS_CLK_K2"
 
-              // ✓ Use hard-coded mapping: clinker product → storage
+              // ✓ Use Rules of Engagement for clinker routing, with fallback to hard-coded map
               // This ensures FM01 (which uses BRS_CLK_K1) goes to K1 storage
               //           and FM02 (which uses BRS_CLK_K2) goes to K2 storage
-              const facMapping = clinkerProductStorageMap[facId];
-              if (facMapping && facMapping[clkProductId]) {
-                // Find storage by ID using the hard-coded mapping
-                const targetStorageId = facMapping[clkProductId];
+
+              let targetStorageId = null;
+
+              // First try RulesOfEngagement
+              if (typeof RulesOfEngagement !== 'undefined') {
+                targetStorageId = RulesOfEngagement.getClilinkerStorage(facId, clkProductId);
+                if (targetStorageId) {
+                  console.log(`[RULES OF ENGAGEMENT] ${date} | Clinker routing: ${clkProductId} → ${targetStorageId}`);
+                }
+              }
+
+              // Fallback to hard-coded map if RulesOfEngagement didn't find it
+              if (!targetStorageId) {
+                const facMapping = clinkerProductStorageMap[facId];
+                if (facMapping && facMapping[clkProductId]) {
+                  targetStorageId = facMapping[clkProductId];
+                }
+              }
+
+              // Find storage by ID
+              if (targetStorageId) {
                 clkStorage = storages.find(st =>
                   st.facilityId === facId &&
                   st.id === targetStorageId

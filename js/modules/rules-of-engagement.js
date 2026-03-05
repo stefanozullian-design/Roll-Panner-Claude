@@ -102,6 +102,38 @@ const RulesOfEngagement = {
   ],
 
   // ═════════════════════════════════════════════════════════════════════════════
+  // EQUIPMENT RUN/IDLE BEHAVIOR RULES
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Defines minimum run duration, idle duration, and restart conditions.
+  // Prevents inefficient on/off cycling while maintaining responsive operation.
+
+  equipmentRunIdleRules: [
+    {
+      equipmentType: 'kiln',
+      minRunDays: 15,
+      minIdleDays: 0,
+      restartCondition: {
+        type: 'inventoryBuffer',
+        bufferDays: 15,
+        description: 'Restart when storage has 15+ days buffer before hitting max capacity'
+      },
+      reason: 'Kilns are expensive to start/stop; require longer run times for efficiency'
+    },
+    {
+      equipmentType: 'finish_mill',
+      minRunDays: 2,
+      minIdleDays: 0,
+      restartCondition: {
+        type: 'inventoryBuffer',
+        bufferDays: 15,
+        description: 'Restart when clinker/cement storage has 15+ days buffer before hitting max capacity'
+      },
+      reason: 'Mills are more flexible; can start/stop more frequently but still need minimum stability'
+    }
+    // Add more equipment types as needed
+  ],
+
+  // ═════════════════════════════════════════════════════════════════════════════
   // UTILITY FUNCTIONS
   // ═════════════════════════════════════════════════════════════════════════════
 
@@ -153,6 +185,42 @@ const RulesOfEngagement = {
   },
 
   /**
+   * Get run/idle rules for equipment type
+   * @param {string} equipmentType - 'kiln' or 'finish_mill'
+   * @returns {object|null} Rule object or null if no rule found
+   */
+  getRunIdleRule(equipmentType) {
+    return this.equipmentRunIdleRules.find(r => r.equipmentType === equipmentType);
+  },
+
+  /**
+   * Calculate if equipment can restart based on inventory buffer calculation
+   * Formula: (Max Storage Capacity - Current BOD Inventory) / (Avg 10-day consumption - Max Production capacity) >= required buffer days
+   * @param {number} maxStorageCapacity - Silo max capacity (STn)
+   * @param {number} currentBODInventory - Beginning of day inventory (STn)
+   * @param {number} avgLast10DaysConsumption - Rolling 10-day average consumption (STn/day)
+   * @param {number} maxProductionCapacity - Equipment max production rate (STn/day)
+   * @param {number} requiredBufferDays - Minimum buffer days required (default 15)
+   * @returns {boolean} True if equipment can restart
+   */
+  canRestartBasedOnBuffer(maxStorageCapacity, currentBODInventory, avgLast10DaysConsumption, maxProductionCapacity, requiredBufferDays = 15) {
+    // Check if we have valid input
+    if (maxStorageCapacity <= 0 || requiredBufferDays <= 0) return true;
+
+    const availableHeadroom = maxStorageCapacity - currentBODInventory;
+    const netConsumption = avgLast10DaysConsumption - maxProductionCapacity;
+
+    // If consumption is less than/equal to production, no restart issue
+    if (netConsumption <= 0) {
+      return true;
+    }
+
+    // Calculate days of buffer available
+    const daysOfBuffer = availableHeadroom / netConsumption;
+    return daysOfBuffer >= requiredBufferDays;
+  },
+
+  /**
    * Get all rules for a facility
    * @param {string} facilityId - Facility ID
    * @returns {object} All rules defined for this facility
@@ -161,7 +229,8 @@ const RulesOfEngagement = {
     return {
       recipeVersionSelection: this.recipeVersionSelection.filter(r => r.facility === facilityId),
       clinkerSourceRouting: this.clinkerSourceRouting.filter(r => r.facility === facilityId),
-      equipmentKilnPreference: this.equipmentKilnPreference.filter(r => r.facility === facilityId)
+      equipmentKilnPreference: this.equipmentKilnPreference.filter(r => r.facility === facilityId),
+      equipmentRunIdleRules: this.equipmentRunIdleRules  // Global rules, applied to all facilities
     };
   },
 

@@ -284,7 +284,7 @@ function simulateFacility(state, s, ds, facId, dates) {
         }
 
         if (storageForEq) {
-          const maxCap = storageForEq.maxCapacity || 10000;
+          const maxCap = storageForEq.maxCapacityStn || 10000;
           const bod = bodMap.get(`${date}|${storageForEq.id}`) || 0;
           const avgConsumption = equipmentAvgConsumption.get(eqId) || 0;
           const maxProd = getEqProd(date, eqId, Array.from(campaignIndex.keys()).find(k => k.includes(eqId))?.split('|')[2]) || 0;

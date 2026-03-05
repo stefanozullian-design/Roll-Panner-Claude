@@ -3695,12 +3695,12 @@ function openDailyActualsDialog(preselectedFacId){
         ${finishMillsTableHTML}
       </div>
 
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#ffffff;margin-bottom:8px">3a. Rail Loading (STn)</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#ffffff;margin-bottom:8px">3a. Rail Loading (Cars)</div>
       <div class="table-scroll" style="margin-bottom:20px;max-height:200px;border-radius:8px;overflow-x:auto;overflow-y:auto;border:1px solid var(--border)">
         ${railTableHTML}
       </div>
 
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#ffffff;margin-bottom:8px">3b. Switch Pickup (STn)</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#ffffff;margin-bottom:8px">3b. Rail Pickup - Switch (Cars)</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin-bottom:20px">
         ${(() => {
           const railProds = s.materials.filter(m => s.dataset.equipment.some(eq => eq.facilityId === activeFacId && canEqProd(eq.id, m.id)));
@@ -3747,12 +3747,13 @@ function openDailyActualsDialog(preselectedFacId){
         .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields
         .map(i=>({equipmentId:i.dataset.equipment,productId:i.dataset.product,qtyStn:+i.value}));
       // Separate rail loading from switch pickup (using data-type attribute)
+      // Convert from CARS to STn (1 car = 112 STn)
       const railLoadingRows = [...host.querySelectorAll('.rail-input[data-type="loading"]')]
         .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields
-        .map(i=>({type:'loading',equipmentId:i.dataset.equipment,productId:i.dataset.product,qtyStn:+i.value}));
+        .map(i=>({type:'loading',equipmentId:i.dataset.equipment,productId:i.dataset.product,qtyStn:+i.value * 112}));
       const railPickupRows = [...host.querySelectorAll('.rail-input[data-type="pickup"]')]
         .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields
-        .map(i=>({type:'pickup',equipmentId:'SWITCH',productId:i.dataset.product,qtyStn:+i.value}));
+        .map(i=>({type:'pickup',equipmentId:'SWITCH',productId:i.dataset.product,qtyStn:+i.value * 112}));
       const railTransferRows = [...railLoadingRows, ...railPickupRows];
       const shipmentRows   = [...host.querySelectorAll('.ship-input')]
         .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields

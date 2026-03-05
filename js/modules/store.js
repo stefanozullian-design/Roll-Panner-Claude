@@ -118,6 +118,9 @@ export function freshFacilityData() {
       // Separate from shipments because they affect TWO facilities' inventory
       transfers:      [],   // { date, fromFacilityId, toFacilityId, productId, qtyStn,
                             //   materialNumber?, notes? }
+
+      // Rail loader operations (loader equipment actuals for transfer staging)
+      railTransfers:  [],   // { date, facilityId, equipmentId, productId, qtyStn }
     },
 
     // ── Logistics schedule (sandboxed — what-if scenarios affect this) ──
@@ -350,6 +353,9 @@ function migrateV2V3(v2) {
 
         // Transfers: new table — start empty on migration
         transfers: ds.actuals?.transfers || fresh.actuals.transfers,
+
+        // Rail transfers: loader operations for transfer staging
+        railTransfers: ds.actuals?.railTransfers || fresh.actuals.railTransfers,
       }
     };
   };

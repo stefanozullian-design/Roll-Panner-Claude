@@ -3527,11 +3527,13 @@ function openDailyActualsDialog(preselectedFacId){
     const ff = s.equipment.filter(e=>e.type==='finish_mill');
     const rf = s.equipment.filter(e=>e.type==='raw_mill');
     const uf = s.equipment.filter(e=>e.type==='unloader');
+    const ld = s.equipment.filter(e=>e.type==='loader');  // loaders for Rail Transfers
     const canEqProd = (eqId,pid) => s.capabilities.some(c=>c.equipmentId===eqId&&c.productId===pid);
     const existing = s.actualsForDate(y);
     const invMap  = new Map((existing.inv ||[]).map(r=>[`${r.storageId}|${r.productId}`,r.qtyStn]));
     const prodMap = new Map((existing.prod||[]).map(r=>[`${r.equipmentId}|${r.productId}`,r.qtyStn]));
     const shipMap = new Map((existing.ship||[]).map(r=>[r.productId,r.qtyStn]));
+    const railMap = new Map((existing.rail||[]).map(r=>[`${r.equipmentId}|${r.productId}`,r.qtyStn]));
 
     const fac = state.org.facilities.find(f=>f.id===activeFacId);
     const facLabel = fac ? `${fac.code} — ${fac.name}` : activeFacId;
@@ -3543,23 +3545,55 @@ function openDailyActualsDialog(preselectedFacId){
       </div>` : '';
 
     // Pre-compute filtered HTML blocks to avoid nested template literal issues
-    const facEqAll = [...rf,...kf,...ff];
-    const facMats  = s.materials.filter(m => facEqAll.some(eq => canEqProd(eq.id, m.id)));
-    const prodTableHTML = facEqAll.length
-      ? '<table class="data-table" style="min-width:max-content"><thead><tr>' +
+    // Helper function to generate equipment table
+    const createEquipmentTable = (eqArray, eqType) => {
+      if (!eqArray.length) return '';
+      const mats = s.materials.filter(m => eqArray.some(eq => canEqProd(eq.id, m.id)));
+      if (!mats.length) return '';
+      return '<table class="data-table" style="min-width:max-content"><thead><tr>' +
         '<th style="min-width:160px;position:sticky;left:0;background:#0a0d14;z-index:3">Equipment</th>' +
-        facMats.map(m=>'<th style="min-width:90px">'+esc(m.code||m.name.slice(0,10))+'</th>').join('') +
+        mats.map(m=>'<th style="min-width:90px">'+esc(m.code||m.name.slice(0,10))+'</th>').join('') +
         '</tr></thead><tbody>' +
-        facEqAll.map(eq =>
+        eqArray.map(eq =>
           '<tr><td style="font-weight:600;position:sticky;left:0;background:var(--surface2);z-index:2">' +
           esc(eq.name)+' <span class="pill pill-gray" style="font-size:9px">'+eq.type+'</span></td>' +
-          facMats.map(m => canEqProd(eq.id,m.id)
+          mats.map(m => canEqProd(eq.id,m.id)
             ? '<td><input class="cell-input prod-input" data-equipment="'+eq.id+'" data-product="'+m.id+'" value="'+(prodMap.get(eq.id+'|'+m.id)??'')+'"></td>'
             : '<td class="cell-gray">—</td>'
           ).join('') + '</tr>'
         ).join('') +
-        '</tbody></table>'
-      : '<div class="text-muted" style="font-size:12px;padding:12px;text-align:center">No equipment for this facility</div>';
+        '</tbody></table>';
+    };
+
+    // Generate separate tables for kilns and finish mills
+    const kilnsTableHTML = kf.length
+      ? createEquipmentTable(kf, 'kiln')
+      : '<div class="text-muted" style="font-size:12px;padding:12px;text-align:center">No kilns for this facility</div>';
+
+    const finishMillsTableHTML = ff.length
+      ? createEquipmentTable(ff, 'finish_mill')
+      : '<div class="text-muted" style="font-size:12px;padding:12px;text-align:center">No finish mills for this facility</div>';
+
+    // Generate Rail Transfers table with loaders (using same table structure but with .rail-input class)
+    const railTableHTML = ld.length
+      ? (() => {
+        const mats = s.materials.filter(m => ld.some(eq => canEqProd(eq.id, m.id)));
+        if (!mats.length) return '<div class="text-muted" style="font-size:12px;padding:12px;text-align:center">No transfer products for loaders</div>';
+        return '<table class="data-table" style="min-width:max-content"><thead><tr>' +
+          '<th style="min-width:160px;position:sticky;left:0;background:#0a0d14;z-index:3">Equipment</th>' +
+          mats.map(m=>'<th style="min-width:90px">'+esc(m.code||m.name.slice(0,10))+'</th>').join('') +
+          '</tr></thead><tbody>' +
+          ld.map(eq =>
+            '<tr><td style="font-weight:600;position:sticky;left:0;background:var(--surface2);z-index:2">' +
+            esc(eq.name)+' <span class="pill pill-gray" style="font-size:9px">'+eq.type+'</span></td>' +
+            mats.map(m => canEqProd(eq.id,m.id)
+              ? '<td><input class="cell-input rail-input" data-equipment="'+eq.id+'" data-product="'+m.id+'" value="'+(railMap.get(eq.id+'|'+m.id)??'')+'"></td>'
+              : '<td class="cell-gray">—</td>'
+            ).join('') + '</tr>'
+          ).join('') +
+          '</tbody></table>';
+      })()
+      : '<div class="text-muted" style="font-size:12px;padding:12px;text-align:center">No loaders for this facility</div>';
 
     // Derive finished products: use capabilities for production plants, facilityProducts for terminals
     const facEqForShip = s.dataset.equipment.filter(e=>e.facilityId===activeFacId);
@@ -3595,21 +3629,31 @@ function openDailyActualsDialog(preselectedFacId){
         <div><label class="form-label">Date (default: yesterday)</label><input class="form-input" type="date" id="actualsDate" value="${y}"></div>
       </div>
 
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">1. Ending Inventory (STn)</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">1. Production Actuals - Kilns (STn)</div>
+      <div class="table-scroll" style="margin-bottom:20px;max-height:260px;border-radius:8px;overflow-x:auto;overflow-y:auto;border:1px solid var(--border)">
+        ${kilnsTableHTML}
+      </div>
+
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">2. Production Actuals - Finish Mills (STn)</div>
+      <div class="table-scroll" style="margin-bottom:20px;max-height:260px;border-radius:8px;overflow-x:auto;overflow-y:auto;border:1px solid var(--border)">
+        ${finishMillsTableHTML}
+      </div>
+
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">3. Rail Transfers (STn)</div>
+      <div class="table-scroll" style="margin-bottom:20px;max-height:200px;border-radius:8px;overflow-x:auto;overflow-y:auto;border:1px solid var(--border)">
+        ${railTableHTML}
+      </div>
+
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">4. Customer Shipments (STn)</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin-bottom:20px">
+        ${shipHTML}
+      </div>
+
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">5. Ending Inventory (STn)</div>
       <div class="table-scroll" style="margin-bottom:20px;max-height:200px;border-radius:8px;overflow-y:auto !important;border:1px solid var(--border)">
         <table class="data-table"><thead><tr><th>Storage</th><th>Product</th><th>EOD Quantity (STn)</th></tr></thead>
         <tbody>${s.storages.map(st=>{const pid=(st.allowedProductIds||[])[0]||'';return`<tr><td style="font-weight:600">${esc(st.name)}</td><td>${esc(s.getMaterial(pid)?.name||'')}</td><td><input class="cell-input inv-input" data-storage="${st.id}" data-product="${pid}" value="${invMap.get(`${st.id}|${pid}`)??''}"></td></tr>`;}).join('')||'<tr><td colspan="3" class="text-muted" style="text-align:center;padding:12px">No storages for this facility</td></tr>'}</tbody>
         </table>
-      </div>
-
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">2. Production Actuals (STn)</div>
-      <div class="table-scroll" style="margin-bottom:20px;max-height:260px;border-radius:8px;overflow-x:auto;overflow-y:auto;border:1px solid var(--border)">
-        ${prodTableHTML}
-      </div>
-
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">3. Customer Shipments (STn)</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px">
-        ${shipHTML}
       </div>`;
 
     // Facility tab switching
@@ -3634,10 +3678,13 @@ function openDailyActualsDialog(preselectedFacId){
       const productionRows = [...host.querySelectorAll('.prod-input')]
         .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields
         .map(i=>({equipmentId:i.dataset.equipment,productId:i.dataset.product,qtyStn:+i.value}));
+      const railTransferRows = [...host.querySelectorAll('.rail-input')]
+        .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields
+        .map(i=>({equipmentId:i.dataset.equipment,productId:i.dataset.product,qtyStn:+i.value}));
       const shipmentRows   = [...host.querySelectorAll('.ship-input')]
         .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields
         .map(i=>({productId:i.dataset.product,qtyStn:+i.value}));
-      a.saveDailyActuals({date, inventoryRows, productionRows, shipmentRows});
+      a.saveDailyActuals({date, inventoryRows, productionRows, railTransferRows, shipmentRows});
       persist(); renderDemand(); renderPlan(); showToast(`Actuals saved for ${activeFacId} ✓`);
     };
   };

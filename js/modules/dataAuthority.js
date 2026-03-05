@@ -238,6 +238,7 @@ export function selectors(state) {
     actualsForDate: date => ({
       inv:      ds.actuals.inventoryBOD.filter(r => r.date === date && facilityIds.includes(r.facilityId)),
       prod:     ds.actuals.production.filter(r => r.date === date && facilityIds.includes(r.facilityId)),
+      rail:     ds.actuals.railTransfers.filter(r => r.date === date && facilityIds.includes(r.facilityId)),
       ship:     ds.actuals.shipments.filter(r => r.date === date && facilityIds.includes(r.facilityId)),
       transfer: ds.actuals.transfers.filter(r =>
         r.date === date &&
@@ -772,11 +773,12 @@ export function actions(state) {
     // ACTUALS  — Physical BOD inventory count
     // ────────────────────────────────────────────────────────────────────────
 
-    saveDailyActuals({ date, facilityId, inventoryRows, productionRows, shipmentRows }) {
+    saveDailyActuals({ date, facilityId, inventoryRows, productionRows, railTransferRows, shipmentRows }) {
       const fid = facilityId || primaryFacId;
       // Clear existing actuals for this date + facility
       ds.actuals.inventoryBOD = ds.actuals.inventoryBOD.filter(r => !(r.date === date && r.facilityId === fid));
       ds.actuals.production   = ds.actuals.production.filter(r =>   !(r.date === date && r.facilityId === fid));
+      ds.actuals.railTransfers = ds.actuals.railTransfers.filter(r => !(r.date === date && r.facilityId === fid));
       ds.actuals.shipments    = ds.actuals.shipments.filter(r =>    !(r.date === date && r.facilityId === fid));
 
       // Physical BOD overrides
@@ -790,6 +792,13 @@ export function actions(state) {
       productionRows
         .filter(r => r.equipmentId && r.productId && isFinite(r.qtyStn) && +r.qtyStn !== 0)
         .forEach(r => ds.actuals.production.push({
+          date, facilityId: fid, equipmentId: r.equipmentId, productId: r.productId, qtyStn: +r.qtyStn
+        }));
+
+      // Rail transfer actuals (loader operations)
+      (railTransferRows || [])
+        .filter(r => r.equipmentId && r.productId && isFinite(r.qtyStn) && +r.qtyStn !== 0)
+        .forEach(r => ds.actuals.railTransfers.push({
           date, facilityId: fid, equipmentId: r.equipmentId, productId: r.productId, qtyStn: +r.qtyStn
         }));
 

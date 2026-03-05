@@ -3684,6 +3684,15 @@ function openDailyActualsDialog(preselectedFacId){
       const shipmentRows   = [...host.querySelectorAll('.ship-input')]
         .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields
         .map(i=>({productId:i.dataset.product,qtyStn:+i.value}));
+
+      // DEBUG: Log data being saved
+      console.log('=== DAILY ACTUALS SAVE DEBUG ===');
+      console.log('DATE:', date);
+      console.log('PROD ROWS:', productionRows);
+      console.log('RAIL ROWS:', railTransferRows);
+      console.log('INVENTORY ROWS:', inventoryRows);
+      console.log('SHIPMENT ROWS:', shipmentRows);
+
       a.saveDailyActuals({date, inventoryRows, productionRows, railTransferRows, shipmentRows});
       persist(); renderDemand(); renderPlan(); showToast(`Actuals saved for ${activeFacId} ✓`);
     };

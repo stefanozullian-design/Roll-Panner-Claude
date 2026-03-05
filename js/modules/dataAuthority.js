@@ -775,6 +775,13 @@ export function actions(state) {
 
     saveDailyActuals({ date, facilityId, inventoryRows, productionRows, railTransferRows, shipmentRows }) {
       const fid = facilityId || primaryFacId;
+      // DEBUG
+      console.log('=== BACKEND SAVE DEBUG ===');
+      console.log('SAVE DATE:', date, 'FID:', fid);
+      console.log('INCOMING PROD ROWS:', productionRows);
+      console.log('INCOMING RAIL ROWS:', railTransferRows);
+      console.log('BEFORE SAVE: prod length=', ds.actuals.production.length, 'rail length=', ds.actuals.railTransfers?.length || 0);
+
       // Ensure railTransfers array exists (for backward compat with existing data)
       if (!ds.actuals.railTransfers) ds.actuals.railTransfers = [];
       // Clear existing actuals for this date + facility
@@ -816,6 +823,11 @@ export function actions(state) {
           deliveryTerms:  r.deliveryTerms  || 'FOB',
           materialNumber: r.materialNumber || null,
         }));
+
+      // DEBUG: Log what was actually saved
+      console.log('AFTER SAVE: prod length=', ds.actuals.production.length, 'rail length=', ds.actuals.railTransfers.length);
+      console.log('SAVED PROD:', ds.actuals.production.filter(r => r.date === date && r.facilityId === fid));
+      console.log('SAVED RAIL:', ds.actuals.railTransfers.filter(r => r.date === date && r.facilityId === fid));
     },
 
     // ────────────────────────────────────────────────────────────────────────

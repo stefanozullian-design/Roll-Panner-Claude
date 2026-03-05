@@ -267,18 +267,18 @@ function simulateFacility(state, s, ds, facId, dates) {
             const netChange = maxProd - avgConsumption;
 
             let reason = '';
-            // Condition 1: Is demand > production?
-            const demandCondition = avgConsumption > maxProd;
-            reason += demandCondition ? '✓Cond1(Demand>Prod)' : '✗Cond1(Demand≤Prod)';
+            // Condition 1: Is 10-day avg demand >= production capacity?
+            const cond1 = avgConsumption >= maxProd; // Must be >= not >
+            reason += cond1 ? '✓C1(Demand≥Prod)' : '✗C1(Demand<Prod)';
 
             // Condition 2: Is headroom >= 2x max production?
-            const headroomCondition = headroom >= requiredHeadroom;
-            reason += headroomCondition ? ' ✓Cond2(Headroom≥2xProd)' : ` ✗Cond2(Headroom=${headroom.toFixed(0)}<Required=${requiredHeadroom.toFixed(0)})`;
+            const cond2 = headroom >= requiredHeadroom;
+            reason += cond2 ? ' ✓C2(Buffer≥2xProd)' : ` ✗C2(${headroom.toFixed(0)}<${requiredHeadroom.toFixed(0)})`;
 
-            console.log(`[RESTART BUFFER DETAILED] ${date} | ${eqId}`);
-            console.log(`  Demand: ${avgConsumption.toFixed(1)} STn/day | Prod: ${maxProd.toFixed(1)} | NetChange: ${netChange.toFixed(1)} (${netChange > 0 ? 'ACCUMULATE' : 'DRAIN'})`);
-            console.log(`  Headroom: ${headroom.toFixed(1)} | Required: ${requiredHeadroom.toFixed(1)}`);
-            console.log(`  ${reason} | Result: ${canRestart ? 'ALLOW RESTART' : 'DENY RESTART'}`);
+            // Net change: positive = accumulates, negative = drains
+            const accumulates = netChange > 0;
+            console.log(`[RESTART] ${date} | ${eqId} | Demand=${avgConsumption.toFixed(1)} | Prod=${maxProd.toFixed(1)} | NetChange=${netChange > 0 ? '+' : ''}${netChange.toFixed(1)} (${accumulates ? 'FILL' : 'DRAIN'}) | Headroom=${headroom.toFixed(0)}/${requiredHeadroom.toFixed(0)} | ${reason} | ${canRestart ? '✓ALLOW' : '✗DENY'}`);
+          }
           }
 
           if (!canRestart) {

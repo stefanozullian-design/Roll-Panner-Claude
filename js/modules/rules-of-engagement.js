@@ -194,37 +194,40 @@ const RulesOfEngagement = {
   },
 
   /**
-   * Calculate if equipment can restart based on two conditions:
-   * 1. Avg 10-day demand must be HIGHER than max production (not based on one data point)
-   * 2. Available headroom must be at least 2x max production capacity (2-day safety buffer)
+   * Equipment restart requires BOTH conditions (10-day average demand-based decision):
+   * 1. Avg 10-day demand >= max production capacity
+   *    → Production won't exceed demand, no overflow risk
+   *    → Use 10-day average (not one-day spike)
+   * 2. Available headroom >= 2 × max production capacity
+   *    → Safety buffer of 2 days of production capacity
+   *    → Time to react if demand suddenly drops
    * @param {number} maxStorageCapacity - Silo max capacity (STn)
    * @param {number} currentBODInventory - Beginning of day inventory (STn)
-   * @param {number} avgDemand - Rolling 10-day average demand (STn/day)
+   * @param {number} avgDemand - Rolling 10-day average consumption/demand (STn/day)
    * @param {number} maxProductionCapacity - Equipment max production rate (STn/day)
-   * @returns {boolean} True if both conditions are met for restart
+   * @returns {boolean} True only if BOTH conditions are satisfied
    */
   canRestartBasedOnBuffer(maxStorageCapacity, currentBODInventory, avgDemand, maxProductionCapacity) {
     // Check if we have valid input
     if (maxStorageCapacity <= 0) return true;
 
     const availableHeadroom = maxStorageCapacity - currentBODInventory;
+    const requiredHeadroom = 2 * maxProductionCapacity;
 
-    // ✓ CONDITION 1: Is demand high enough to justify restart?
-    // Check 10-day average (not just one data point)
-    // Equipment should only restart if downstream demand is higher than production capacity
-    if (avgDemand <= maxProductionCapacity) {
-      return false; // DENY restart - demand too low, production would exceed demand and overflow storage
+    // ✓ CONDITION 1: Is 10-day average demand >= production capacity?
+    // Ensures production won't exceed demand (no accumulation risk)
+    if (avgDemand < maxProductionCapacity) {
+      return false; // DENY: Demand too low, would accumulate and overflow
     }
 
-    // ✓ CONDITION 2: Is there enough safety buffer headroom?
-    // Require at least 2 days worth of max production capacity as buffer
-    const requiredHeadroom = 2 * maxProductionCapacity;
+    // ✓ CONDITION 2: Is there sufficient safety buffer?
+    // Ensure 2 days of production capacity as headroom (safety margin)
     if (availableHeadroom < requiredHeadroom) {
-      return false; // DENY restart - insufficient headroom before hitting max capacity
+      return false; // DENY: Insufficient headroom, too risky
     }
 
     // Both conditions satisfied
-    return true; // ALLOW restart - demand is high AND sufficient buffer exists
+    return true; // ALLOW: High demand + sufficient buffer = safe to restart
   },
 
   /**

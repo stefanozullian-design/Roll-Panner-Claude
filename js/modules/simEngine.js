@@ -300,6 +300,7 @@ function simulateFacility(state, s, ds, facId, dates) {
   // Equipment run/idle state tracking (Rules of Engagement)
   const equipmentRunState = new Map();  // `date|equipmentId` → { status: 'on'|'off', runDaysSoFar: n, idleDaysSoFar: n, reason: string }
   const equipmentAvgConsumption = new Map();  // `equipmentId` → rolling 10-day average consumption
+  const clinkerConsumptionByStoragePerDay = new Map();  // `date|storageId` → qty consumed from that storage on that day
 
   // ────────────────────────────────────────────────────────────────────────
   // Seed BOD for day 0 — use physical count if available, else 0
@@ -627,6 +628,12 @@ function simulateFacility(state, s, ds, facId, dates) {
             if (facId === 'BRS' && eqId && eqId.includes('FM')) {
               console.log(`[CONSUMPTION DEDUCTION] ${date} | FM=${eqId} | ClinkProduct=${c.materialId} | Qty=${compQty.toFixed(1)} | DeductedFrom=${compSt?.name || compSt?.id || 'NONE'}`);
             }
+
+            // ✓ NEW: Track clinker consumption from this storage (for kiln demand calculation)
+            if (compSt) {
+              const key = `${date}|${compSt.id}`;
+              clinkerConsumptionByStoragePerDay.set(key, (clinkerConsumptionByStoragePerDay.get(key) || 0) + compQty);
+            }
           } else {
             // Non-clinker: find storage by matching allowedProductIds
             compSt = storages.find(st =>
@@ -764,22 +771,30 @@ function simulateFacility(state, s, ds, facId, dates) {
       console.log(`[CLK CONSUMPTION] ${date}: Total=${total.toFixed(1)}, FM01=${fm1.toFixed(1)}, FM02=${fm2.toFixed(1)}, Sum=${(fm1+fm2).toFixed(1)}`);
     }
 
-    // ✓ NEW: Calculate rolling 10-day average consumption for equipment restart conditions
-    // Update average consumption based on production output (consumption is derived from production)
+    // ✓ NEW: Calculate rolling 10-day average DEMAND (shipments) for finish mills
     fms.forEach(eq => {
-      const produced = fmUsed.get(eq.id) || 0;
       const startIdx = Math.max(0, idx - 9); // Last 10 days including today
-      let sumProduction = produced; // Today's production
+      let sumShipments = 0;
 
-      for (let i = startIdx; i < idx; i++) {
-        const prevDate = dates[i];
-        const prevProd = prodByEqMap.get(`${prevDate}|${eq.id}`) || 0;
-        sumProduction += prevProd;
+      // Find all products this FM can produce
+      const producedProducts = fmReqLines.filter(l => l.eqId === eq.id).map(l => l.productId);
+
+      for (let i = startIdx; i <= idx; i++) {
+        const day = dates[i];
+        // Sum all shipments of products this FM produces
+        producedProducts.forEach(pid => {
+          sumShipments += shipMap.get(`${day}|${pid}`) || 0;
+        });
       }
 
       const daysCount = Math.min(idx + 1, 10); // Number of days in rolling window
-      const avgProduction = daysCount > 0 ? sumProduction / daysCount : 0;
-      equipmentAvgConsumption.set(eq.id, avgProduction);
+      const avgDemand = daysCount > 0 ? sumShipments / daysCount : 0;
+      equipmentAvgConsumption.set(eq.id, avgDemand);
+
+      // ✓ DIAGNOSTIC: Show what demand is being used for restart calc
+      if (facId === 'BRS' && eq.id && eq.id.includes('FM')) {
+        console.log(`[FM DEMAND] ${date} | ${eq.id} | AvgDemand=${avgDemand.toFixed(1)} STn/day (based on shipments)`);
+      }
     });
 
     // ── Step 3: Kiln production (cap by clinker silo headroom) ──
@@ -830,21 +845,35 @@ function simulateFacility(state, s, ds, facId, dates) {
     }
     kilns.forEach(eq => prodByEqMap.set(`${date}|${eq.id}`, kilnUsed.get(eq.id) || 0));
 
-    // ✓ NEW: Calculate rolling 10-day average consumption for kilns (AFTER kilnUsed is populated)
+    // ✓ NEW: Calculate rolling 10-day average consumption of clinker FROM each kiln (by mills)
     kilns.forEach(eq => {
-      const produced = kilnUsed.get(eq.id) || 0;
-      const startIdx = Math.max(0, idx - 9); // Last 10 days including today
-      let sumProduction = produced; // Today's production
+      const rule = RulesOfEngagement?.getRunIdleRule('kiln');
+      if (!rule) return;
 
-      for (let i = startIdx; i < idx; i++) {
-        const prevDate = dates[i];
-        const prevProd = prodByEqMap.get(`${prevDate}|${eq.id}`) || 0;
-        sumProduction += prevProd;
+      // Find which storage this kiln's clinker goes to (based on kiln's output storage)
+      const kilnProdLine = kilnReqLines.find(l => l.eqId === eq.id);
+      const targetStorageId = kilnProdLine?.outSt?.id;
+
+      if (!targetStorageId) return; // Can't calculate demand without storage mapping
+
+      // Sum clinker consumption FROM this kiln's storage (over rolling 10 days)
+      const startIdx = Math.max(0, idx - 9);
+      let sumConsumption = 0;
+
+      for (let i = startIdx; i <= idx; i++) {
+        const day = dates[i];
+        const dayConsumption = clinkerConsumptionByStoragePerDay.get(`${day}|${targetStorageId}`) || 0;
+        sumConsumption += dayConsumption;
       }
 
-      const daysCount = Math.min(idx + 1, 10); // Number of days in rolling window
-      const avgProduction = daysCount > 0 ? sumProduction / daysCount : 0;
-      equipmentAvgConsumption.set(eq.id, avgProduction);
+      const daysCount = Math.min(idx + 1, 10);
+      const avgDemand = daysCount > 0 ? sumConsumption / daysCount : 0;
+      equipmentAvgConsumption.set(eq.id, avgDemand);
+
+      // ✓ DIAGNOSTIC: Show what demand is being used
+      if (facId === 'BRS' && eq.id && eq.id.includes('BRSKL')) {
+        console.log(`[KILN DEMAND] ${date} | ${eq.id} | Storage=${targetStorageId} | AvgDemand=${avgDemand.toFixed(1)} STn/day (clinker consumed by mills)`);
+      }
     });
 
     // ✓ NEW: Track run/idle state transitions for kilns after production calculation

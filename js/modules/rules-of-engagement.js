@@ -194,40 +194,33 @@ const RulesOfEngagement = {
   },
 
   /**
-   * Equipment restart requires BOTH conditions (10-day average demand-based decision):
-   * 1. Avg 10-day demand >= max production capacity
-   *    → Production won't exceed demand, no overflow risk
-   *    → Use 10-day average (not one-day spike)
-   * 2. Available headroom >= 2 × max production capacity
-   *    → Safety buffer of 2 days of production capacity
-   *    → Time to react if demand suddenly drops
+   * SINGLE RULE: Equipment restart ONLY based on buffer space available
+   *
+   * Kiln can ONLY restart when:
+   * - Available headroom >= 15 days of production capacity
+   *
+   * This is the ONLY rule affecting restart decision.
+   * No demand checks, no run/idle duration requirements.
+   *
    * @param {number} maxStorageCapacity - Silo max capacity (STn)
    * @param {number} currentBODInventory - Beginning of day inventory (STn)
-   * @param {number} avgDemand - Rolling 10-day average consumption/demand (STn/day)
+   * @param {number} avgDemand - (NOT USED - kept for compatibility)
    * @param {number} maxProductionCapacity - Equipment max production rate (STn/day)
-   * @returns {boolean} True only if BOTH conditions are satisfied
+   * @returns {boolean} True only if headroom >= 15 days of production
    */
   canRestartBasedOnBuffer(maxStorageCapacity, currentBODInventory, avgDemand, maxProductionCapacity) {
     // Check if we have valid input
     if (maxStorageCapacity <= 0) return true;
 
     const availableHeadroom = maxStorageCapacity - currentBODInventory;
-    const requiredHeadroom = 2 * maxProductionCapacity;
+    const requiredHeadroom = 15 * maxProductionCapacity;  // 15 days of buffer
 
-    // ✓ CONDITION 1: Is 10-day average demand >= production capacity?
-    // Ensures production won't exceed demand (no accumulation risk)
-    if (avgDemand < maxProductionCapacity) {
-      return false; // DENY: Demand too low, would accumulate and overflow
-    }
-
-    // ✓ CONDITION 2: Is there sufficient safety buffer?
-    // Ensure 2 days of production capacity as headroom (safety margin)
+    // ✓ ONLY RULE: Is there 15 days of headroom?
     if (availableHeadroom < requiredHeadroom) {
-      return false; // DENY: Insufficient headroom, too risky
+      return false; // DENY: Not enough buffer (< 15 days)
     }
 
-    // Both conditions satisfied
-    return true; // ALLOW: High demand + sufficient buffer = safe to restart
+    return true; // ALLOW: Has 15+ days of buffer space
   },
 
   /**

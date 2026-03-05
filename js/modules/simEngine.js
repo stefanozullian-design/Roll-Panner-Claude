@@ -223,36 +223,37 @@ function simulateFacility(state, s, ds, facId, dates) {
   };
 
   // Check if equipment can run based on Rules of Engagement (run/idle constraints)
-  const canEquipmentRun = (date, eqId, eqType) => {
+  // SIMPLIFIED: Only apply restart buffer rule if equipment produced 0 yesterday (was OFF)
+  const canEquipmentRun = (date, eqId, eqType, idx) => {
     if (typeof RulesOfEngagement === 'undefined') return true; // No rules defined
 
     const rule = RulesOfEngagement.getRunIdleRule(eqType);
     if (!rule) return true; // No rule for this equipment type
 
-    const stateKey = `${date}|${eqId}`;
-    const runState = equipmentRunState.get(stateKey);
+    // ✓ SIMPLIFIED: Check if equipment produced 0 yesterday
+    // If yes, it was OFF yesterday → apply restart condition
+    // If no, it was ON yesterday → can continue running
+    if (idx > 0) {
+      const previousDate = dates[idx - 1];
+      const previousProd = prodByEqMap.get(`${previousDate}|${eqId}`) || 0;
 
-    // If equipment is currently idle, check restart condition (ONLY rule)
-    if (runState && runState.status === 'off') {
-      // ✓ DISABLED: minIdleDays check (not used - buffer calc is only rule)
-      // if (runState.idleDaysSoFar < rule.minIdleDays) {
-      //   return false; // Still within minimum idle period
-      // }
+      // Equipment produced > 0 yesterday, can continue running
+      if (previousProd > 0) {
+        return true;
+      }
 
-      // Check restart condition (inventory buffer) - THIS IS THE ONLY RULE
+      // Equipment produced 0 yesterday (was OFF), now check restart condition
       if (rule.restartCondition.type === 'inventoryBuffer') {
         const eq = s.equipment.find(e => e.id === eqId);
         if (!eq) return false;
 
         // ✓ FIXED: Use equipment's specific OUTPUT storage by NAME MATCHING
         // This ensures kilns use their kiln-specific storage (BRSK01, BRSK02, etc)
-        // not a consolidated total inventory
         let storageForEq = null;
 
         if (eqType === 'kiln') {
           // For kilns: Extract equipment number and find matching storage
           // E.g., BRS_BRSKO1 → find storage matching BRSK01, BRS_BRSKO2 → BRSK02
-          // Also try with full facility prefix: BRS_BRS_INV_CLK_BRSK01
           const eqNumMatch = eqId.match(/(\d+)$/); // Extract trailing digits
           if (eqNumMatch) {
             const eqNum = eqNumMatch[1]; // e.g., "1" or "01"
@@ -290,12 +291,10 @@ function simulateFacility(state, s, ds, facId, dates) {
           const avgConsumption = equipmentAvgConsumption.get(eqId) || 0;
           const maxProd = getEqProd(date, eqId, Array.from(campaignIndex.keys()).find(k => k.includes(eqId))?.split('|')[2]) || 0;
 
-          // ✓ DEBUG: Log all values on specific date for debugging
+          // ✓ DEBUG: Log restart decision
           if (facId === 'BRS' && (eqId.includes('BRSKO') || eqId.includes('BRSKL'))) {
-            console.log(`[DEBUG RESTART] ${date} | ${eqId}`);
-            console.log(`  StorageFound: ${storageForEq.id} (MaxCap=${maxCap})`);
-            console.log(`  BOD=${bod.toFixed(1)}, AvgDemand=${avgConsumption.toFixed(1)}, MaxProd=${maxProd.toFixed(1)}`);
-            console.log(`  IdleStatus: ${runState?.status}, IdleDays: ${runState?.idleDaysSoFar}/${rule.minIdleDays}`);
+            console.log(`[RESTART CHECK] ${date} | ${eqId} | PrevProd=${previousProd} (was OFF) | Storage=${storageForEq.id}`);
+            console.log(`  BOD=${bod.toFixed(1)}, MaxCap=${maxCap}, AvgDemand=${avgConsumption.toFixed(1)}, MaxProd=${maxProd.toFixed(1)}`);
           }
 
           // ✓ FIXED: Pass only 4 parameters (fixed 3× buffer in function)
@@ -303,29 +302,13 @@ function simulateFacility(state, s, ds, facId, dates) {
             maxCap, bod, avgConsumption, maxProd
           );
 
-          // ✓ DIAGNOSTIC: Log restart buffer calculation with both conditions DETAILED
-          if (facId === 'BRS' && (eqId.includes('BRSKL') || eqId.includes('BRSKO') || eqId.includes('FM'))) {
-            const headroom = maxCap - bod;
-            const requiredHeadroom = 2 * maxProd; // 2-day safety buffer
-            const netChange = maxProd - avgConsumption;
-
-            let reason = '';
-            // Condition 1: Is 10-day avg demand >= production capacity?
-            const cond1 = avgConsumption >= maxProd; // Must be >= not >
-            reason += cond1 ? '✓C1(Demand≥Prod)' : '✗C1(Demand<Prod)';
-
-            // Condition 2: Is headroom >= 2x max production?
-            const cond2 = headroom >= requiredHeadroom;
-            reason += cond2 ? ' ✓C2(Buffer≥2xProd)' : ` ✗C2(${headroom.toFixed(0)}<${requiredHeadroom.toFixed(0)})`;
-
-            // Net change: positive = accumulates, negative = drains
-            const accumulates = netChange > 0;
-            console.log(`[RESTART] ${date} | ${eqId} | Demand=${avgConsumption.toFixed(1)} | Prod=${maxProd.toFixed(1)} | NetChange=${netChange > 0 ? '+' : ''}${netChange.toFixed(1)} (${accumulates ? 'FILL' : 'DRAIN'}) | Headroom=${headroom.toFixed(0)}/${requiredHeadroom.toFixed(0)} | ${reason} | ${canRestart ? '✓ALLOW' : '✗DENY'}`);
-          }
-
+          // ✓ DIAGNOSTIC: Log restart buffer calculation
           if (facId === 'BRS' && (eqId.includes('BRSKL') || eqId.includes('BRSKO'))) {
-            console.log(`[DEBUG RESTART] ${date} | ${eqId} | CanRestart=${canRestart} | MaxCap=${maxCap} | BOD=${bod} | HeadRoom=${(maxCap - bod)}`);
+            const headroom = maxCap - bod;
+            const bufferHeadroom = 0.80 * maxCap; // 80% buffer requirement
+            console.log(`[RESTART DECISION] ${date} | ${eqId} | Headroom=${headroom.toFixed(0)}/${bufferHeadroom.toFixed(0)} (need 80%) | ${canRestart ? '✓ALLOW' : '✗DENY'}`);
           }
+
           if (!canRestart) {
             return false; // Cannot restart yet, buffer not sufficient
           }
@@ -333,7 +316,8 @@ function simulateFacility(state, s, ds, facId, dates) {
       }
     }
 
-    return true; // Equipment can run
+    // First date or equipment can run
+    return true;
   };
 
   // ── Output maps ──
@@ -607,7 +591,7 @@ function simulateFacility(state, s, ds, facId, dates) {
 
       // ✓ NEW: Check if equipment is allowed to run based on run/idle rules
       const fm = fms.find(e => e.id === eqId);
-      if (fm && !canEquipmentRun(date, eqId, 'finish_mill')) {
+      if (fm && !canEquipmentRun(date, eqId, 'finish_mill', idx)) {
         eqConstraintMeta.set(`${date}|${eqId}`, {
           type: 'idle',
           reason: 'equipment idle (run/idle rules)',
@@ -850,7 +834,7 @@ function simulateFacility(state, s, ds, facId, dates) {
 
       // ✓ NEW: Check if kiln is allowed to run based on run/idle rules
       const kiln = kilns.find(e => e.id === eqId);
-      if (kiln && !canEquipmentRun(date, eqId, 'kiln')) {
+      if (kiln && !canEquipmentRun(date, eqId, 'kiln', idx)) {
         eqConstraintMeta.set(`${date}|${eqId}`, {
           type: 'idle',
           reason: 'equipment idle (run/idle rules)',

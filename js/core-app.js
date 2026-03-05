@@ -3643,7 +3643,7 @@ function openDailyActualsDialog(preselectedFacId){
             '<tr><td style="font-weight:600;position:sticky;left:0;background:var(--surface2);z-index:2">' +
             esc(eq.name)+' <span class="pill pill-gray" style="font-size:9px">'+eq.type+'</span></td>' +
             mats.map(m => canEqProd(eq.id,m.id)
-              ? '<td><input class="cell-input rail-input" data-equipment="'+eq.id+'" data-product="'+m.id+'" value="'+(railMap.get(eq.id+'|'+m.id)??'')+'"></td>'
+              ? '<td><input class="cell-input rail-input" data-type="loading" data-equipment="'+eq.id+'" data-product="'+m.id+'" value="'+(railMap.get(eq.id+'|'+m.id)??'')+'"></td>'
               : '<td class="cell-gray">—</td>'
             ).join('') + '</tr>'
           ).join('') +
@@ -3695,9 +3695,21 @@ function openDailyActualsDialog(preselectedFacId){
         ${finishMillsTableHTML}
       </div>
 
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">3. Rail Transfers (STn)</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">3a. Rail Loading (STn)</div>
       <div class="table-scroll" style="margin-bottom:20px;max-height:200px;border-radius:8px;overflow-x:auto;overflow-y:auto;border:1px solid var(--border)">
         ${railTableHTML}
+      </div>
+
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">3b. Switch Pickup (STn)</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin-bottom:20px">
+        ${(() => {
+          const railProds = s.materials.filter(m => s.dataset.equipment.some(eq => eq.facilityId === activeFacId && canEqProd(eq.id, m.id)));
+          return railProds.map(m =>
+            `<div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">${esc(m.name)}</label>` +
+            `<input class="cell-input rail-input" data-type="pickup" data-product="${m.id}" style="width:100%" placeholder="0" value="">` +
+            `</div>`
+          ).join('');
+        })()}
       </div>
 
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">4. Customer Shipments (STn)</div>
@@ -3734,9 +3746,14 @@ function openDailyActualsDialog(preselectedFacId){
       const productionRows = [...host.querySelectorAll('.prod-input')]
         .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields
         .map(i=>({equipmentId:i.dataset.equipment,productId:i.dataset.product,qtyStn:+i.value}));
-      const railTransferRows = [...host.querySelectorAll('.rail-input')]
+      // Separate rail loading from switch pickup (using data-type attribute)
+      const railLoadingRows = [...host.querySelectorAll('.rail-input[data-type="loading"]')]
         .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields
-        .map(i=>({equipmentId:i.dataset.equipment,productId:i.dataset.product,qtyStn:+i.value}));
+        .map(i=>({type:'loading',equipmentId:i.dataset.equipment,productId:i.dataset.product,qtyStn:+i.value}));
+      const railPickupRows = [...host.querySelectorAll('.rail-input[data-type="pickup"]')]
+        .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields
+        .map(i=>({type:'pickup',equipmentId:'SWITCH',productId:i.dataset.product,qtyStn:+i.value}));
+      const railTransferRows = [...railLoadingRows, ...railPickupRows];
       const shipmentRows   = [...host.querySelectorAll('.ship-input')]
         .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields
         .map(i=>({productId:i.dataset.product,qtyStn:+i.value}));

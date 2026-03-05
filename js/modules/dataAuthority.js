@@ -804,11 +804,12 @@ export function actions(state) {
           date, facilityId: fid, equipmentId: r.equipmentId, productId: r.productId, qtyStn: +r.qtyStn
         }));
 
-      // Rail transfer actuals (loader operations)
+      // Rail transfer actuals (loader operations + switch pickup)
+      // Each row can have type: 'loading' (loader equipment) or 'pickup' (switch company)
       (railTransferRows || [])
         .filter(r => r.equipmentId && r.productId && isFinite(r.qtyStn) && +r.qtyStn !== 0)
         .forEach(r => ds.actuals.railTransfers.push({
-          date, facilityId: fid, equipmentId: r.equipmentId, productId: r.productId, qtyStn: +r.qtyStn
+          date, facilityId: fid, type: r.type || 'loading', equipmentId: r.equipmentId, productId: r.productId, qtyStn: +r.qtyStn
         }));
 
       // Shipment actuals

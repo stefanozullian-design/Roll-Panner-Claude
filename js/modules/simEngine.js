@@ -57,6 +57,7 @@ function familyOfProduct(s, pid) {
   if (m.category === Categories.FIN)  return 'CEMENT';
   if (m.category === Categories.FUEL) return 'FUEL';
   if (m.category === Categories.RAW)  return 'RAW';
+  if (m.category === 'TRANSFER_PRODUCT') return 'TRANSF';
   return 'OTHER';
 }
 
@@ -335,6 +336,13 @@ function simulateFacility(state, s, ds, facId, dates) {
   const invCellMeta     = new Map();  // `date|storageId` → { severity, warn, eod, ... }
   const alertsByDate    = new Map();  // date → alert[]
 
+  // Rail Transfer family tracking (MVP: Loading + Pickup → BOD/EOD)
+  const railLoadingMap  = new Map();  // `date|productId` → qty loaded today
+  const railPickupMap   = new Map();  // `date|productId` → qty picked up by switch today
+  const railBodMap      = new Map();  // `date|storageId` → BOD (beginning inventory)
+  const railEodMap      = new Map();  // `date|storageId|productId` → EOD (ending inventory)
+  const railDeltaMap    = new Map();  // `storageId` → net change for day (for overall calcs)
+
   // Equipment run/idle state tracking (Rules of Engagement)
   const equipmentRunState = new Map();  // `date|equipmentId` → { status: 'on'|'off', runDaysSoFar: n, idleDaysSoFar: n, reason: string }
   const equipmentAvgConsumption = new Map();  // `equipmentId` → rolling 10-day average consumption
@@ -388,6 +396,39 @@ function simulateFacility(state, s, ds, facId, dates) {
         }
       });
     }
+
+    // ── Rail Transfer: BOD Roll-Forward & Load Daily Actuals ──
+    const railActualsToday = ds.actuals.railTransfers.filter(r => r.date === date && r.facilityId === facId);
+
+    // Separate loading from pickup actuals
+    const railLoadingActuals = railActualsToday.filter(r => r.type === 'loading' || !r.type); // Default to loading for backward compat
+    const railPickupActuals = railActualsToday.filter(r => r.type === 'pickup');
+
+    // Load rail transfer actuals into maps
+    railLoadingActuals.forEach(r => {
+      const key = `${date}|${r.productId}`;
+      railLoadingMap.set(key, (railLoadingMap.get(key) || 0) + (r.qtyStn || 0));
+    });
+
+    railPickupActuals.forEach(r => {
+      const key = `${date}|${r.productId}`;
+      railPickupMap.set(key, (railPickupMap.get(key) || 0) + (r.qtyStn || 0));
+    });
+
+    // Roll forward BOD for rail storages (same pattern as other storages)
+    storagesByFamily('TRANSF').forEach(st => {
+      let bod;
+      if (idx > 0) {
+        const prev = dates[idx - 1];
+        // Try to find previous day's EOD for this storage
+        const prevEod = railEodMap.get(`${prev}|${st.id}`);
+        bod = (prevEod !== undefined && prevEod !== null) ? prevEod : 0;
+      } else {
+        // First day: use physical count if provided, else 0
+        bod = invBODIndex.get(`${date}|${st.id}`) ?? 0;
+      }
+      railBodMap.set(`${date}|${st.id}`, bod);
+    });
 
     const delta = new Map(); // storageId → net delta for this date
     const addDelta = (storageId, q) => delta.set(storageId, (delta.get(storageId) || 0) + q);
@@ -1039,6 +1080,56 @@ function simulateFacility(state, s, ds, facId, dates) {
         alertsByDate.set(date, arr);
       }
     });
+
+    // ── Rail Transfer: Calculate Daily EOD ──
+    storagesByFamily('TRANSF').forEach(railSt => {
+      railSt.allowedProductIds?.forEach(productId => {
+        const bod = railBodMap.get(`${date}|${railSt.id}`) || 0;
+        const loading = railLoadingMap.get(`${date}|${productId}`) || 0;
+
+        // Get switch pickup from actuals (stored as type 'pickup')
+        let pickup = railPickupMap.get(`${date}|${productId}`) || 0;
+
+        // VALIDATION: Switch Pickup cannot exceed available (BOD + Loading)
+        const available = bod + loading;
+        if (pickup > available) {
+          // Auto-cap approach: reduce pickup to available and warn
+          const arr = alertsByDate.get(date) || [];
+          arr.push({
+            severity: 'warning',
+            storageId: railSt.id,
+            storageName: railSt.name,
+            reason: `Switch Pickup (${pickup.toFixed(1)} STn) exceeds available (${available.toFixed(1)} STn). Capping to available.`,
+            facilityId: facId,
+          });
+          alertsByDate.set(date, arr);
+          pickup = available;  // Auto-cap
+        }
+
+        // CALCULATE: EOD = BOD + Loading - Pickup
+        const eod = bod + loading - pickup;
+
+        // ERROR: EOD should never go negative (if validation above works)
+        if (eod < 0) {
+          const arr = alertsByDate.get(date) || [];
+          arr.push({
+            severity: 'error',
+            storageId: railSt.id,
+            storageName: railSt.name,
+            reason: `Ending Inventory negative (${eod.toFixed(1)} STn). Data inconsistent.`,
+            facilityId: facId,
+          });
+          alertsByDate.set(date, arr);
+        }
+
+        // Store EOD
+        railEodMap.set(`${date}|${railSt.id}|${productId}`, eod);
+
+        // Track net change for delta (if needed for other calcs)
+        const netChange = loading - pickup;
+        railDeltaMap.set(`${railSt.id}|${productId}`, netChange);
+      });
+    });
   }); // end date loop
 
   // ── Build row objects ──
@@ -1085,11 +1176,41 @@ function simulateFacility(state, s, ds, facId, dates) {
     if (!rows.length) return [];
     const sectionId = `inv_bod_TRANSF`;
     return [
-      { kind: 'section-header', label: '** / TRANSF / ** BOD', _section: 'bod', _sectionId: sectionId,
-        values: mkValues(d => rows.reduce((sum, st) => sum + (bodMap.get(`${d}|${st.id}`) || 0), 0)) },
+      { kind: 'section-header', label: 'RAIL INV-BOD', _section: 'bod', _sectionId: sectionId,
+        values: mkValues(d => rows.reduce((sum, st) => sum + (railBodMap.get(`${d}|${st.id}`) || 0), 0)) },
       ...rows.map(st => ({ kind: 'row', storageId: st.id, label: st.name,
         productLabel: (st.allowedProductIds||[]).map(pid => s.getMaterial(pid)?.name).filter(Boolean).join(' / '),
-        values: mkValues(d => bodMap.get(`${d}|${st.id}`) || 0),
+        values: mkValues(d => railBodMap.get(`${d}|${st.id}`) || 0),
+        _sectionId: sectionId,
+        allowedProductIds: st.allowedProductIds || [] })),
+    ];
+  };
+
+  // Helper: Rail Transfer EOD section (Ending Inventory)
+  const railEodSection = () => {
+    const rows = storagesByFamily('TRANSF');
+    if (!rows.length) return [];
+    const sectionId = `inv_eod_TRANSF`;
+    return [
+      { kind: 'section-header', label: 'RAIL INV-EOD', _section: 'eod', _sectionId: sectionId,
+        values: mkValues(d => {
+          let total = 0;
+          rows.forEach(st => {
+            st.allowedProductIds?.forEach(pid => {
+              total += railEodMap.get(`${d}|${st.id}|${pid}`) || 0;
+            });
+          });
+          return total;
+        }) },
+      ...rows.map(st => ({ kind: 'row', storageId: st.id, label: `${st.name} EOD`,
+        productLabel: (st.allowedProductIds||[]).map(pid => s.getMaterial(pid)?.name).filter(Boolean).join(' / '),
+        values: mkValues(d => {
+          let total = 0;
+          st.allowedProductIds?.forEach(pid => {
+            total += railEodMap.get(`${d}|${st.id}|${pid}`) || 0;
+          });
+          return total;
+        }),
         _sectionId: sectionId,
         allowedProductIds: st.allowedProductIds || [] })),
     ];
@@ -1215,10 +1336,25 @@ function simulateFacility(state, s, ds, facId, dates) {
     // ── RAIL TRANSFER section (subtotal level under CEMENT, same importance as FM PRODUCTION) ──
     if (loaders.length || storagesByFamily('TRANSF').length) {
       facilityRows.push({ kind: 'subtotal', label: 'RAIL TRANSFER', _section: 'rail',
-        values: mkValues(d => 0) }); // Placeholder for future calculation
+        values: mkValues(d => {
+          // Sum all rail loading for this date
+          let total = 0;
+          storagesByFamily('TRANSF').forEach(st => {
+            st.allowedProductIds?.forEach(pid => {
+              total += railLoadingMap.get(`${d}|${pid}`) || 0;
+            });
+          });
+          return total;
+        }) });
       facilityRows.push(...transfrBodSection());
       loaders.forEach(l => facilityRows.push({ kind: 'row', rowType: 'equipment', equipmentId: l.id, label: l.name,
-        values: mkValues(d => 0) })); // Placeholder for future calculation
+        values: mkValues(d => {
+          // Individual loader activity - sum of all products that loader worked on today
+          const railActuals = ds.actuals.railTransfers.filter(r => r.date === d && r.facilityId === facId && r.equipmentId === l.id && r.type !== 'pickup');
+          return railActuals.reduce((sum, r) => sum + (r.qtyStn || 0), 0);
+        }) }));
+      // Add RAIL INV-EOD section
+      facilityRows.push(...railEodSection());
     }
 
   } else if (facType === 'grinding' && hasClinkerSection) {
@@ -1247,10 +1383,25 @@ function simulateFacility(state, s, ds, facId, dates) {
     // ── RAIL TRANSFER section (subtotal level under CEMENT, same importance as FM PRODUCTION) ──
     if (loaders.length || storagesByFamily('TRANSF').length) {
       facilityRows.push({ kind: 'subtotal', label: 'RAIL TRANSFER', _section: 'rail',
-        values: mkValues(d => 0) }); // Placeholder for future calculation
+        values: mkValues(d => {
+          // Sum all rail loading for this date
+          let total = 0;
+          storagesByFamily('TRANSF').forEach(st => {
+            st.allowedProductIds?.forEach(pid => {
+              total += railLoadingMap.get(`${d}|${pid}`) || 0;
+            });
+          });
+          return total;
+        }) });
       facilityRows.push(...transfrBodSection());
       loaders.forEach(l => facilityRows.push({ kind: 'row', rowType: 'equipment', equipmentId: l.id, label: l.name,
-        values: mkValues(d => 0) })); // Placeholder for future calculation
+        values: mkValues(d => {
+          // Individual loader activity - sum of all products that loader worked on today
+          const railActuals = ds.actuals.railTransfers.filter(r => r.date === d && r.facilityId === facId && r.equipmentId === l.id && r.type !== 'pickup');
+          return railActuals.reduce((sum, r) => sum + (r.qtyStn || 0), 0);
+        }) }));
+      // Add RAIL INV-EOD section
+      facilityRows.push(...railEodSection());
     }
 
   } else {

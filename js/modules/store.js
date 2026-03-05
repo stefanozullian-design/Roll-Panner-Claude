@@ -42,6 +42,7 @@ export const DEFAULT_PRODUCT_FAMILIES = [
   { id: 'fam_ASH',  code: 'ASH',  label: 'Fly Ash',      category: 'FINISHED_PRODUCT' },
   { id: 'fam_SLAG', code: 'SLAG', label: 'Slag',         category: 'FINISHED_PRODUCT' },
   { id: 'fam_CLNK', code: 'CLNK', label: 'Clinker',      category: 'INTERMEDIATE_PRODUCT' },
+  { id: 'fam_TRANSF', code: 'TRANSF', label: 'Rail Transfer', category: 'TRANSFER_PRODUCT' },
   { id: 'fam_RAW',  code: 'RAW',  label: 'Raw Material', category: 'RAW_MATERIAL' },
   { id: 'fam_FUEL', code: 'FUEL', label: 'Fuel',         category: 'FUEL' },
 ];
@@ -57,6 +58,8 @@ export const DEFAULT_PRODUCT_TYPES = [
   { id: 'type_WCEM', familyId: 'fam_WHT', code: 'WHT',  label: 'White' },
   // Clinker
   { id: 'type_CLNK', familyId: 'fam_CLNK', code: 'CLNK', label: 'Clinker' },
+  // Rail Transfer
+  { id: 'type_RAIL', familyId: 'fam_TRANSF', code: 'RAIL', label: 'Rail Transfer' },
   // Fly Ash
   { id: 'type_CI',   familyId: 'fam_ASH',  code: 'CI',   label: 'Class CI' },
   { id: 'type_CII',  familyId: 'fam_ASH',  code: 'CII',  label: 'Class CII' },

@@ -963,14 +963,14 @@ function simulateFacility(state, s, ds, facId, dates) {
           runState.idleDaysSoFar = 1;
           runState.runDaysSoFar = 0;
           runState.reason = 'stopped (buffer rule governs restart)';
-          if (eqType === 'kiln' && eq.id && (eq.id.includes('BRSKO') || eq.id.includes('BRSKL'))) {
+          if (eq.id && (eq.id.includes('BRSKO') || eq.id.includes('BRSKL'))) {
             console.log(`[RUN/IDLE] ${date} | Kiln=${eq.id} | Status=OFF | IdleDays=1 | Reason=stopped due to production constraint`);
           }
         } else if (runState.status === 'off') {
           // Already OFF, continue OFF
           runState.idleDaysSoFar++;
           runState.reason = 'offline (waiting for buffer)';
-          if (eqType === 'kiln' && eq.id && (eq.id.includes('BRSKO') || eq.id.includes('BRSKL'))) {
+          if (eq.id && (eq.id.includes('BRSKO') || eq.id.includes('BRSKL'))) {
             console.log(`[RUN/IDLE] ${date} | Kiln=${eq.id} | Status=OFF | IdleDays=${runState.idleDaysSoFar} | Reason=continuing offline`);
           }
         }

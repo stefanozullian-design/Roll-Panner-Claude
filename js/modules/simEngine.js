@@ -571,19 +571,24 @@ function simulateFacility(state, s, ds, facId, dates) {
         maxByClk = Infinity;
       }
 
-      const usedQty = Math.max(0, Math.min(reqQty, line.headroom, maxByClk));
+      // ✓ CHANGED: Binary on/off behavior (not gradual restriction)
+      // Equipment runs at FULL rated capacity OR is turned OFF completely
+      // When storage reaches max capacity, equipment stops (does not reduce to partial rate)
+      const canProduceAtFullRate = (reqQty <= line.headroom && reqQty <= maxByClk);
+      const usedQty = canProduceAtFullRate ? reqQty : 0;
 
       // ✓ Store usedQty back into line so breakdown calculation uses actual production, not requirement
       line.actualUsedQty = usedQty;
 
-      if (usedQty < reqQty - 1e-6) {
+      if (usedQty <= 0 && reqQty > 0) {
+        // Equipment turned OFF due to storage constraints
         const reasons = [];
-        if (line.headroom < reqQty - 1e-6) reasons.push('cement silo capacity');
+        if (line.headroom < reqQty - 1e-6) reasons.push('cement silo at max capacity');
         if (maxByClk < reqQty - 1e-6) {
-          const clkInfo = clkConstraintReasons.length > 0 ? clkConstraintReasons.join(', ') : 'clinker scarcity';
-          reasons.push(`${clkInfo} (${(line.daysCover || 0).toFixed(1)}d cover)`);
+          const clkInfo = clkConstraintReasons.length > 0 ? clkConstraintReasons.join(', ') : 'insufficient clinker';
+          reasons.push(clkInfo);
         }
-        eqConstraintMeta.set(`${date}|${eqId}`, { type: 'capped', reason: reasons.join(' + ') || 'constraint', requested: reqQty, used: usedQty });
+        eqConstraintMeta.set(`${date}|${eqId}`, { type: 'shutdown', reason: reasons.join(' + ') || 'storage constraint', requested: reqQty, used: 0 });
       }
       if (usedQty <= 0) { fmUsed.set(eqId, fmUsed.get(eqId) || 0); continue; }
 
@@ -789,6 +794,9 @@ function simulateFacility(state, s, ds, facId, dates) {
         continue; // Skip this kiln for this date
       }
 
+      // ✓ CHANGED: Binary on/off behavior (not gradual restriction)
+      // Equipment runs at FULL rated capacity OR is turned OFF completely
+      // When storage reaches max capacity, equipment stops (does not reduce to partial rate)
       let usedQty = reqQty;
       if (outSt) {
         const maxCap = Number(outSt.maxCapacityStn);
@@ -796,14 +804,17 @@ function simulateFacility(state, s, ds, facId, dates) {
           const bod         = bodMap.get(`${date}|${outSt.id}`) || 0;
           const curDelta    = delta.get(outSt.id) || 0;
           const headroom    = Math.max(0, maxCap - (bod + curDelta));
-          usedQty = Math.min(reqQty, headroom);
-          if (usedQty < reqQty - 1e-6) {
+          const canProduceAtFullRate = (reqQty <= headroom);
+          usedQty = canProduceAtFullRate ? reqQty : 0;
+
+          if (usedQty <= 0 && reqQty > 0) {
+            // Equipment turned OFF due to storage at max capacity
             const prev   = eqConstraintMeta.get(`${date}|${eqId}`);
-            const reason = 'clinker storage max capacity';
+            const reason = 'clinker storage at max capacity';
             eqConstraintMeta.set(`${date}|${eqId}`, {
-              type: 'capped',
+              type: 'shutdown',
               reason: prev ? `${prev.reason} + ${reason}` : reason,
-              requested: reqQty, used: usedQty,
+              requested: reqQty, used: 0,
             });
           }
         }

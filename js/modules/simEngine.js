@@ -391,7 +391,7 @@ function simulateFacility(state, s, ds, facId, dates) {
 
               // ✓ DIAGNOSTIC: Log storage selection for each FM
               if (facId === 'BRS' && eq.id && eq.id.includes('FM')) {
-                console.log(`[CLINKER ROUTING] ${date} | Equipment=${eq.id} | Product=${productId} | ClinkProduct=${clkProductId} | SelectedStorage=${clkStorage?.name || clkStorage?.id || 'NONE'}`);
+                console.log(`[CLINKER ROUTING] ${date} | Equipment=${eq.id} | Product=${cap.productId} | ClinkProduct=${clkProductId} | SelectedStorage=${clkStorage?.name || clkStorage?.id || 'NONE'}`);
               }
 
               if (clkStorage) {

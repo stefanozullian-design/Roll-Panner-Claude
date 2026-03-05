@@ -243,35 +243,39 @@ function simulateFacility(state, s, ds, facId, dates) {
         const eq = s.equipment.find(e => e.id === eqId);
         if (!eq) return false;
 
-        // ✓ FIXED: Use equipment's specific OUTPUT storage via Rules of Engagement
+        // ✓ FIXED: Use equipment's specific OUTPUT storage by NAME MATCHING
         // This ensures kilns use their kiln-specific storage (BRSK01, BRSK02, etc)
         // not a consolidated total inventory
         let storageForEq = null;
 
         if (eqType === 'kiln') {
-          // For kilns: use Rules of Engagement clinker routing rule
-          const routingRule = RulesOfEngagement?.clinkerSourceRouting?.find(
-            r => r.facility === facId && r.equipmentId === eqId
-          );
-          if (routingRule && routingRule.clinkerStorageId) {
-            storageForEq = storages.find(st => st.id === routingRule.clinkerStorageId);
+          // For kilns: Extract equipment number and find matching storage
+          // E.g., BROSKL01 → find storage matching BRSK01, BROSKL02 → BRSK02
+          // Also try with full facility prefix: BRS_BRSKL01 → BRS_BRS_INV_CLK_BRSK01
+          const eqNumMatch = eqId.match(/(\d{2})$/); // Extract last 2 digits
+          if (eqNumMatch) {
+            const eqNum = eqNumMatch[1]; // e.g., "01"
+            // Try exact match: storage ID contains BRSK01
+            storageForEq = storages.find(st =>
+              st.facilityId === facId && st.id && st.id.includes(`BRSK${eqNum}`)
+            );
+            // If not found, try matching pattern with INV
+            if (!storageForEq) {
+              storageForEq = storages.find(st =>
+                st.facilityId === facId && st.id && st.id.match(new RegExp(`CLK_BRSK${eqNum}`))
+              );
+            }
           }
         } else if (eqType === 'finish_mill') {
-          // For FMs: use Rules of Engagement cement routing or find cement storage by pattern
-          const routingRule = RulesOfEngagement?.equipmentKilnPreference?.find(
-            r => r.facility === facId && r.equipmentId === eqId
+          // For FMs: find cement storage (typically named BRSCEM* for BRS facility)
+          storageForEq = storages.find(st =>
+            st.facilityId === facId &&
+            (st.name?.toUpperCase().includes('CEMENT') || st.id?.toUpperCase().includes('CEM'))
           );
-          // Fallback: find cement storage (typically named BRSCEM* for BRS facility)
-          if (!storageForEq) {
-            storageForEq = storages.find(st =>
-              st.facilityId === facId &&
-              (st.name?.toUpperCase().includes('CEMENT') || st.id?.toUpperCase().includes('CEM'))
-            );
-          }
         }
 
         if (!storageForEq) {
-          // Fallback to original method if RoE rules not found
+          // Final fallback to original method if name matching didn't work
           storageForEq = storages.find(st =>
             st.facilityId === facId &&
             (st.allowedProductIds || []).some(pid => getEqProd(date, eqId, pid) > 0)

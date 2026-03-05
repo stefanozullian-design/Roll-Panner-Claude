@@ -255,14 +255,21 @@ function simulateFacility(state, s, ds, facId, dates) {
           const avgConsumption = equipmentAvgConsumption.get(eqId) || 0;
           const maxProd = getEqProd(date, eqId, Array.from(campaignIndex.keys()).find(k => k.includes(eqId))?.split('|')[2]) || 0;
 
+          // ✓ FIXED: Pass only 4 parameters (fixed 3× buffer in function)
           const canRestart = RulesOfEngagement.canRestartBasedOnBuffer(
-            maxCap, bod, avgConsumption, maxProd, rule.restartCondition.bufferDays
+            maxCap, bod, avgConsumption, maxProd
           );
 
-          // ✓ DIAGNOSTIC: Log restart buffer calculation
+          // ✓ DIAGNOSTIC: Log restart buffer calculation (NEW LOGIC)
           if (facId === 'BRS' && (eqId.includes('BRSKL') || eqId.includes('FM'))) {
-            const bufferDays = avgConsumption > maxProd ? (maxCap - bod) / (avgConsumption - maxProd) : 999;
-            console.log(`[RESTART BUFFER] ${date} | ${eqId} | Type=${eqType} | MaxCap=${maxCap} | BOD=${bod.toFixed(1)} | AvgConsump=${avgConsumption.toFixed(1)} | MaxProd=${maxProd.toFixed(1)} | BufferDays=${bufferDays.toFixed(1)} | Required=${rule.restartCondition.bufferDays} | CanRestart=${canRestart}`);
+            const netChange = maxProd - avgConsumption; // Production - Demand
+            const headroom = maxCap - bod;
+            const requiredHeadroom = netChange < 0 ? 3 * maxProd : 0;
+            let reason = '';
+            if (netChange > 0) reason = 'DENY: would overflow';
+            else if (netChange < 0) reason = `${headroom.toFixed(1)} >= ${requiredHeadroom.toFixed(1)} buffer? ${headroom >= requiredHeadroom ? 'YES' : 'NO'}`;
+            else reason = 'balanced, allow restart';
+            console.log(`[RESTART BUFFER] ${date} | ${eqId} | NetChange=${netChange.toFixed(1)} | Headroom=${headroom.toFixed(1)} | MaxProd=${maxProd.toFixed(1)} | AvgDemand=${avgConsumption.toFixed(1)} | ${reason} | CanRestart=${canRestart}`);
           }
 
           if (!canRestart) {

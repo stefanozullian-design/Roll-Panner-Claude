@@ -203,21 +203,26 @@ const RulesOfEngagement = {
    * @param {number} requiredBufferDays - Minimum buffer days required (default 15)
    * @returns {boolean} True if equipment can restart
    */
-  canRestartBasedOnBuffer(maxStorageCapacity, currentBODInventory, avgLast10DaysConsumption, maxProductionCapacity, requiredBufferDays = 15) {
+  canRestartBasedOnBuffer(maxStorageCapacity, currentBODInventory, avgDemand, maxProductionCapacity) {
     // Check if we have valid input
-    if (maxStorageCapacity <= 0 || requiredBufferDays <= 0) return true;
+    if (maxStorageCapacity <= 0) return true;
 
     const availableHeadroom = maxStorageCapacity - currentBODInventory;
-    const netConsumption = avgLast10DaysConsumption - maxProductionCapacity;
+    const netChange = maxProductionCapacity - avgDemand;
 
-    // If consumption is less than/equal to production, no restart issue
-    if (netConsumption <= 0) {
-      return true;
+    // ✓ FIXED: If production > demand: Equipment would INCREASE inventory (storage would grow)
+    if (netChange > 0) {
+      return false; // DENY restart - would cause storage overflow
     }
 
-    // Calculate days of buffer available
-    const daysOfBuffer = availableHeadroom / netConsumption;
-    return daysOfBuffer >= requiredBufferDays;
+    // If production < demand: Equipment would DECREASE inventory (storage would drain)
+    if (netChange < 0) {
+      const requiredHeadroom = 3 * maxProductionCapacity; // Require 3 days of buffer
+      return availableHeadroom >= requiredHeadroom;
+    }
+
+    // If production == demand: Equipment maintains inventory level
+    return true; // Allow restart - no accumulation or depletion
   },
 
   /**

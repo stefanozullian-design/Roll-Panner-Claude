@@ -263,6 +263,13 @@ function simulateFacility(state, s, ds, facId, dates) {
     }
   };
 
+  // ✓ DIAGNOSTIC: Log actual storage IDs in system
+  console.log('[CLINKER ROUTING] Facilities and their clinker storages:');
+  facilities.forEach(f => {
+    const facStorages = storages.filter(st => st.facilityId === f.id && st.family === 'CLINKER');
+    console.log(`  ${f.id}: ${facStorages.map(st => `${st.name} (id=${st.id})`).join(', ')}`);
+  });
+
   // ────────────────────────────────────────────────────────────────────────
   // MAIN DATE LOOP
   // ────────────────────────────────────────────────────────────────────────
@@ -389,6 +396,11 @@ function simulateFacility(state, s, ds, facId, dates) {
                 );
               }
 
+              // ✓ DIAGNOSTIC: Log storage selection for each FM
+              if (facId === 'BRS' && eq.id && eq.id.includes('FM')) {
+                console.log(`[CLINKER ROUTING] ${date} | Equipment=${eq.id} | Product=${productId} | ClinkProduct=${clkProductId} | SelectedStorage=${clkStorage?.name || clkStorage?.id || 'NONE'}`);
+              }
+
               if (clkStorage) {
                 clinkerSources.push({
                   materialId: clkProductId,
@@ -495,6 +507,11 @@ function simulateFacility(state, s, ds, facId, dates) {
             const clkSrc = clinkerSources.find(src => src.materialId === c.materialId);
             if (clkSrc) compSt = clkSrc.storage;
             clkDerived += compQty;
+
+            // ✓ DIAGNOSTIC: Log consumption deductions
+            if (facId === 'BRS' && eqId && eqId.includes('FM')) {
+              console.log(`[CONSUMPTION DEDUCTION] ${date} | FM=${eqId} | ClinkProduct=${c.materialId} | Qty=${compQty.toFixed(1)} | DeductedFrom=${compSt?.name || compSt?.id || 'NONE'}`);
+            }
           } else {
             // Non-clinker: find storage by matching allowedProductIds
             compSt = storages.find(st =>

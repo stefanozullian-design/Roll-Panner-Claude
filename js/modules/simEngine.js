@@ -660,20 +660,27 @@ function simulateFacility(state, s, ds, facId, dates) {
           runState.reason = 'running';
         }
       } else {
-        // Equipment not producing (idle or constrained)
+        // Equipment not producing (idle or constrained by storage/clinker)
         if (runState.status === 'on' && runState.runDaysSoFar >= rule.minRunDays) {
-          runState.status = 'off'; // Can idle (min run duration satisfied)
+          // Min run duration satisfied, can now transition to idle
+          runState.status = 'off';
           runState.idleDaysSoFar = 1;
           runState.runDaysSoFar = 0;
           runState.reason = 'idle (min run complete)';
           console.log(`[RUN/IDLE] ${date} | FM=${eq.id} | Status=OFF | IdleDays=1 | Reason=minimum run complete`);
         } else if (runState.status === 'off') {
+          // Already idle, continue idle
           runState.idleDaysSoFar++;
           runState.reason = 'idle';
-        } else {
-          // Still running, hasn't hit min yet
-          runState.runDaysSoFar++;
-          runState.reason = `running (${runState.runDaysSoFar}/${rule.minRunDays} days)`;
+        } else if (runState.status === 'on' && runState.runDaysSoFar < rule.minRunDays) {
+          // ✓ Binary on/off: Equipment forced OFF by constraint before min run met
+          // Storage full, clinker unavailable, or other constraint prevented production
+          // Equipment will stay OFF until restart condition is met (e.g., storage drains)
+          runState.status = 'off';
+          runState.idleDaysSoFar = 1;
+          runState.runDaysSoFar = 0;
+          runState.reason = `forced off by constraint (had ${runState.runDaysSoFar} of ${rule.minRunDays} min days)`;
+          console.log(`[RUN/IDLE] ${date} | FM=${eq.id} | Status=OFF | Reason=forced off by constraint before min run complete`);
         }
       }
 
@@ -858,20 +865,27 @@ function simulateFacility(state, s, ds, facId, dates) {
           runState.reason = 'running';
         }
       } else {
-        // Equipment not producing (idle or constrained)
+        // Equipment not producing (idle or constrained by storage)
         if (runState.status === 'on' && runState.runDaysSoFar >= rule.minRunDays) {
-          runState.status = 'off'; // Can idle (min run duration satisfied)
+          // Min run duration satisfied, can now transition to idle
+          runState.status = 'off';
           runState.idleDaysSoFar = 1;
           runState.runDaysSoFar = 0;
           runState.reason = 'idle (min run complete)';
           console.log(`[RUN/IDLE] ${date} | Kiln=${eq.id} | Status=OFF | IdleDays=1 | Reason=minimum run complete`);
         } else if (runState.status === 'off') {
+          // Already idle, continue idle
           runState.idleDaysSoFar++;
           runState.reason = 'idle';
-        } else {
-          // Still running, hasn't hit min yet
-          runState.runDaysSoFar++;
-          runState.reason = `running (${runState.runDaysSoFar}/${rule.minRunDays} days)`;
+        } else if (runState.status === 'on' && runState.runDaysSoFar < rule.minRunDays) {
+          // ✓ Binary on/off: Equipment forced OFF by constraint before min run met
+          // Storage full or other constraint prevented production
+          // Equipment will stay OFF until restart condition is met (e.g., storage drains)
+          runState.status = 'off';
+          runState.idleDaysSoFar = 1;
+          runState.runDaysSoFar = 0;
+          runState.reason = `forced off by constraint (had ${runState.runDaysSoFar} of ${rule.minRunDays} min days)`;
+          console.log(`[RUN/IDLE] ${date} | Kiln=${eq.id} | Status=OFF | Reason=forced off by constraint before min run complete`);
         }
       }
 

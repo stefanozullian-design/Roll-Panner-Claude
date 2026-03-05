@@ -243,11 +243,19 @@ function simulateFacility(state, s, ds, facId, dates) {
         const eq = s.equipment.find(e => e.id === eqId);
         if (!eq) return false;
 
-        // Get the relevant storage for this equipment
-        const storageForEq = storages.find(st =>
-          st.facilityId === s.id &&
-          (st.allowedProductIds || []).some(pid => getEqProd(date, eqId, pid) > 0)
-        );
+        // ✓ FIXED: Use equipment's specific OUTPUT storage, not generic lookup
+        // This ensures kilns use their kiln-specific storage (BRSK01, BRSK02, etc)
+        // not a consolidated total inventory
+        let storageForEq = null;
+        if (eqType === 'kiln') {
+          // For kilns: find the production line output storage
+          const kilnProdLine = kilnReqLines?.find(l => l.eqId === eqId);
+          storageForEq = kilnProdLine?.outSt;
+        } else if (eqType === 'finish_mill') {
+          // For FMs: find the production line output storage
+          const fmProdLine = fmReqLines?.find(l => l.eqId === eqId);
+          storageForEq = fmProdLine?.outSt;
+        }
 
         if (storageForEq) {
           const maxCap = storageForEq.maxCapacity || 10000;

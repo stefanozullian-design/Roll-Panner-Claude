@@ -1182,60 +1182,17 @@ function simulateFacility(state, s, ds, facId, dates) {
     if (!rows.length) return [];
     const sectionId = `inv_bod_TRANSF`;
 
-    // Create product-level rows
-    const productRows = [];
-    rows.forEach(st => {
-      (st.allowedProductIds || []).forEach(pid => {
-        const material = s.getMaterial(pid);
-        if (material) {
-          productRows.push({
-            kind: 'row',
-            storageId: st.id,
-            productId: pid,
-            label: `${st.name} - ${material.name}`,
-            values: mkValues(d => {
-              // BOD is currently stored at storage level, so use storage-level value
-              // TODO: May need to refactor to store per-product BOD separately
-              return railBodMap.get(`${d}|${st.id}`) || 0;
-            }),
-            _sectionId: sectionId,
-            allowedProductIds: [pid]
-          });
-        }
-      });
-    });
-
     return [
       { kind: 'section-header', label: 'RAIL INV-BOD', _section: 'bod', _sectionId: sectionId,
-        values: mkValues(d => rows.reduce((sum, st) => sum + (railBodMap.get(`${d}|${st.id}`) || 0), 0)) },
-      ...productRows,
+        values: mkValues(d => rows.reduce((sum, st) => sum + (railBodMap.get(`${d}|${st.id}`) || 0), 0)) }
     ];
   };
 
-  // Helper: Rail Loading section (daily loading activity by product)
+  // Helper: Rail Loading section (daily loading activity)
   const railLoadingSection = () => {
     const rows = railTransferStorages();
     if (!rows.length) return [];
     const sectionId = `rail_load_TRANSF`;
-
-    // Create product-level rows
-    const productRows = [];
-    rows.forEach(st => {
-      (st.allowedProductIds || []).forEach(pid => {
-        const material = s.getMaterial(pid);
-        if (material) {
-          productRows.push({
-            kind: 'row',
-            storageId: st.id,
-            productId: pid,
-            label: `${st.name} - ${material.name}`,
-            values: mkValues(d => railLoadingMap.get(`${d}|${pid}`) || 0),
-            _sectionId: sectionId,
-            allowedProductIds: [pid]
-          });
-        }
-      });
-    });
 
     return [
       { kind: 'section-header', label: 'RAIL LOAD', _section: 'rail_loading', _sectionId: sectionId,
@@ -1247,35 +1204,15 @@ function simulateFacility(state, s, ds, facId, dates) {
             });
           });
           return total;
-        }) },
-      ...productRows,
+        }) }
     ];
   };
 
-  // Helper: Rail Pickup section (daily switch pickup activity by product)
+  // Helper: Rail Pickup section (daily switch pickup activity)
   const railPickupSection = () => {
     const rows = railTransferStorages();
     if (!rows.length) return [];
     const sectionId = `rail_pickup_TRANSF`;
-
-    // Create product-level rows
-    const productRows = [];
-    rows.forEach(st => {
-      (st.allowedProductIds || []).forEach(pid => {
-        const material = s.getMaterial(pid);
-        if (material) {
-          productRows.push({
-            kind: 'row',
-            storageId: st.id,
-            productId: pid,
-            label: `${st.name} - ${material.name}`,
-            values: mkValues(d => railPickupMap.get(`${d}|${pid}`) || 0),
-            _sectionId: sectionId,
-            allowedProductIds: [pid]
-          });
-        }
-      });
-    });
 
     return [
       { kind: 'section-header', label: 'RAIL PICKUP', _section: 'rail_pickup', _sectionId: sectionId,
@@ -1287,35 +1224,15 @@ function simulateFacility(state, s, ds, facId, dates) {
             });
           });
           return total;
-        }) },
-      ...productRows,
+        }) }
     ];
   };
 
-  // Helper: Rail Transfer EOD section (Ending Inventory by product)
+  // Helper: Rail Transfer EOD section (Ending Inventory)
   const railEodSection = () => {
     const rows = railTransferStorages();
     if (!rows.length) return [];
     const sectionId = `inv_eod_TRANSF`;
-
-    // Create product-level rows
-    const productRows = [];
-    rows.forEach(st => {
-      (st.allowedProductIds || []).forEach(pid => {
-        const material = s.getMaterial(pid);
-        if (material) {
-          productRows.push({
-            kind: 'row',
-            storageId: st.id,
-            productId: pid,
-            label: `${st.name} - ${material.name}`,
-            values: mkValues(d => railEodMap.get(`${d}|${st.id}|${pid}`) || 0),
-            _sectionId: sectionId,
-            allowedProductIds: [pid]
-          });
-        }
-      });
-    });
 
     return [
       { kind: 'section-header', label: 'RAIL INV-EOD', _section: 'eod', _sectionId: sectionId,
@@ -1327,8 +1244,7 @@ function simulateFacility(state, s, ds, facId, dates) {
             });
           });
           return total;
-        }) },
-      ...productRows,
+        }) }
     ];
   };
 

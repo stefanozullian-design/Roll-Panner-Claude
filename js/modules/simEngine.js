@@ -332,9 +332,9 @@ function simulateFacility(state, s, ds, facId, dates) {
         // ✓ HARD-CODED: Recipe version selection for BRS facility FM equipment
         // FM01 uses recipe v1 (BRS_CLK_K1), FM02 uses recipe v2 (BRS_CLK_K2)
         if (facId === 'BRS' && cap.productId === 'region_FL|BRS_IL_12_BULK') {
-          if (eq.id === 'BROSFM01') {
+          if (eq.id === 'BRS_BRSFM01') {
             selectedRecipeVersion = 1;
-          } else if (eq.id === 'BROSFM02') {
+          } else if (eq.id === 'BRS_BRSFM02') {
             selectedRecipeVersion = 2;
           }
           // Find recipe with selected version

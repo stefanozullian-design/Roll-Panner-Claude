@@ -125,10 +125,10 @@ const RulesOfEngagement = {
       minIdleDays: 0,
       restartCondition: {
         type: 'inventoryBuffer',
-        bufferDays: 15,
-        description: 'Restart when clinker/cement storage has 15+ days buffer before hitting max capacity'
+        bufferDays: 5,
+        description: 'Restart when clinker/cement storage has 5+ days buffer before hitting max capacity'
       },
-      reason: 'Mills are more flexible; can start/stop more frequently but still need minimum stability'
+      reason: 'Mills are more flexible; can start/stop more frequently but only need 5-day buffer'
     }
     // Add more equipment types as needed
   ],

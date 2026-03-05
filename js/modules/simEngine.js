@@ -331,6 +331,7 @@ function simulateFacility(state, s, ds, facId, dates) {
 
         // ✓ HARD-CODED: Recipe version selection for BRS facility FM equipment
         // FM01 uses recipe v1 (BRS_CLK_K1), FM02 uses recipe v2 (BRS_CLK_K2)
+        console.log(`[RECIPE CHECK] ${date} | facId=${facId} | eq.id=${eq.id} | cap.productId=${cap.productId}`);
         if (facId === 'BRS' && cap.productId === 'region_FL|BRS_IL_12_BULK') {
           if (eq.id === 'BRS_BRSFM01') {
             selectedRecipeVersion = 1;

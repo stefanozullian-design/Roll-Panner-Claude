@@ -243,18 +243,39 @@ function simulateFacility(state, s, ds, facId, dates) {
         const eq = s.equipment.find(e => e.id === eqId);
         if (!eq) return false;
 
-        // ✓ FIXED: Use equipment's specific OUTPUT storage, not generic lookup
+        // ✓ FIXED: Use equipment's specific OUTPUT storage via Rules of Engagement
         // This ensures kilns use their kiln-specific storage (BRSK01, BRSK02, etc)
         // not a consolidated total inventory
         let storageForEq = null;
+
         if (eqType === 'kiln') {
-          // For kilns: find the production line output storage
-          const kilnProdLine = kilnReqLines?.find(l => l.eqId === eqId);
-          storageForEq = kilnProdLine?.outSt;
+          // For kilns: use Rules of Engagement clinker routing rule
+          const routingRule = RulesOfEngagement?.clinkerSourceRouting?.find(
+            r => r.facility === facId && r.equipmentId === eqId
+          );
+          if (routingRule && routingRule.clinkerStorageId) {
+            storageForEq = storages.find(st => st.id === routingRule.clinkerStorageId);
+          }
         } else if (eqType === 'finish_mill') {
-          // For FMs: find the production line output storage
-          const fmProdLine = fmReqLines?.find(l => l.eqId === eqId);
-          storageForEq = fmProdLine?.outSt;
+          // For FMs: use Rules of Engagement cement routing or find cement storage by pattern
+          const routingRule = RulesOfEngagement?.equipmentKilnPreference?.find(
+            r => r.facility === facId && r.equipmentId === eqId
+          );
+          // Fallback: find cement storage (typically named BRSCEM* for BRS facility)
+          if (!storageForEq) {
+            storageForEq = storages.find(st =>
+              st.facilityId === facId &&
+              (st.name?.toUpperCase().includes('CEMENT') || st.id?.toUpperCase().includes('CEM'))
+            );
+          }
+        }
+
+        if (!storageForEq) {
+          // Fallback to original method if RoE rules not found
+          storageForEq = storages.find(st =>
+            st.facilityId === facId &&
+            (st.allowedProductIds || []).some(pid => getEqProd(date, eqId, pid) > 0)
+          );
         }
 
         if (storageForEq) {

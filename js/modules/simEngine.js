@@ -263,13 +263,6 @@ function simulateFacility(state, s, ds, facId, dates) {
     }
   };
 
-  // ✓ DIAGNOSTIC: Log actual storage IDs in system
-  console.log('[CLINKER ROUTING] Facilities and their clinker storages:');
-  facilities.forEach(f => {
-    const facStorages = storages.filter(st => st.facilityId === f.id && st.family === 'CLINKER');
-    console.log(`  ${f.id}: ${facStorages.map(st => `${st.name} (id=${st.id})`).join(', ')}`);
-  });
-
   // ────────────────────────────────────────────────────────────────────────
   // MAIN DATE LOOP
   // ────────────────────────────────────────────────────────────────────────

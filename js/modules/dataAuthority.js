@@ -786,10 +786,21 @@ export function actions(state) {
       // Ensure railTransfers array exists (for backward compat with existing data)
       if (!ds.actuals.railTransfers) ds.actuals.railTransfers = [];
       // Clear existing actuals for this date + facility
+      console.log('=== SAVE DAILY ACTUALS DEBUG ===');
+      console.log('Input facilityId:', facilityId);
+      console.log('primaryFacId:', primaryFacId);
+      console.log('Using fid:', fid);
+      console.log('Date:', date);
+      console.log('All railTransfers before filter:', ds.actuals.railTransfers);
+      console.log('RailTransfers for this date before filter:', ds.actuals.railTransfers.filter(r => r.date === date));
+      console.log('RailTransfers for this date+facility before filter:', ds.actuals.railTransfers.filter(r => r.date === date && r.facilityId === fid));
+
       ds.actuals.inventoryBOD = ds.actuals.inventoryBOD.filter(r => !(r.date === date && r.facilityId === fid));
       ds.actuals.production   = ds.actuals.production.filter(r =>   !(r.date === date && r.facilityId === fid));
       ds.actuals.railTransfers = ds.actuals.railTransfers.filter(r => !(r.date === date && r.facilityId === fid));
       ds.actuals.shipments    = ds.actuals.shipments.filter(r =>    !(r.date === date && r.facilityId === fid));
+
+      console.log('RailTransfers after filter:', ds.actuals.railTransfers);
 
       // Physical BOD overrides
       inventoryRows
@@ -809,23 +820,35 @@ export function actions(state) {
       if (!ds.actuals.railInventoryEod) ds.actuals.railInventoryEod = [];
       ds.actuals.railInventoryEod = ds.actuals.railInventoryEod.filter(r => !(r.date === date && r.facilityId === fid));
 
+      console.log('railTransferRows to process:', railTransferRows);
+
       (railTransferRows || []).forEach(r => {
+        console.log('Processing rail row:', r);
         if (r.type === 'eod') {
           // EOD (End of Day) inventory for rail cars
           if (isFinite(r.qtyStn) && +r.qtyStn >= 0) {
+            console.log('Pushing EOD:', {date, facilityId: fid, qtyStn: +r.qtyStn});
             ds.actuals.railInventoryEod.push({
               date, facilityId: fid, qtyStn: +r.qtyStn
             });
           }
         } else {
           // Loading/Pickup actuals (require equipmentId and productId)
+          console.log('Checking loading/pickup - has equipmentId:', r.equipmentId, 'has productId:', r.productId, 'has qtyStn:', isFinite(r.qtyStn), 'qtyStn !== 0:', +r.qtyStn !== 0);
           if (r.equipmentId && r.productId && isFinite(r.qtyStn) && +r.qtyStn !== 0) {
-            ds.actuals.railTransfers.push({
+            const record = {
               date, facilityId: fid, type: r.type || 'loading', equipmentId: r.equipmentId, productId: r.productId, qtyStn: +r.qtyStn
-            });
+            };
+            console.log('Pushing loading/pickup:', record);
+            ds.actuals.railTransfers.push(record);
+          } else {
+            console.log('Skipping loading/pickup - failed validation');
           }
         }
       });
+
+      console.log('Final railTransfers:', ds.actuals.railTransfers);
+      console.log('=== END DEBUG ===');
 
       // Shipment actuals
       shipmentRows

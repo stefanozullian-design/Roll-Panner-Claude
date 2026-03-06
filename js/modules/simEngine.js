@@ -435,11 +435,18 @@ function simulateFacility(state, s, ds, facId, dates) {
 
     // Load EOD actuals (user-entered ending inventory)
     // These are stored as aggregate values per facility (not per storage/product)
+    if (idx === 0) {
+      console.log(`[EOD DEBUG] railInventoryEod array:`, ds.actuals.railInventoryEod);
+      console.log(`[EOD DEBUG] Current date: ${date}, facId: ${facId}`);
+    }
     const eodActualsToday = ds.actuals.railInventoryEod.filter(e => e.date === date && e.facilityId === facId);
     let userEodTotal = null;
     if (eodActualsToday.length > 0) {
       // Sum all EOD actuals for this date (in case there are multiple entries)
       userEodTotal = eodActualsToday.reduce((sum, e) => sum + (e.qtyStn || 0), 0);
+      console.log(`[EOD DEBUG] Found ${eodActualsToday.length} EOD entries for ${date}|${facId}: ${userEodTotal} STn`);
+    } else if (date === '2025-01-01') {
+      console.log(`[EOD DEBUG] No EOD entries found for ${date}|${facId}. Available entries:`, eodActualsToday);
     }
 
     // Roll forward BOD for rail storages (same pattern as other storages)
@@ -1167,7 +1174,9 @@ function simulateFacility(state, s, ds, facId, dates) {
     });
 
     // ── Rail Transfer: Calculate Daily EOD ──
-    storagesByFamily('TRANSF').forEach(railSt => {
+    const transfStorages = storagesByFamily('TRANSF');
+    if (date === '2025-01-01') console.log(`[EOD DEBUG] TRANSF storages found:`, transfStorages.map(s => s.id));
+    transfStorages.forEach(railSt => {
       console.log(`[EOD DEBUG] Processing storage: ${railSt.id}, products: ${railSt.allowedProductIds?.join(',')}`);
       railSt.allowedProductIds?.forEach(productId => {
         const bod = railBodMap.get(`${date}|${railSt.id}`) || 0;

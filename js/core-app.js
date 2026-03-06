@@ -3218,6 +3218,16 @@ function openCampaignDialog(){
           </div>
         </div>
 
+        <!-- Loading Schedule (loader only) -->
+        <div id="campLoadingScheduleWrap" style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;display:none;">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:10px;">Loading Schedule</div>
+          <select class="form-input" id="campLoadingDays" style="width:100%">
+            <option value="weekdays">Weekdays only (Mon-Fri)</option>
+            <option value="weekdays_sat">Weekdays + Saturday (Mon-Sat)</option>
+            <option value="daily">Every day (Mon-Sun)</option>
+          </select>
+        </div>
+
         <!-- Switch Schedule (loader only) -->
         <div id="campSwitchScheduleWrap" style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;display:none;">
           <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:10px;">Switch Schedule (days the rail company picks up)</div>
@@ -3351,11 +3361,12 @@ function openCampaignDialog(){
     q('campRate').disabled=status!=='produce';
     if(status==='produce'){ const firstCap=caps[0]; if(firstCap&&isFinite(+firstCap.maxRateStpd)) q('campRate').value=String(isLoader ? +firstCap.maxRateStpd/112 : +firstCap.maxRateStpd||0); } else q('campRate').value='0';
 
-    // Show/hide switch schedule section for loaders in produce mode
-    const showSwitchSchedule = isLoader && status === 'produce';
-    q('campSwitchScheduleWrap').style.display = showSwitchSchedule ? '' : 'none';
+    // Show/hide schedule sections for loaders in produce mode
+    const showSchedules = isLoader && status === 'produce';
+    q('campLoadingScheduleWrap').style.display = showSchedules ? '' : 'none';
+    q('campSwitchScheduleWrap').style.display = showSchedules ? '' : 'none';
 
-    if(showSwitchSchedule) {
+    if(showSchedules) {
       // Pre-populate from last loader campaign
       const loaderCampaigns = camps.filter(c => {
         const loaderEq = s.equipment.find(ee=>ee.id===c.equipmentId);
@@ -3363,7 +3374,14 @@ function openCampaignDialog(){
       });
       const lastLoaderCamp = loaderCampaigns[loaderCampaigns.length - 1]; // most recent
 
-      // Clear all checkboxes first
+      // Pre-populate loading schedule
+      if(lastLoaderCamp && lastLoaderCamp.loadingDays) {
+        q('campLoadingDays').value = lastLoaderCamp.loadingDays;
+      } else {
+        q('campLoadingDays').value = 'weekdays'; // default to weekdays
+      }
+
+      // Clear all switch checkboxes first
       ['MON','TUE','WED','THU','FRI','SAT','SUN'].forEach(day => {
         q(`campSwitch_${day}`).checked = false;
       });
@@ -3497,12 +3515,14 @@ function openCampaignDialog(){
         }
         const eq = s.getEquipment(eqId);
         const isLoader = eq?.type === 'loader';
+        const loadingLabel = isLoader && b.loadingDays ? {'weekdays':'Wkdy','weekdays_sat':'Wkdy+Sat','daily':'Daily'}[b.loadingDays] || b.loadingDays : '';
         const switchDaysDisplay = isLoader && b.switchDays?.length ? ` [${b.switchDays.join(',')}]` : '';
         return `<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid var(--border);font-size:11px">
           <span class="pill ${statusPill(b.status)}" style="font-size:9px;padding:1px 5px;flex-shrink:0">${statusLabel(b.status)}</span>
           <span style="flex:1;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(prod)}">${prod ? esc(prod) : '<span style="color:var(--muted)">—</span>'}</span>
           <span class="text-mono" style="color:var(--muted);font-size:10px;flex-shrink:0">${b.start.slice(5)}→${b.end.slice(5)}</span>
-          ${isLoader ? `<span class="text-mono" style="color:var(--accent);font-size:9px;flex-shrink:0">${switchDaysDisplay || '[no days]'}</span>` : ''}
+          ${isLoader ? `<span class="text-mono" style="color:var(--muted);font-size:9px;flex-shrink:0">${loadingLabel}</span>` : ''}
+          ${isLoader ? `<span class="text-mono" style="color:var(--accent);font-size:9px;flex-shrink:0">${switchDaysDisplay || '[no switch]'}</span>` : ''}
           <span class="text-mono" style="color:var(--muted);font-size:10px;flex-shrink:0;min-width:24px;text-align:right">${b.days}d</span>
           <button class="action-btn" style="font-size:10px;padding:1px 6px;flex-shrink:0" data-edit-block="${eqId}|${bi}">Edit</button>
           <button class="action-btn del" style="font-size:10px;padding:1px 6px;flex-shrink:0" data-del-block="${eqId}|${bi}">Del</button>
@@ -3622,7 +3642,7 @@ function openCampaignDialog(){
 
   q('campClose').onclick=()=>host.classList.remove('open');
   host.onclick=e=>{ if(e.target===host) host.classList.remove('open'); };
-  q('campApply').onclick=e=>{ e.preventDefault(); const eqId=q('campEq').value; const eq=s.equipment.find(ee=>ee.id===eqId); const isLoader=eq?.type==='loader'; const rateValue=+q('campRate').value||0; const switchDays=isLoader?['MON','TUE','WED','THU','FRI','SAT','SUN'].filter(day=>q(`campSwitch_${day}`).checked):[]; const payload={equipmentId:eqId,status:q('campStatus').value,productId:q('campProduct').value,startDate:q('campStart').value,endDate:q('campEnd').value,rateStn:isLoader?rateValue*112:rateValue}; if(isLoader){payload.switchDays=switchDays;} if(payload.status==='produce'&&!payload.productId){q('campMsg').textContent='Select a product.';return;} a.saveCampaignBlock(payload); persist(); q('campMsg').textContent='✓ Campaign block applied'; renderPlan(); openCampaignDialog(); showToast('Campaign applied ✓'); };
+  q('campApply').onclick=e=>{ e.preventDefault(); const eqId=q('campEq').value; const eq=s.equipment.find(ee=>ee.id===eqId); const isLoader=eq?.type==='loader'; const rateValue=+q('campRate').value||0; const switchDays=isLoader?['MON','TUE','WED','THU','FRI','SAT','SUN'].filter(day=>q(`campSwitch_${day}`).checked):[]; const loadingDays=isLoader?q('campLoadingDays').value:null; const payload={equipmentId:eqId,status:q('campStatus').value,productId:q('campProduct').value,startDate:q('campStart').value,endDate:q('campEnd').value,rateStn:isLoader?rateValue*112:rateValue}; if(isLoader){payload.switchDays=switchDays;payload.loadingDays=loadingDays;} if(payload.status==='produce'&&!payload.productId){q('campMsg').textContent='Select a product.';return;} a.saveCampaignBlock(payload); persist(); q('campMsg').textContent='✓ Campaign block applied'; renderPlan(); openCampaignDialog(); showToast('Campaign applied ✓'); };
   q('campClearRange').onclick=e=>{ e.preventDefault(); a.deleteCampaignRange({equipmentId:q('campEq').value,startDate:q('campStart').value,endDate:q('campEnd').value}); persist(); q('campMsg').textContent='✓ Range cleared'; renderPlan(); openCampaignDialog(); };
 }
 

@@ -880,7 +880,7 @@ export function actions(state) {
     // CAMPAIGNS
     // ────────────────────────────────────────────────────────────────────────
 
-    saveCampaignRows(rows, switchDays = null) {
+    saveCampaignRows(rows, switchDays = null, loadingDays = null) {
       rows.forEach(r => {
         const key = `${r.date}|${primaryFacId}|${r.equipmentId}`;
         ds.campaigns = ds.campaigns.filter(x => `${x.date}|${x.facilityId}|${x.equipmentId}` !== key);
@@ -897,10 +897,14 @@ export function actions(state) {
         if (switchDays && Array.isArray(switchDays) && switchDays.length > 0) {
           campaign.switchDays = switchDays;
         }
+        // Store loadingDays if provided (for loaders)
+        if (loadingDays) {
+          campaign.loadingDays = loadingDays;
+        }
         ds.campaigns.push(campaign);
       });
     },
-    saveCampaignBlock({ equipmentId, status = 'produce', productId = '', startDate, endDate, rateStn = 0, switchDays = null }) {
+    saveCampaignBlock({ equipmentId, status = 'produce', productId = '', startDate, endDate, rateStn = 0, switchDays = null, loadingDays = null }) {
       if (!equipmentId || !startDate || !endDate) return;
       const rows = [];
       let d      = new Date(startDate + 'T00:00:00');
@@ -915,7 +919,7 @@ export function actions(state) {
         });
         d.setDate(d.getDate() + 1);
       }
-      this.saveCampaignRows(rows, switchDays);
+      this.saveCampaignRows(rows, switchDays, loadingDays);
     },
     deleteCampaignRange({ equipmentId, startDate, endDate }) {
       if (!equipmentId || !startDate || !endDate) return;

@@ -444,6 +444,20 @@ function simulateFacility(state, s, ds, facId, dates) {
     const getDayName = (dateStr) => dayNames[new Date(dateStr + 'T00:00:00').getDay()];
     const todayDayName = getDayName(date);
 
+    // Check if today is a loading day based on schedule
+    const isLoadingDay = (loadingDays) => {
+      const wkdys = ['MON', 'TUE', 'WED', 'THU', 'FRI'];
+      const wkdys_sat = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+      const daily = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+      const schedules = {
+        'weekdays': wkdys,
+        'weekdays_sat': wkdys_sat,
+        'daily': daily
+      };
+      const allowedDays = schedules[loadingDays] || wkdys; // default to weekdays
+      return allowedDays.includes(todayDayName);
+    };
+
     // Find all loader campaigns active on this date
     const loaderCamps = ds.campaigns
       .filter(c => c.facilityId === facId && c.date === date)
@@ -456,6 +470,7 @@ function simulateFacility(state, s, ds, facId, dates) {
       if (camp.status !== 'produce' || !camp.productId) return; // Only process active production campaigns
 
       const isScheduledSwitchDay = camp.switchDays && Array.isArray(camp.switchDays) && camp.switchDays.includes(todayDayName);
+      const canLoadToday = isLoadingDay(camp.loadingDays || 'weekdays'); // default to weekdays if not specified
 
       if (isScheduledSwitchDay) {
         // Switch day: deplete all accumulated inventory
@@ -468,10 +483,11 @@ function simulateFacility(state, s, ds, facId, dates) {
             railPickupMap.set(`${date}|${camp.productId}`, (railPickupMap.get(`${date}|${camp.productId}`) || 0) + accumulated);
           }
         }
-      } else {
-        // Loading day: add campaign loading (rateStn is stored in STn, represents cars × 112)
+      } else if (canLoadToday) {
+        // Loading day (and not a switch day): add campaign loading (rateStn is stored in STn, represents cars × 112)
         railLoadingMap.set(`${date}|${camp.productId}`, (railLoadingMap.get(`${date}|${camp.productId}`) || 0) + camp.rateStn);
       }
+      // If !canLoadToday and !isScheduledSwitchDay, no action (no loading, no switch)
     });
 
     const delta = new Map(); // storageId → net delta for this date

@@ -433,6 +433,15 @@ function simulateFacility(state, s, ds, facId, dates) {
       railPickupMap.set(key, (railPickupMap.get(key) || 0) + (r.qtyStn || 0));
     });
 
+    // Load EOD actuals (user-entered ending inventory)
+    // These are stored as aggregate values per facility (not per storage/product)
+    const eodActualsToday = ds.actuals.railInventoryEod.filter(e => e.date === date && e.facilityId === facId);
+    let userEodTotal = null;
+    if (eodActualsToday.length > 0) {
+      // Sum all EOD actuals for this date (in case there are multiple entries)
+      userEodTotal = eodActualsToday.reduce((sum, e) => sum + (e.qtyStn || 0), 0);
+    }
+
     // Roll forward BOD for rail storages (same pattern as other storages)
     storagesByFamily('TRANSF').forEach(st => {
       let bod;
@@ -1182,8 +1191,15 @@ function simulateFacility(state, s, ds, facId, dates) {
           pickup = available;  // Auto-cap
         }
 
-        // CALCULATE: EOD = BOD + Loading - Pickup
-        const eod = bod + loading - pickup;
+        // PRIORITY: Use user-entered EOD if provided, otherwise calculate
+        let eod;
+        if (userEodTotal !== undefined && userEodTotal !== null) {
+          // User entered EOD: use as-is (not calculated)
+          eod = userEodTotal;
+        } else {
+          // CALCULATE: EOD = BOD + Loading - Pickup
+          eod = bod + loading - pickup;
+        }
 
         // ERROR: EOD should never go negative (if validation above works)
         if (eod < 0) {

@@ -407,6 +407,15 @@ function simulateFacility(state, s, ds, facId, dates) {
     }
 
     // ── Rail Transfer: BOD Roll-Forward & Load Daily Actuals ──
+    // Ensure railTransfers exists (for backward compatibility with old data)
+    if (!Array.isArray(ds.actuals?.railTransfers)) {
+      if (!ds.actuals) ds.actuals = {};
+      ds.actuals.railTransfers = [];
+    }
+    if (!Array.isArray(ds.actuals?.railInventoryEod)) {
+      ds.actuals.railInventoryEod = [];
+    }
+
     const railActualsToday = ds.actuals.railTransfers.filter(r => r.date === date && r.facilityId === facId);
 
     // Separate loading from pickup actuals

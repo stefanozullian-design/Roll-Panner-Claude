@@ -362,6 +362,9 @@ function migrateV2V3(v2) {
 
         // Rail transfers: loader operations for transfer staging
         railTransfers: ds.actuals?.railTransfers || fresh.actuals.railTransfers,
+
+        // Rail inventory EOD: end-of-day cars in transit
+        railInventoryEod: ds.actuals?.railInventoryEod || fresh.actuals.railInventoryEod,
       }
     };
   };
@@ -460,10 +463,19 @@ function migrateV3ToV4(v3) {
     if (!Array.isArray(out.logistics.lanes))             out.logistics.lanes = [];
   }
 
-  // Helper: add logisticsSchedule to a single dataset if missing
+  // Helper: add missing structures to a single dataset
   const patchDataset = (ds) => {
     if (!ds) return;
     if (!Array.isArray(ds.logisticsSchedule)) ds.logisticsSchedule = [];
+    // Add rail transfer structures if missing (new in rail transfer feature)
+    if (!Array.isArray(ds.actuals?.railTransfers)) {
+      if (!ds.actuals) ds.actuals = {};
+      ds.actuals.railTransfers = [];
+    }
+    if (!Array.isArray(ds.actuals?.railInventoryEod)) {
+      if (!ds.actuals) ds.actuals = {};
+      ds.actuals.railInventoryEod = [];
+    }
   };
 
   patchDataset(out.official);

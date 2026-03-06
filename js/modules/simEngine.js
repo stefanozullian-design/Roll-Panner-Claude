@@ -481,10 +481,14 @@ function simulateFacility(state, s, ds, facId, dates) {
       const isScheduledSwitchDay = camp.switchDays && Array.isArray(camp.switchDays) && camp.switchDays.includes(todayDayName);
       const canLoadToday = isLoadingDay(camp.loadingDays || 'weekdays'); // default to weekdays if not specified
 
-      // ── Step 1: Add loading if allowed (even on switch days) ──
-      if (canLoadToday) {
-        // Loading day: add campaign loading (rateStn is stored in STn, represents cars × 112)
-        railLoadingMap.set(`${date}|${camp.productId}`, (railLoadingMap.get(`${date}|${camp.productId}`) || 0) + camp.rateStn);
+      // ── PRIORITY: Check if daily actuals already exist for this product on this date ──
+      const loadingKey = `${date}|${camp.productId}`;
+      const hasLoadingActual = railLoadingMap.has(loadingKey);
+
+      // ── Step 1: Add loading if allowed (only if NO daily actuals exist - actuals override campaigns) ──
+      if (canLoadToday && !hasLoadingActual) {
+        // Loading day: add campaign loading ONLY if no actuals exist (rateStn is stored in STn, represents cars × 112)
+        railLoadingMap.set(loadingKey, (railLoadingMap.get(loadingKey) || 0) + camp.rateStn);
       }
 
       // ── Step 2: Apply switch pickup if scheduled (can happen on same day as loading) ──
@@ -493,10 +497,10 @@ function simulateFacility(state, s, ds, facId, dates) {
         const railSt = storagesByFamily('TRANSF').find(st => st.allowedProductIds?.includes(camp.productId));
         if (railSt) {
           const bod = railBodMap.get(`${date}|${railSt.id}`) || 0;
-          const loading = railLoadingMap.get(`${date}|${camp.productId}`) || 0;
+          const loading = railLoadingMap.get(loadingKey) || 0;
           const accumulated = bod + loading;
           if (accumulated > 0) {
-            railPickupMap.set(`${date}|${camp.productId}`, (railPickupMap.get(`${date}|${camp.productId}`) || 0) + accumulated);
+            railPickupMap.set(loadingKey, (railPickupMap.get(loadingKey) || 0) + accumulated);
           }
         }
       }

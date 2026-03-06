@@ -451,7 +451,8 @@ function simulateFacility(state, s, ds, facId, dates) {
     }
 
     // Roll forward BOD for rail storages (same pattern as other storages)
-    storagesByFamily('TRANSF').forEach(st => {
+    // FIX: Use railTransferStorages() which correctly identifies storages by categoryHint
+    railTransferStorages().forEach(st => {
       let bod;
       if (idx > 0) {
         const prev = dates[idx - 1];
@@ -1185,7 +1186,9 @@ function simulateFacility(state, s, ds, facId, dates) {
     });
 
     // ── Rail Transfer: Calculate Daily EOD ──
-    const transfStorages = storagesByFamily('TRANSF');
+    // FIX: Use railTransferStorages() which correctly identifies storages by categoryHint,
+    // not storagesByFamily('TRANSF') which looks for product family code (which rail products don't have)
+    const transfStorages = railTransferStorages();
     if (date === '2025-01-01') console.log(`[EOD DEBUG] TRANSF storages found:`, transfStorages.map(s => s.id));
     transfStorages.forEach(railSt => {
       console.log(`[EOD DEBUG] Processing storage: ${railSt.id}, products: ${railSt.allowedProductIds?.join(',')}`);

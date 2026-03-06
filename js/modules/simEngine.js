@@ -439,6 +439,41 @@ function simulateFacility(state, s, ds, facId, dates) {
       railBodMap.set(`${date}|${st.id}`, bod);
     });
 
+    // ── Apply loader campaigns for rail transfer ──
+    const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const getDayName = (dateStr) => dayNames[new Date(dateStr + 'T00:00:00').getDay()];
+    const todayDayName = getDayName(date);
+
+    // Find all loader campaigns active on this date
+    const loaderCamps = ds.campaigns
+      .filter(c => c.facilityId === facId && c.date === date)
+      .filter(c => {
+        const eq = s.getEquipment(c.equipmentId);
+        return eq?.type === 'loader';
+      });
+
+    loaderCamps.forEach(camp => {
+      if (camp.status !== 'produce' || !camp.productId) return; // Only process active production campaigns
+
+      const isScheduledSwitchDay = camp.switchDays && Array.isArray(camp.switchDays) && camp.switchDays.includes(todayDayName);
+
+      if (isScheduledSwitchDay) {
+        // Switch day: deplete all accumulated inventory
+        const railSt = storagesByFamily('TRANSF').find(st => st.allowedProductIds?.includes(camp.productId));
+        if (railSt) {
+          const bod = railBodMap.get(`${date}|${railSt.id}`) || 0;
+          const loading = railLoadingMap.get(`${date}|${camp.productId}`) || 0;
+          const accumulated = bod + loading;
+          if (accumulated > 0) {
+            railPickupMap.set(`${date}|${camp.productId}`, (railPickupMap.get(`${date}|${camp.productId}`) || 0) + accumulated);
+          }
+        }
+      } else {
+        // Loading day: add campaign loading (rateStn is stored in STn, represents cars × 112)
+        railLoadingMap.set(`${date}|${camp.productId}`, (railLoadingMap.get(`${date}|${camp.productId}`) || 0) + camp.rateStn);
+      }
+    });
+
     const delta = new Map(); // storageId → net delta for this date
     const addDelta = (storageId, q) => delta.set(storageId, (delta.get(storageId) || 0) + q);
 

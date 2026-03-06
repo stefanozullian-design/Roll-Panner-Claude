@@ -919,6 +919,27 @@ export function actions(state) {
     // ────────────────────────────────────────────────────────────────────────
 
     saveCampaignRows(rows, switchDays = null, loadingDays = null) {
+      // Check if any daily actuals will be overwritten (for rail transfer equipment)
+      const warnings = [];
+      const equipment = rows.length > 0 ? s.getEquipment(rows[0].equipmentId) : null;
+      const isRailTransfer = equipment?.type === 'loader';
+
+      if (isRailTransfer && Array.isArray(ds.actuals?.railTransfers)) {
+        const datesWithActuals = new Set();
+        rows.forEach(r => {
+          const hasActuals = ds.actuals.railTransfers.some(
+            a => a.date === r.date && a.facilityId === primaryFacId
+          );
+          if (hasActuals) {
+            datesWithActuals.add(r.date);
+          }
+        });
+        if (datesWithActuals.size > 0) {
+          const dateList = Array.from(datesWithActuals).sort().join(', ');
+          warnings.push(`⚠️ Campaign will overwrite existing daily actuals on: ${dateList}`);
+        }
+      }
+
       rows.forEach(r => {
         const key = `${r.date}|${primaryFacId}|${r.equipmentId}`;
         ds.campaigns = ds.campaigns.filter(x => `${x.date}|${x.facilityId}|${x.equipmentId}` !== key);
@@ -941,6 +962,8 @@ export function actions(state) {
         }
         ds.campaigns.push(campaign);
       });
+
+      return warnings.length > 0 ? warnings.join('\n') : '';
     },
     saveCampaignBlock({ equipmentId, status = 'produce', productId = '', startDate, endDate, rateStn = 0, switchDays = null, loadingDays = null }) {
       if (!equipmentId || !startDate || !endDate) return;

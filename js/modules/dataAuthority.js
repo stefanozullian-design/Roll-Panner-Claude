@@ -929,12 +929,9 @@ export function actions(state) {
     },
     clearAllRailTransferData() {
       // Clear all rail transfer actuals
-      ds.actuals.railTransfers = [];
-      // Clear all rail transfer campaigns
-      ds.campaigns = ds.campaigns.filter(c => {
-        const eq = s.getEquipment(c.equipmentId);
-        return eq?.type !== 'loader'; // Remove loader campaigns
-      });
+      if (Array.isArray(ds.actuals.railTransfers)) {
+        ds.actuals.railTransfers = [];
+      }
     },
   };
 }

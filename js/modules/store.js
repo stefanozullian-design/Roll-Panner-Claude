@@ -124,6 +124,9 @@ export function freshFacilityData() {
 
       // Rail loader operations (loader equipment actuals for transfer staging)
       railTransfers:  [],   // { date, facilityId, equipmentId, productId, qtyStn }
+
+      // Rail inventory EOD (end-of-day cars in transit for rail transfer)
+      railInventoryEod: [],   // { date, facilityId, qtyStn (cars × 112) }
     },
 
     // ── Logistics schedule (sandboxed — what-if scenarios affect this) ──

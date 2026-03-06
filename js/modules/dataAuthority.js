@@ -239,6 +239,7 @@ export function selectors(state) {
       inv:      ds.actuals.inventoryBOD.filter(r => r.date === date && facilityIds.includes(r.facilityId)),
       prod:     ds.actuals.production.filter(r => r.date === date && facilityIds.includes(r.facilityId)),
       rail:     (ds.actuals.railTransfers || []).filter(r => r.date === date && facilityIds.includes(r.facilityId)),
+      railEod:  (ds.actuals.railInventoryEod || []).find(r => r.date === date && facilityIds.includes(r.facilityId)),
       ship:     ds.actuals.shipments.filter(r => r.date === date && facilityIds.includes(r.facilityId)),
       transfer: ds.actuals.transfers.filter(r =>
         r.date === date &&
@@ -804,13 +805,27 @@ export function actions(state) {
           date, facilityId: fid, equipmentId: r.equipmentId, productId: r.productId, qtyStn: +r.qtyStn
         }));
 
-      // Rail transfer actuals (loader operations + switch pickup)
-      // Each row can have type: 'loading' (loader equipment) or 'pickup' (switch company)
-      (railTransferRows || [])
-        .filter(r => r.equipmentId && r.productId && isFinite(r.qtyStn) && +r.qtyStn !== 0)
-        .forEach(r => ds.actuals.railTransfers.push({
-          date, facilityId: fid, type: r.type || 'loading', equipmentId: r.equipmentId, productId: r.productId, qtyStn: +r.qtyStn
-        }));
+      // Rail transfer actuals (loader operations + switch pickup + EOD inventory)
+      if (!ds.actuals.railInventoryEod) ds.actuals.railInventoryEod = [];
+      ds.actuals.railInventoryEod = ds.actuals.railInventoryEod.filter(r => !(r.date === date && r.facilityId === fid));
+
+      (railTransferRows || []).forEach(r => {
+        if (r.type === 'eod') {
+          // EOD (End of Day) inventory for rail cars
+          if (isFinite(r.qtyStn) && +r.qtyStn >= 0) {
+            ds.actuals.railInventoryEod.push({
+              date, facilityId: fid, qtyStn: +r.qtyStn
+            });
+          }
+        } else {
+          // Loading/Pickup actuals (require equipmentId and productId)
+          if (r.equipmentId && r.productId && isFinite(r.qtyStn) && +r.qtyStn !== 0) {
+            ds.actuals.railTransfers.push({
+              date, facilityId: fid, type: r.type || 'loading', equipmentId: r.equipmentId, productId: r.productId, qtyStn: +r.qtyStn
+            });
+          }
+        }
+      });
 
       // Shipment actuals
       shipmentRows

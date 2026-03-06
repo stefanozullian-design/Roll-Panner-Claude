@@ -3698,6 +3698,7 @@ function openDailyActualsDialog(preselectedFacId){
     const prodMap = new Map((existing.prod||[]).map(r=>[`${r.equipmentId}|${r.productId}`,r.qtyStn]));
     const shipMap = new Map((existing.ship||[]).map(r=>[r.productId,r.qtyStn]));
     const railMap = new Map((existing.rail||[]).map(r=>[`${r.equipmentId}|${r.productId}`,r.qtyStn]));
+    const railEodValue = existing.railEod ? (existing.railEod.qtyStn / 112) : '';  // Convert STn back to cars
 
     const fac = state.org.facilities.find(f=>f.id===activeFacId);
     const facLabel = fac ? `${fac.code} — ${fac.name}` : activeFacId;
@@ -3784,7 +3785,7 @@ function openDailyActualsDialog(preselectedFacId){
       </div>
 
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#ffffff;margin-bottom:12px">3. Rail Transfer (Cars)</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px">
         <div>
           <label class="form-label" style="color:#ffffff">Cars Loaded</label>
           <input class="form-input rail-simple" id="railLoading" type="number" step="1" placeholder="0" value="">
@@ -3793,6 +3794,10 @@ function openDailyActualsDialog(preselectedFacId){
           <label class="form-label" style="color:#ffffff">Cars Picked Up (Switch)</label>
           <input class="form-input rail-simple" id="railPickup" type="number" step="1" placeholder="0" value="">
         </div>
+        <div>
+          <label class="form-label" style="color:#ffffff">EOD</label>
+          <input class="form-input rail-simple" id="railEodCars" type="number" step="1" placeholder="0" value="${railEodValue}">
+        </div>
       </div>
 
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">4. Customer Shipments (STn)</div>
@@ -3800,12 +3805,7 @@ function openDailyActualsDialog(preselectedFacId){
         ${shipHTML}
       </div>
 
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#ffffff;margin-bottom:12px">5. Rail Transfer EOD (Cars)</div>
-      <div style="margin-bottom:20px">
-        <div><label class="form-label" style="color:#ffffff">EOD Cars in Transit</label><input class="form-input" id="railEodCars" type="number" step="1" placeholder="0" value=""></div>
-      </div>
-
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">6. Ending Inventory (STn)</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">5. Ending Inventory (STn)</div>
       <div class="table-scroll" style="margin-bottom:20px;max-height:200px;border-radius:8px;overflow-y:auto !important;border:1px solid var(--border)">
         <table class="data-table"><thead><tr><th>Storage</th><th>Product</th><th>EOD Quantity (STn)</th></tr></thead>
         <tbody>${s.storages.map(st=>{const pid=(st.allowedProductIds||[])[0]||'';return`<tr><td style="font-weight:600">${esc(st.name)}</td><td>${esc(s.getMaterial(pid)?.name||'')}</td><td><input class="cell-input inv-input" data-storage="${st.id}" data-product="${pid}" value="${invMap.get(`${st.id}|${pid}`)??''}"></td></tr>`;}).join('')||'<tr><td colspan="3" class="text-muted" style="text-align:center;padding:12px">No storages for this facility</td></tr>'}</tbody>

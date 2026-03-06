@@ -3700,6 +3700,14 @@ function openDailyActualsDialog(preselectedFacId){
     const railMap = new Map((existing.rail||[]).map(r=>[`${r.equipmentId}|${r.productId}`,r.qtyStn]));
     const railEodValue = existing.railEod ? (existing.railEod.qtyStn / 112) : '';  // Convert STn back to cars
 
+    // Calculate loading and pickup values from existing rail data
+    const railLoadingValue = (existing.rail || [])
+      .filter(r => r.type === 'loading')
+      .reduce((sum, r) => sum + (r.qtyStn || 0), 0) / 112;  // Convert STn to cars
+    const railPickupValue = (existing.rail || [])
+      .filter(r => r.type === 'pickup')
+      .reduce((sum, r) => sum + (r.qtyStn || 0), 0) / 112;  // Convert STn to cars
+
     const fac = state.org.facilities.find(f=>f.id===activeFacId);
     const facLabel = fac ? `${fac.code} — ${fac.name}` : activeFacId;
 
@@ -3788,11 +3796,11 @@ function openDailyActualsDialog(preselectedFacId){
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px">
         <div>
           <label class="form-label" style="color:#ffffff">Cars Loaded</label>
-          <input class="form-input rail-simple" id="railLoading" type="number" step="1" placeholder="0" value="">
+          <input class="form-input rail-simple" id="railLoading" type="number" step="1" placeholder="0" value="${railLoadingValue > 0 ? railLoadingValue : ''}">
         </div>
         <div>
           <label class="form-label" style="color:#ffffff">Cars Picked Up (Switch)</label>
-          <input class="form-input rail-simple" id="railPickup" type="number" step="1" placeholder="0" value="">
+          <input class="form-input rail-simple" id="railPickup" type="number" step="1" placeholder="0" value="${railPickupValue > 0 ? railPickupValue : ''}">
         </div>
         <div>
           <label class="form-label" style="color:#ffffff">EOD</label>

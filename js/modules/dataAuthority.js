@@ -927,6 +927,15 @@ export function actions(state) {
         !(c.facilityId === primaryFacId && c.equipmentId === equipmentId && c.date >= startDate && c.date <= endDate)
       );
     },
+    clearAllRailTransferData() {
+      // Clear all rail transfer actuals
+      ds.actuals.railTransfers = [];
+      // Clear all rail transfer campaigns
+      ds.campaigns = ds.campaigns.filter(c => {
+        const eq = s.getEquipment(c.equipmentId);
+        return eq?.type !== 'loader'; // Remove loader campaigns
+      });
+    },
   };
 }
 

@@ -5182,3 +5182,18 @@ function openDataManagementDialog(){
     host.classList.remove('open');
   };
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// DEBUG: Expose clear rail transfer function to browser console
+// ──────────────────────────────────────────────────────────────────────────────
+window.DEBUG_clearRailTransferData = () => {
+  if (!state) {
+    console.error('State not loaded yet');
+    return;
+  }
+  const a = actions(state);
+  a.clearAllRailTransferData();
+  console.log('✓ All Rail Transfer data cleared');
+  console.log('Refreshing page...');
+  location.reload();
+};

@@ -3834,6 +3834,13 @@ function openDailyActualsDialog(preselectedFacId){
       const productionRows = [...host.querySelectorAll('.prod-input')]
         .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields
         .map(i=>({equipmentId:i.dataset.equipment,productId:i.dataset.product,qtyStn:+i.value}));
+
+      // Rail Transfer: Get equipment IDs and product ID from facility configuration
+      const loaderEq = s.equipment.find(e=>e.type==='loader');
+      const switchEq = s.equipment.find(e=>e.type==='switch');
+      const railStorage = s.storages.find(st=>st.categoryHint==='TRANSFER');
+      const railProductId = railStorage?.allowedProductIds?.[0] || '';
+
       // Simple rail transfer fields: cars loaded, cars picked up, and EOD cars
       // Convert from CARS to STn (1 car = 112 STn)
       const railTransferRows = [];
@@ -3841,10 +3848,14 @@ function openDailyActualsDialog(preselectedFacId){
       const carsPicked = host.querySelector('#railPickup')?.value;
       const railEodCars = host.querySelector('#railEodCars')?.value;
       if (carsLoaded !== '' && carsLoaded !== null && +carsLoaded > 0) {
-        railTransferRows.push({type:'loading', qtyStn: +carsLoaded * 112});
+        if (loaderEq?.id && railProductId) {
+          railTransferRows.push({type:'loading', equipmentId:loaderEq.id, productId:railProductId, qtyStn: +carsLoaded * 112});
+        }
       }
       if (carsPicked !== '' && carsPicked !== null && +carsPicked > 0) {
-        railTransferRows.push({type:'pickup', qtyStn: +carsPicked * 112});
+        if (switchEq?.id && railProductId) {
+          railTransferRows.push({type:'pickup', equipmentId:switchEq.id, productId:railProductId, qtyStn: +carsPicked * 112});
+        }
       }
       if (railEodCars !== '' && railEodCars !== null && +railEodCars >= 0) {
         railTransferRows.push({type:'eod', qtyStn: +railEodCars * 112});

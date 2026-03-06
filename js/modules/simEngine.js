@@ -1267,7 +1267,12 @@ function simulateFacility(state, s, ds, facId, dates) {
 
     return [
       { kind: 'section-header', label: 'RAIL INV-BOD', _section: 'bod', _sectionId: sectionId,
-        values: mkValues(d => rows.reduce((sum, st) => sum + (railBodMap.get(`${d}|${st.id}`) || 0), 0)) }
+        values: mkValues(d => rows.reduce((sum, st) => sum + (railBodMap.get(`${d}|${st.id}`) || 0), 0)) },
+      ...rows.map(st => ({ kind: 'row', storageId: st.id, label: st.name,
+        productLabel: (st.allowedProductIds||[]).map(pid => s.getMaterial(pid)?.name).filter(Boolean).join(' / '),
+        values: mkValues(d => railBodMap.get(`${d}|${st.id}`) || 0),
+        _sectionId: sectionId,
+        allowedProductIds: st.allowedProductIds || [] }))
     ];
   };
 
@@ -1287,7 +1292,18 @@ function simulateFacility(state, s, ds, facId, dates) {
             });
           });
           return total;
-        }) }
+        }) },
+      ...rows.map(st => ({ kind: 'row', storageId: st.id, label: st.name,
+        productLabel: (st.allowedProductIds||[]).map(pid => s.getMaterial(pid)?.name).filter(Boolean).join(' / '),
+        values: mkValues(d => {
+          let total = 0;
+          (st.allowedProductIds || []).forEach(pid => {
+            total += railLoadingMap.get(`${d}|${pid}`) || 0;
+          });
+          return total;
+        }),
+        _sectionId: sectionId,
+        allowedProductIds: st.allowedProductIds || [] }))
     ];
   };
 
@@ -1307,7 +1323,18 @@ function simulateFacility(state, s, ds, facId, dates) {
             });
           });
           return total;
-        }) }
+        }) },
+      ...rows.map(st => ({ kind: 'row', storageId: st.id, label: st.name,
+        productLabel: (st.allowedProductIds||[]).map(pid => s.getMaterial(pid)?.name).filter(Boolean).join(' / '),
+        values: mkValues(d => {
+          let total = 0;
+          (st.allowedProductIds || []).forEach(pid => {
+            total += railPickupMap.get(`${d}|${pid}`) || 0;
+          });
+          return total;
+        }),
+        _sectionId: sectionId,
+        allowedProductIds: st.allowedProductIds || [] }))
     ];
   };
 
@@ -1327,7 +1354,18 @@ function simulateFacility(state, s, ds, facId, dates) {
             });
           });
           return total;
-        }) }
+        }) },
+      ...rows.map(st => ({ kind: 'row', storageId: st.id, label: st.name,
+        productLabel: (st.allowedProductIds||[]).map(pid => s.getMaterial(pid)?.name).filter(Boolean).join(' / '),
+        values: mkValues(d => {
+          let total = 0;
+          (st.allowedProductIds || []).forEach(pid => {
+            total += railEodMap.get(`${d}|${st.id}|${pid}`) || 0;
+          });
+          return total;
+        }),
+        _sectionId: sectionId,
+        allowedProductIds: st.allowedProductIds || [] }))
     ];
   };
 

@@ -390,6 +390,7 @@ function simulateFacility(state, s, ds, facId, dates) {
   // ────────────────────────────────────────────────────────────────────────
 
   dates.forEach((date, idx) => {
+    if (idx === 0) console.log('[SIM DEBUG] Starting simulation for facility:', facId, 'with dates:', dates.slice(0, 5));
 
     // ── Carry forward BOD from previous EOD, then check for physical override ──
     if (idx > 0) {

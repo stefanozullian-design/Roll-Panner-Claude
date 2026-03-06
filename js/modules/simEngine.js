@@ -1168,12 +1168,14 @@ function simulateFacility(state, s, ds, facId, dates) {
 
     // ── Rail Transfer: Calculate Daily EOD ──
     storagesByFamily('TRANSF').forEach(railSt => {
+      console.log(`[EOD DEBUG] Processing storage: ${railSt.id}, products: ${railSt.allowedProductIds?.join(',')}`);
       railSt.allowedProductIds?.forEach(productId => {
         const bod = railBodMap.get(`${date}|${railSt.id}`) || 0;
         const loading = railLoadingMap.get(`${date}|${productId}`) || 0;
 
         // Get switch pickup from actuals (stored as type 'pickup')
         let pickup = railPickupMap.get(`${date}|${productId}`) || 0;
+        console.log(`[EOD DEBUG] ${date}|${productId}: BOD=${bod}, Loading=${loading}, Pickup=${pickup}, UserEOD=${userEodTotal}`);
 
         // VALIDATION: Switch Pickup cannot exceed available (BOD + Loading)
         const available = bod + loading;
@@ -1216,6 +1218,7 @@ function simulateFacility(state, s, ds, facId, dates) {
 
         // Store EOD
         railEodMap.set(`${date}|${railSt.id}|${productId}`, eod);
+        console.log(`[EOD DEBUG] Stored EOD: ${date}|${railSt.id}|${productId} = ${eod}`);
 
         // Track net change for delta (if needed for other calcs)
         const netChange = loading - pickup;

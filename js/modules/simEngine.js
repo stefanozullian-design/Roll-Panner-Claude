@@ -1357,15 +1357,21 @@ function simulateFacility(state, s, ds, facId, dates) {
     if (!rows.length) return [];
     const sectionId = `inv_eod_TRANSF`;
 
+    console.log('[EOD DISPLAY DEBUG] railEodMap size:', railEodMap.size, 'Map contents:', Array.from(railEodMap.entries()).filter(([k]) => k.includes('2026-03-05')));
+
     return [
       { kind: 'section-header', label: 'RAIL INV-EOD', _section: 'eod', _sectionId: sectionId,
         values: mkValues(d => {
           let total = 0;
           rows.forEach(st => {
             st.allowedProductIds?.forEach(pid => {
-              total += railEodMap.get(`${d}|${st.id}|${pid}`) || 0;
+              const key = `${d}|${st.id}|${pid}`;
+              const val = railEodMap.get(key) || 0;
+              if (d === '2026-03-05') console.log(`[EOD DISPLAY] Looking up ${key} = ${val}`);
+              total += val;
             });
           });
+          if (d === '2026-03-05') console.log(`[EOD DISPLAY] Total for ${d}: ${total}`);
           return total;
         }) },
       ...rows.map(st => ({ kind: 'row', storageId: st.id, label: st.name,
@@ -1373,7 +1379,10 @@ function simulateFacility(state, s, ds, facId, dates) {
         values: mkValues(d => {
           let total = 0;
           (st.allowedProductIds || []).forEach(pid => {
-            total += railEodMap.get(`${d}|${st.id}|${pid}`) || 0;
+            const key = `${d}|${st.id}|${pid}`;
+            const val = railEodMap.get(key) || 0;
+            if (d === '2026-03-05') console.log(`[EOD DISPLAY] Row ${st.id}: looking up ${key} = ${val}`);
+            total += val;
           });
           return total;
         }),

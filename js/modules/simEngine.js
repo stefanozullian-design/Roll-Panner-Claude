@@ -456,8 +456,13 @@ function simulateFacility(state, s, ds, facId, dates) {
       if (idx > 0) {
         const prev = dates[idx - 1];
         // Try to find previous day's EOD for this storage
-        const prevEod = railEodMap.get(`${prev}|${st.id}`);
-        bod = (prevEod !== undefined && prevEod !== null) ? prevEod : 0;
+        // railEodMap stores by `date|storageId|productId`, so sum all products for this storage
+        let prevEod = 0;
+        st.allowedProductIds?.forEach(pid => {
+          const key = `${prev}|${st.id}|${pid}`;
+          prevEod += railEodMap.get(key) || 0;
+        });
+        bod = prevEod !== 0 ? prevEod : (invBODIndex.get(`${date}|${st.id}`) ?? 0);
       } else {
         // First day: use physical count if provided, else 0
         bod = invBODIndex.get(`${date}|${st.id}`) ?? 0;

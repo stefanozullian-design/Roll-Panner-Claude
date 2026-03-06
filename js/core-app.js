@@ -3800,7 +3800,12 @@ function openDailyActualsDialog(preselectedFacId){
         ${shipHTML}
       </div>
 
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">5. Ending Inventory (STn)</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#ffffff;margin-bottom:12px">5. Rail Transfer EOD (Cars)</div>
+      <div style="margin-bottom:20px">
+        <div><label class="form-label" style="color:#ffffff">EOD Cars in Transit</label><input class="form-input" id="railEodCars" type="number" step="1" placeholder="0" value=""></div>
+      </div>
+
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">6. Ending Inventory (STn)</div>
       <div class="table-scroll" style="margin-bottom:20px;max-height:200px;border-radius:8px;overflow-y:auto !important;border:1px solid var(--border)">
         <table class="data-table"><thead><tr><th>Storage</th><th>Product</th><th>EOD Quantity (STn)</th></tr></thead>
         <tbody>${s.storages.map(st=>{const pid=(st.allowedProductIds||[])[0]||'';return`<tr><td style="font-weight:600">${esc(st.name)}</td><td>${esc(s.getMaterial(pid)?.name||'')}</td><td><input class="cell-input inv-input" data-storage="${st.id}" data-product="${pid}" value="${invMap.get(`${st.id}|${pid}`)??''}"></td></tr>`;}).join('')||'<tr><td colspan="3" class="text-muted" style="text-align:center;padding:12px">No storages for this facility</td></tr>'}</tbody>
@@ -3829,16 +3834,20 @@ function openDailyActualsDialog(preselectedFacId){
       const productionRows = [...host.querySelectorAll('.prod-input')]
         .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields
         .map(i=>({equipmentId:i.dataset.equipment,productId:i.dataset.product,qtyStn:+i.value}));
-      // Simple rail transfer fields: cars loaded and cars picked up
+      // Simple rail transfer fields: cars loaded, cars picked up, and EOD cars
       // Convert from CARS to STn (1 car = 112 STn)
       const railTransferRows = [];
       const carsLoaded = host.querySelector('#railLoading')?.value;
       const carsPicked = host.querySelector('#railPickup')?.value;
+      const railEodCars = host.querySelector('#railEodCars')?.value;
       if (carsLoaded !== '' && carsLoaded !== null && +carsLoaded > 0) {
         railTransferRows.push({type:'loading', qtyStn: +carsLoaded * 112});
       }
       if (carsPicked !== '' && carsPicked !== null && +carsPicked > 0) {
         railTransferRows.push({type:'pickup', qtyStn: +carsPicked * 112});
+      }
+      if (railEodCars !== '' && railEodCars !== null && +railEodCars >= 0) {
+        railTransferRows.push({type:'eod', qtyStn: +railEodCars * 112});
       }
       const shipmentRows   = [...host.querySelectorAll('.ship-input')]
         .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields

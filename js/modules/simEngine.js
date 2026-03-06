@@ -472,8 +472,15 @@ function simulateFacility(state, s, ds, facId, dates) {
       const isScheduledSwitchDay = camp.switchDays && Array.isArray(camp.switchDays) && camp.switchDays.includes(todayDayName);
       const canLoadToday = isLoadingDay(camp.loadingDays || 'weekdays'); // default to weekdays if not specified
 
+      // ── Step 1: Add loading if allowed (even on switch days) ──
+      if (canLoadToday) {
+        // Loading day: add campaign loading (rateStn is stored in STn, represents cars × 112)
+        railLoadingMap.set(`${date}|${camp.productId}`, (railLoadingMap.get(`${date}|${camp.productId}`) || 0) + camp.rateStn);
+      }
+
+      // ── Step 2: Apply switch pickup if scheduled (can happen on same day as loading) ──
       if (isScheduledSwitchDay) {
-        // Switch day: deplete all accumulated inventory
+        // Switch day: deplete all accumulated inventory (including any loading from today)
         const railSt = storagesByFamily('TRANSF').find(st => st.allowedProductIds?.includes(camp.productId));
         if (railSt) {
           const bod = railBodMap.get(`${date}|${railSt.id}`) || 0;
@@ -483,11 +490,7 @@ function simulateFacility(state, s, ds, facId, dates) {
             railPickupMap.set(`${date}|${camp.productId}`, (railPickupMap.get(`${date}|${camp.productId}`) || 0) + accumulated);
           }
         }
-      } else if (canLoadToday) {
-        // Loading day (and not a switch day): add campaign loading (rateStn is stored in STn, represents cars × 112)
-        railLoadingMap.set(`${date}|${camp.productId}`, (railLoadingMap.get(`${date}|${camp.productId}`) || 0) + camp.rateStn);
       }
-      // If !canLoadToday and !isScheduledSwitchDay, no action (no loading, no switch)
     });
 
     const delta = new Map(); // storageId → net delta for this date

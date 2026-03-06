@@ -3872,7 +3872,7 @@ function openDailyActualsDialog(preselectedFacId){
       console.log('INVENTORY ROWS:', inventoryRows);
       console.log('SHIPMENT ROWS:', shipmentRows);
 
-      a.saveDailyActuals({date, inventoryRows, productionRows, railTransferRows, shipmentRows});
+      a.saveDailyActuals({date, facilityId: activeFacId, inventoryRows, productionRows, railTransferRows, shipmentRows});
       persist(); renderDemand(); renderPlan(); showToast(`Actuals saved for ${activeFacId} ✓`);
     };
   };

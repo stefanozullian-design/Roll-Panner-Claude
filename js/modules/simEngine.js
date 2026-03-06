@@ -460,14 +460,19 @@ function simulateFacility(state, s, ds, facId, dates) {
         let prevEod = 0;
         st.allowedProductIds?.forEach(pid => {
           const key = `${prev}|${st.id}|${pid}`;
-          prevEod += railEodMap.get(key) || 0;
+          const eodVal = railEodMap.get(key);
+          console.log(`[BOD ROLLFORWARD DEBUG] Looking for previous EOD: key="${key}", found=${eodVal}`);
+          prevEod += eodVal || 0;
         });
+        console.log(`[BOD ROLLFORWARD DEBUG] ${date}|${st.id}: prevEod=${prevEod}, using=${prevEod !== 0 ? prevEod : 'physical'}`);
         bod = prevEod !== 0 ? prevEod : (invBODIndex.get(`${date}|${st.id}`) ?? 0);
       } else {
         // First day: use physical count if provided, else 0
         bod = invBODIndex.get(`${date}|${st.id}`) ?? 0;
+        console.log(`[BOD ROLLFORWARD DEBUG] Day 1 BOD for ${date}|${st.id}: ${bod} (from physical)`);
       }
       railBodMap.set(`${date}|${st.id}`, bod);
+      console.log(`[BOD ROLLFORWARD DEBUG] Set BOD for ${date}|${st.id}: ${bod}`);
     });
 
     // ── Apply loader campaigns for rail transfer ──
@@ -1184,13 +1189,21 @@ function simulateFacility(state, s, ds, facId, dates) {
     if (date === '2025-01-01') console.log(`[EOD DEBUG] TRANSF storages found:`, transfStorages.map(s => s.id));
     transfStorages.forEach(railSt => {
       console.log(`[EOD DEBUG] Processing storage: ${railSt.id}, products: ${railSt.allowedProductIds?.join(',')}`);
+
+      // FIX: When user enters aggregate EOD, it applies to the storage as a whole, not per-product.
+      // If storage has multiple products, distribute the aggregate EOD proportionally.
+      let userEodPerStorage = null;
+      if (userEodTotal !== undefined && userEodTotal !== null) {
+        userEodPerStorage = userEodTotal;
+      }
+
       railSt.allowedProductIds?.forEach(productId => {
         const bod = railBodMap.get(`${date}|${railSt.id}`) || 0;
         const loading = railLoadingMap.get(`${date}|${productId}`) || 0;
 
         // Get switch pickup from actuals (stored as type 'pickup')
         let pickup = railPickupMap.get(`${date}|${productId}`) || 0;
-        console.log(`[EOD DEBUG] ${date}|${productId}: BOD=${bod}, Loading=${loading}, Pickup=${pickup}, UserEOD=${userEodTotal}`);
+        console.log(`[EOD DEBUG] ${date}|${productId}: BOD=${bod}, Loading=${loading}, Pickup=${pickup}, UserEOD=${userEodPerStorage}`);
 
         // VALIDATION: Switch Pickup cannot exceed available (BOD + Loading)
         const available = bod + loading;
@@ -1210,9 +1223,10 @@ function simulateFacility(state, s, ds, facId, dates) {
 
         // PRIORITY: Use user-entered EOD if provided, otherwise calculate
         let eod;
-        if (userEodTotal !== undefined && userEodTotal !== null) {
-          // User entered EOD: use as-is (not calculated)
-          eod = userEodTotal;
+        if (userEodPerStorage !== undefined && userEodPerStorage !== null) {
+          // User entered aggregate EOD for storage: use as-is (not calculated)
+          // Since EOD is per-storage aggregate (not per-product), all products share the same value
+          eod = userEodPerStorage;
         } else {
           // CALCULATE: EOD = BOD + Loading - Pickup
           eod = bod + loading - pickup;
@@ -1234,6 +1248,7 @@ function simulateFacility(state, s, ds, facId, dates) {
         // Store EOD
         railEodMap.set(`${date}|${railSt.id}|${productId}`, eod);
         console.log(`[EOD DEBUG] Stored EOD: ${date}|${railSt.id}|${productId} = ${eod}`);
+        console.log(`[EOD DEBUG] railEodMap now has ${railEodMap.size} entries. Next date will look for this with key format: date|storage|product`);
 
         // Track net change for delta (if needed for other calcs)
         const netChange = loading - pickup;

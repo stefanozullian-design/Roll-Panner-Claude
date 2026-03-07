@@ -3818,6 +3818,46 @@ function openDailyActualsDialog(preselectedFacId){
         <table class="data-table"><thead><tr><th>Storage</th><th>Product</th><th>EOD Quantity (STn)</th></tr></thead>
         <tbody>${s.storages.map(st=>{const pid=(st.allowedProductIds||[])[0]||'';return`<tr><td style="font-weight:600">${esc(st.name)}</td><td>${esc(s.getMaterial(pid)?.name||'')}</td><td><input class="cell-input inv-input" data-storage="${st.id}" data-product="${pid}" value="${invMap.get(`${st.id}|${pid}`)??''}"></td></tr>`;}).join('')||'<tr><td colspan="3" class="text-muted" style="text-align:center;padding:12px">No storages for this facility</td></tr>'}</tbody>
         </table>
+      </div>
+
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">6. Logistics / Transfers (Rail Distributions)</div>
+      <div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:20px">
+        <div style="font-size:11px;margin-bottom:12px;color:var(--muted)">Assign rail car batches to destination facilities within the organization</div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;margin-bottom:12px;align-items:end">
+          <div>
+            <label class="form-label" style="font-size:11px">Available Batch</label>
+            <select class="form-input" id="logBatchSelect" style="font-size:11px;padding:6px">
+              <option value="">-- Select batch --</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label" style="font-size:11px">Quantity (Cars)</label>
+            <input class="form-input" id="logBatchQty" type="number" readonly placeholder="0" style="font-size:11px;padding:6px;background-color:rgba(255,255,255,0.05);cursor:not-allowed">
+          </div>
+          <div>
+            <label class="form-label" style="font-size:11px">Destination Facility</label>
+            <select class="form-input" id="logDestFac" style="font-size:11px;padding:6px">
+              <option value="">-- Select facility --</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label" style="font-size:11px">Transit Days</label>
+            <input class="form-input" id="logTransitDays" type="number" step="1" min="1" placeholder="1" style="font-size:11px;padding:6px;width:80px">
+          </div>
+        </div>
+        <button class="btn btn-primary" id="logAssignBtn" style="font-size:11px;padding:6px 12px">Assign</button>
+
+        <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
+          <div style="font-size:10px;font-weight:600;margin-bottom:8px">Assigned Distributions</div>
+          <div class="table-scroll" style="max-height:150px;border-radius:6px;overflow-y:auto;border:1px solid var(--border)">
+            <table class="data-table" style="font-size:10px"><thead><tr><th>Pickup Date</th><th>Product</th><th>Qty (Cars)</th><th>Destination</th><th>Transit Days</th><th>Exp. Arrival</th></tr></thead>
+            <tbody id="logDistributionsTable">
+              <tr><td colspan="6" class="text-muted" style="text-align:center;padding:8px;font-size:9px">No assignments yet</td></tr>
+            </tbody>
+            </table>
+          </div>
+        </div>
       </div>`;
 
     // Facility tab switching
@@ -3827,6 +3867,119 @@ function openDailyActualsDialog(preselectedFacId){
 
     // Date change reloads existing actuals
     host.querySelector('#actualsDate').onchange = () => buildForm();
+
+    // ── LOGISTICS/TRANSFERS Section Logic ──
+    {
+      const date = host.querySelector('#actualsDate')?.value || new Date().toISOString().split('T')[0];
+
+      // Helper: Get all rail pickups for all dates (to find available batches)
+      const getRailPickups = () => {
+        const pickups = [];
+        const railTransfers = (s.actuals?.railTransfers || []).filter(rt => rt.type === 'pickup' && rt.facilityId === activeFacId);
+        const pickupsByKey = {};
+        railTransfers.forEach(rt => {
+          const key = rt.date + '|' + rt.productId;
+          pickupsByKey[key] = (pickupsByKey[key] || 0) + rt.qtyStn;
+        });
+        Object.entries(pickupsByKey).forEach(([key, qtyStn]) => {
+          const [pickupDate, productId] = key.split('|');
+          pickups.push({ pickupDate, productId, qtyStn });
+        });
+        return pickups;
+      };
+
+      // Populate batch dropdown
+      const batchSelect = host.querySelector('#logBatchSelect');
+      const qtyInput = host.querySelector('#logBatchQty');
+      const destSelect = host.querySelector('#logDestFac');
+      const assignBtn = host.querySelector('#logAssignBtn');
+
+      const allPickups = getRailPickups();
+      const batchOptions = allPickups.map((p, i) =>
+        `<option value="${i}" data-date="${p.pickupDate}" data-product="${p.productId}" data-qty="${p.qtyStn}">${p.pickupDate} | ${Math.round(p.qtyStn / 112)} cars | ${esc(s.getMaterial(p.productId)?.name || p.productId)}</option>`
+      ).join('');
+      if (batchOptions) {
+        batchSelect.innerHTML = '<option value="">-- Select batch --</option>' + batchOptions;
+      }
+
+      // Populate destination facilities (filter by rail-receiving role)
+      const railReceivingFacs = state.org.facilities.filter(f =>
+        f.id !== activeFacId && (f.roles || []).includes('rail-receiving')
+      );
+      const destOptions = railReceivingFacs.map(f =>
+        `<option value="${f.id}">${esc(f.code)} - ${esc(f.name)}</option>`
+      ).join('');
+      if (destOptions) {
+        destSelect.innerHTML = '<option value="">-- Select facility --</option>' + destOptions;
+      }
+
+      // Batch selection handler
+      batchSelect.onchange = () => {
+        if (batchSelect.value) {
+          const selected = batchSelect.options[batchSelect.selectedIndex];
+          const qtyStn = +selected.dataset.qty;
+          qtyInput.value = Math.round(qtyStn / 112); // Convert back to cars
+        } else {
+          qtyInput.value = '';
+        }
+      };
+
+      // Assign button handler
+      assignBtn.onclick = () => {
+        const selectedIdx = batchSelect.value;
+        const destFacId = destSelect.value;
+        const transitDays = host.querySelector('#logTransitDays')?.value;
+
+        if (!selectedIdx) { alert('Please select a batch'); return; }
+        if (!destFacId) { alert('Please select a destination facility'); return; }
+        if (!transitDays || +transitDays < 1) { alert('Please enter valid transit days'); return; }
+
+        const selected = batchSelect.options[batchSelect.selectedIndex];
+        const pickupDate = selected.dataset.date;
+        const productId = selected.dataset.product;
+        const qtyStn = +selected.dataset.qty;
+
+        // Save the assignment
+        a.saveRailDistributions({
+          sourceFacilityId: activeFacId,
+          assignedDate: date,
+          assignments: [{
+            destinationFacilityId: destFacId,
+            pickupDate,
+            productId,
+            qtyStn,
+            transitTimeInDays: +transitDays
+          }]
+        });
+
+        // Reload the form
+        showToast('Rail distribution assigned ✓');
+        buildForm();
+      };
+
+      // Display assigned distributions
+      const displayAssignments = () => {
+        const tbody = host.querySelector('#logDistributionsTable');
+        const dists = a.railDistributionsForDate(state, { sourceFacilityId: activeFacId, assignedDate: date }) || [];
+        if (dists.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="text-muted" style="text-align:center;padding:8px;font-size:9px">No assignments yet</td></tr>';
+          return;
+        }
+        tbody.innerHTML = dists.map(d => {
+          const destFac = state.org.facilities.find(f => f.id === d.destinationFacilityId);
+          const product = s.getMaterial(d.productId);
+          return `<tr>
+            <td>${d.pickupDate}</td>
+            <td>${esc(product?.name || d.productId)}</td>
+            <td>${Math.round(d.qtyStn / 112)}</td>
+            <td>${esc(destFac?.code || '')}</td>
+            <td>${d.transitTimeInDays}</td>
+            <td>${d.expectedArrivalDate}</td>
+          </tr>`;
+        }).join('');
+      };
+      displayAssignments();
+    }
 
     // Save button
     host.querySelector('#saveActualsBtn').onclick = ev => {
@@ -4043,6 +4196,19 @@ function openSettingsDialog(){
             <button class="btn" id="sfCancel" style="height:36px">Cancel</button>
           </div>
         </div>
+        ${type==='facility' ? `
+        <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+          <label class="form-label" style="margin-bottom:8px;display:block">Facility Roles</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px">
+            <div style="display:flex;gap:6px"><input type="checkbox" id="sfRole_calcination" value="calcination" ${existing?.roles?.includes('calcination')?'checked':''} style="cursor:pointer"><label style="cursor:pointer">Calcination (Kilns)</label></div>
+            <div style="display:flex;gap:6px"><input type="checkbox" id="sfRole_grinding" value="grinding" ${existing?.roles?.includes('grinding')?'checked':''} style="cursor:pointer"><label style="cursor:pointer">Grinding (Finish Mills)</label></div>
+            <div style="display:flex;gap:6px"><input type="checkbox" id="sfRole_rail-dispatch" value="rail-dispatch" ${existing?.roles?.includes('rail-dispatch')?'checked':''} style="cursor:pointer"><label style="cursor:pointer">Rail Dispatch</label></div>
+            <div style="display:flex;gap:6px"><input type="checkbox" id="sfRole_vessel-dispatch" value="vessel-dispatch" ${existing?.roles?.includes('vessel-dispatch')?'checked':''} style="cursor:pointer"><label style="cursor:pointer">Vessel Dispatch</label></div>
+            <div style="display:flex;gap:6px"><input type="checkbox" id="sfRole_rail-receiving" value="rail-receiving" ${existing?.roles?.includes('rail-receiving')?'checked':''} style="cursor:pointer"><label style="cursor:pointer">Rail Receiving</label></div>
+            <div style="display:flex;gap:6px"><input type="checkbox" id="sfRole_vessel-receiving" value="vessel-receiving" ${existing?.roles?.includes('vessel-receiving')?'checked':''} style="cursor:pointer"><label style="cursor:pointer">Vessel Receiving</label></div>
+          </div>
+        </div>
+        ` : ''}
       </div>`;
 
     const q = id => formEl.querySelector('#'+id);
@@ -4053,18 +4219,32 @@ function openSettingsDialog(){
       const name = q('sfName').value.trim();
       const code = q('sfCode').value.trim().toUpperCase();
       if(!name){ q('sfName').focus(); return; }
+
+      // Collect facility roles if this is a facility
+      let roles = [];
+      if(type==='facility'){
+        const roleCheckboxes = ['calcination', 'grinding', 'rail-dispatch', 'vessel-dispatch', 'rail-receiving', 'vessel-receiving'];
+        roles = roleCheckboxes.filter(r => formEl.querySelector('#sfRole_' + r)?.checked);
+      }
+
       if(editId){
         if(type==='country')   a.updateCountry({id:editId, name, code});
         if(type==='region')    a.updateRegion({id:editId, name, code});
         if(type==='subregion') a.updateSubRegion({id:editId, name, code});
-        if(type==='facility')  a.updateFacility({id:editId, name, code});
+        if(type==='facility'){
+          a.updateFacility({id:editId, name, code});
+          a.updateFacilityRoles(editId, roles);
+        }
       } else {
         if(type==='country')   a.addCountry({name, code});
         if(type==='region')    a.addRegion({countryId:parentId, name, code});
         if(type==='subregion') a.addSubRegion({regionId:parentId, name, code});
         if(type==='facility'){
           const facId = a.addFacility({subRegionId:parentId, name, code});
-          if(facId && !state.ui.selectedFacilityId) state.ui.selectedFacilityId = facId;
+          if(facId) {
+            a.updateFacilityRoles(facId, roles);
+            if(!state.ui.selectedFacilityId) state.ui.selectedFacilityId = facId;
+          }
         }
       }
       persist(); render(); renderSettingsContent(); formEl.innerHTML = '';

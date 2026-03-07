@@ -680,6 +680,13 @@ export function actions(state) {
       Object.values(state.sandboxes || {}).forEach(sb => clean(sb.data || {}));
     },
 
+    updateFacilityRoles(facilityId, roles = []) {
+      const fac = state.org.facilities.find(f => f.id === facilityId);
+      if (fac) {
+        fac.roles = Array.isArray(roles) ? roles : [];
+      }
+    },
+
     // ────────────────────────────────────────────────────────────────────────
     // RECIPES
     // ────────────────────────────────────────────────────────────────────────
@@ -1279,4 +1286,109 @@ export function deleteScheduleEntry(state, id) {
   const ds = getDataset(state);
   if (!Array.isArray(ds.logisticsSchedule)) return;
   ds.logisticsSchedule = ds.logisticsSchedule.filter(e => e.id !== id);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FACILITY ROLES & RAIL DISTRIBUTIONS (Stage 2 Logistics)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Get facility roles for a given facility.
+ */
+export function getFacilityRoles(state, facilityId) {
+  const fac = state.org.facilities.find(f => f.id === facilityId);
+  return fac?.roles || [];
+}
+
+/**
+ * Check if a facility has a specific role.
+ */
+export function facilityHasRole(state, facilityId, role) {
+  return getFacilityRoles(state, facilityId).includes(role);
+}
+
+/**
+ * Save rail distributions (Stage 2 logistics assignments).
+ * Clears old assignments for this source facility on the assigned date, then adds new ones.
+ */
+export function saveRailDistributions(state, { sourceFacilityId, assignedDate, assignments }) {
+  if (!sourceFacilityId) throw new Error('sourceFacilityId is required');
+  if (!assignedDate) throw new Error('assignedDate is required');
+  if (!Array.isArray(assignments)) throw new Error('assignments must be an array');
+
+  const ds = getDataset(state);
+  if (!Array.isArray(ds.actuals.railDistributions)) ds.actuals.railDistributions = [];
+
+  // Helper to generate UUID
+  const logUid = () => {
+    try {
+      if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+        const bytes = new Uint8Array(6);
+        crypto.getRandomValues(bytes);
+        return 'rail_' + Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 9);
+      }
+    } catch (e) {
+      console.warn('[logUid] crypto failed');
+    }
+    return 'rail_' + Math.random().toString(36).slice(2, 9);
+  };
+
+  // Helper to add days to a date string
+  const addDays = (dateStr, days) => {
+    const d = new Date(dateStr);
+    d.setDate(d.getDate() + days);
+    return d.toISOString().split('T')[0];
+  };
+
+  // Clear old assignments for this source facility on this assigned date
+  ds.actuals.railDistributions = ds.actuals.railDistributions.filter(
+    rd => !(rd.sourceFacilityId === sourceFacilityId && rd.assignedDate === assignedDate)
+  );
+
+  // Add new assignments
+  assignments.forEach(a => {
+    if (!a.destinationFacilityId) throw new Error('destinationFacilityId is required for each assignment');
+    if (!a.pickupDate) throw new Error('pickupDate is required for each assignment');
+    if (!a.productId) throw new Error('productId is required for each assignment');
+    if (!a.qtyStn && a.qtyStn !== 0) throw new Error('qtyStn is required for each assignment');
+    if (!a.transitTimeInDays && a.transitTimeInDays !== 0) throw new Error('transitTimeInDays is required for each assignment');
+
+    ds.actuals.railDistributions.push({
+      id: logUid(),
+      sourceFacilityId,
+      destinationFacilityId: a.destinationFacilityId,
+      assignedDate,
+      pickupDate: a.pickupDate,
+      productId: a.productId,
+      qtyStn: +a.qtyStn,
+      transitTimeInDays: +a.transitTimeInDays,
+      expectedArrivalDate: addDays(assignedDate, +a.transitTimeInDays),
+      status: 'assigned'
+    });
+  });
+}
+
+/**
+ * Get rail distributions for a specific date and source facility.
+ */
+export function railDistributionsForDate(state, { sourceFacilityId, assignedDate }) {
+  const ds = getDataset(state);
+  if (!Array.isArray(ds.actuals.railDistributions)) return [];
+
+  return ds.actuals.railDistributions.filter(
+    rd => rd.sourceFacilityId === sourceFacilityId && rd.assignedDate === assignedDate
+  );
+}
+
+/**
+ * Query rail distributions by source facility and pickup date to find which pickups are already assigned.
+ * Returns assigned distribution records for a given pickup batch.
+ */
+export function getAssignedDistributionsForPickup(state, { sourceFacilityId, pickupDate, productId }) {
+  const ds = getDataset(state);
+  if (!Array.isArray(ds.actuals.railDistributions)) return [];
+
+  return ds.actuals.railDistributions.filter(
+    rd => rd.sourceFacilityId === sourceFacilityId && rd.pickupDate === pickupDate && rd.productId === productId
+  );
 }

@@ -127,6 +127,11 @@ export function freshFacilityData() {
 
       // Rail inventory EOD (end-of-day cars in transit for rail transfer)
       railInventoryEod: [],   // { date, facilityId, qtyStn (cars × 112) }
+
+      // Rail distributions (Stage 2 logistics: assigning batches to destination facilities)
+      railDistributions: [],  // { id, sourceFacilityId, destinationFacilityId, pickupDate, assignedDate,
+                              //   productId, qtyStn, transitTimeInDays, expectedArrivalDate,
+                              //   status: 'assigned'|'in-transit'|'received' }
     },
 
     // ── Logistics schedule (sandboxed — what-if scenarios affect this) ──
@@ -169,7 +174,9 @@ function seed() {
       countries:   [],  // { id, name, code }
       regions:     [],  // { id, countryId, name, code }
       subRegions:  [],  // { id, regionId, name, code }
-      facilities:  [],  // { id, subRegionId, name, code, timezone? }
+      facilities:  [],  // { id, subRegionId, name, code, timezone?,
+                        //   roles: ['calcination'|'grinding'|'rail-dispatch'|'vessel-dispatch'|
+                        //           'rail-receiving'|'vessel-receiving'] }
     },
 
     // ── Logistics configuration (shared, not sandboxed) ──

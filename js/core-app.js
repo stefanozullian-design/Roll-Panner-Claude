@@ -3852,6 +3852,15 @@ function openDailyActualsDialog(preselectedFacId){
       const railStorage = s.storages.find(st=>st.categoryHint==='TRANSFER');
       const railProductId = railStorage?.allowedProductIds?.[0] || '';
 
+      // DEBUG: Check if rail equipment/storage exist
+      if (!switchEq || !railStorage || !railProductId) {
+        console.log('⚠️ RAIL TRANSFER CONFIG ISSUE:', {
+          hasSwitch: !!switchEq,
+          hasStorage: !!railStorage,
+          hasProduct: !!railProductId
+        });
+      }
+
       // Simple rail transfer fields: cars loaded, cars picked up, and EOD cars
       // Convert from CARS to STn (1 car = 112 STn)
       const railTransferRows = [];
@@ -3876,11 +3885,18 @@ function openDailyActualsDialog(preselectedFacId){
         .map(i=>({productId:i.dataset.product,qtyStn:+i.value}));
 
       // Debug: Show what's being saved for rail transfers
-      if (railTransferRows.length > 0) console.log('🚂 RAIL TRANSFER DATA BEING SAVED:', railTransferRows);
+      if (railTransferRows.length > 0) {
+        console.log('🚂 RAIL TRANSFER DATA BEING SAVED:', railTransferRows);
+      } else {
+        console.log('⚠️ No rail transfer rows captured');
+      }
 
       a.saveDailyActuals({date, facilityId: activeFacId, inventoryRows, productionRows, railTransferRows, shipmentRows});
       persist(); renderDemand(); renderPlan(); showToast(`Actuals saved for ${activeFacId} ✓`);
     };
+
+    // FIXED: Move facility tab/date handlers outside - they rely on buildForm being callable
+    // The Save button handler stays with the modal setup since the button exists there
   };
 
   host.classList.add('open');

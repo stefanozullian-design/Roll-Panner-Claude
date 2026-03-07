@@ -1150,6 +1150,33 @@ function simulateFacility(state, s, ds, facId, dates) {
     fmProdMap.set(date, fmTotal);
     clkConsumedMap.set(date, clkDerived);
 
+    // ── NEW: Deduct Rail Loading from Cement Inventory ──
+    // When cement is loaded onto rail cars, reduce cement storage EOD by the loaded amount
+    // Match cement products to rail storage's allowedProductIds
+    const railStorages = railTransferStorages();
+    railStorages.forEach(railSt => {
+      // Get products carried by this rail storage
+      const railProducts = railSt.allowedProductIds || [];
+
+      // For each rail product, find matching cement storage and deduct RAIL LOAD
+      railProducts.forEach(railProductId => {
+        // Find cement storage(s) that contain this product
+        storages.forEach(cementSt => {
+          const cementProducts = cementSt.allowedProductIds || [];
+          if (cementProducts.includes(railProductId)) {
+            // This cement storage supplies the rail loading
+            // Deduct RAIL LOAD from cement delta
+            const railLoadAmount = railLoadingMap.get(`${date}|${railProductId}`) || 0;
+            if (railLoadAmount > 0) {
+              const currentDelta = delta.get(cementSt.id) || 0;
+              delta.set(cementSt.id, currentDelta - railLoadAmount);
+              console.log(`[CEMENT DEDUCTION] ${date} | Cement=${cementSt.name} | Product=${railProductId} | RailLoad=${railLoadAmount} STn | NewDelta=${currentDelta - railLoadAmount}`);
+            }
+          }
+        });
+      });
+    });
+
     // ── Step 6: EOD calculation + alert tagging ──
     storages.forEach(st => {
       const bod  = bodMap.get(`${date}|${st.id}`) ?? 0;

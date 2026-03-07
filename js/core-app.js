@@ -3892,6 +3892,13 @@ function openDailyActualsDialog(preselectedFacId){
       }
 
       a.saveDailyActuals({date, facilityId: activeFacId, inventoryRows, productionRows, railTransferRows, shipmentRows});
+
+      // DEBUG: Verify data is in state before persist
+      const railInState = state.official?.actuals?.railTransfers || [];
+      if (railTransferRows.length > 0) {
+        console.log('📊 STATE CHECK - Rail transfers in state.official.actuals:', railInState.length, 'records');
+      }
+
       persist(); renderDemand(); renderPlan(); showToast(`Actuals saved for ${activeFacId} ✓`);
     };
 

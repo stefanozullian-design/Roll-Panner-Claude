@@ -17,11 +17,14 @@ async function init() {
   _datasets.forEach(ds => {
     if (!ds.actuals) ds.actuals = {};
     // Note: inventoryEOD → inventoryBOD migration already handled by store.js migrations
-    if (!Array.isArray(ds.actuals.inventoryBOD)) ds.actuals.inventoryBOD = [];
-    if (!Array.isArray(ds.actuals.production))   ds.actuals.production   = [];
-    if (!Array.isArray(ds.actuals.shipments))     ds.actuals.shipments    = [];
-    if (!Array.isArray(ds.actuals.transfers))     ds.actuals.transfers    = [];
-    if (!Array.isArray(ds.logisticsSchedule))     ds.logisticsSchedule    = [];
+    if (!Array.isArray(ds.actuals.inventoryBOD))     ds.actuals.inventoryBOD     = [];
+    if (!Array.isArray(ds.actuals.production))       ds.actuals.production       = [];
+    if (!Array.isArray(ds.actuals.shipments))        ds.actuals.shipments        = [];
+    if (!Array.isArray(ds.actuals.transfers))        ds.actuals.transfers        = [];
+    if (!Array.isArray(ds.actuals.railTransfers))    ds.actuals.railTransfers    = [];
+    if (!Array.isArray(ds.actuals.railDistributions)) ds.actuals.railDistributions = [];
+    if (!Array.isArray(ds.actuals.railInventoryEod)) ds.actuals.railInventoryEod = [];
+    if (!Array.isArray(ds.logisticsSchedule))        ds.logisticsSchedule        = [];
   });
   if (!state.logistics) state.logistics = { rulesOfEngagement: [], lanes: [] };
   if (!Array.isArray(state.logistics.rulesOfEngagement)) state.logistics.rulesOfEngagement = [];

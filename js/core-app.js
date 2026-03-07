@@ -3855,15 +3855,6 @@ function openDailyActualsDialog(preselectedFacId){
       const railStorage = s.storages.find(st=>st.categoryHint==='TRANSFER');
       const railProductId = railStorage?.allowedProductIds?.[0] || '';
 
-      // DEBUG: Check if rail equipment/storage exist
-      if (!switchEq || !railStorage || !railProductId) {
-        console.log('⚠️ RAIL TRANSFER CONFIG ISSUE:', {
-          hasSwitch: !!switchEq,
-          hasStorage: !!railStorage,
-          hasProduct: !!railProductId
-        });
-      }
-
       // Simple rail transfer fields: cars loaded, cars picked up, and EOD cars
       // Convert from CARS to STn (1 car = 112 STn)
       const railTransferRows = [];
@@ -3887,21 +3878,7 @@ function openDailyActualsDialog(preselectedFacId){
         .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields
         .map(i=>({productId:i.dataset.product,qtyStn:+i.value}));
 
-      // Debug: Show what's being saved for rail transfers
-      if (railTransferRows.length > 0) {
-        console.log('🚂 RAIL TRANSFER DATA BEING SAVED:', railTransferRows);
-      } else {
-        console.log('⚠️ No rail transfer rows captured');
-      }
-
       a.saveDailyActuals({date, facilityId: activeFacId, inventoryRows, productionRows, railTransferRows, shipmentRows});
-
-      // DEBUG: Verify data is in state before persist
-      const railInState = state.official?.actuals?.railTransfers || [];
-      if (railTransferRows.length > 0) {
-        console.log('📊 STATE CHECK - Rail transfers in state.official.actuals:', railInState.length, 'records');
-      }
-
       persist(); renderDemand(); renderPlan(); showToast(`Actuals saved for ${activeFacId} ✓`);
     };
 
@@ -4879,24 +4856,13 @@ function renderLogisticsTransfersPage(){
 
   // Use the same scoped state pattern as Daily Actuals
   const facState = {...state, ui:{...state.ui, selectedFacilityId: activeFacId, selectedFacilityIds:[activeFacId]}};
-
-  // DEBUG: Check what's in facState before calling selectors
-  const railInFacState = facState.official?.actuals?.railTransfers?.length || 0;
-  console.log('🔧 renderTransfersPage - Rail transfers in facState.official:', railInFacState);
-
   const s = selectors(facState);
   const a = actions(facState);
 
   // Helper: Get all rail pickups for this facility (NOT aggregated - each pickup is separate batch)
   const getRailPickups = () => {
     const allRail = s.dataset?.actuals?.railTransfers || [];
-    console.log('🔍 getRailPickups - Total rail transfers in state:', allRail.length);
-    if (allRail.length > 0) {
-      console.log('🔍 Sample records:', allRail.slice(0, 2).map(r => ({type: r.type, fac: r.facilityId, date: r.date})));
-    }
-    console.log('🔍 Looking for: type=pickup AND facilityId=' + activeFacId);
     const railTransfers = allRail.filter(rt => rt.type === 'pickup' && rt.facilityId === activeFacId);
-    console.log('🔍 Found matching pickups:', railTransfers.length);
 
     // Calculate allocated quantities for each batch to show remaining availability
     const pickups = railTransfers.map(rt => {
@@ -5456,13 +5422,3 @@ function openDataManagementDialog(){
 
 // ──────────────────────────────────────────────────────────────────────────────
 // DEBUG: Expose clear rail transfer function to browser console
-// ──────────────────────────────────────────────────────────────────────────────
-window.DEBUG_clearRailTransferData = () => {
-  if (!state) {
-    console.error('State not loaded yet');
-    return;
-  }
-  const a = actions(state);
-  a.clearAllRailTransferData();
-  location.reload();
-};

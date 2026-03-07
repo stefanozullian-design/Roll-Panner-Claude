@@ -525,7 +525,6 @@ export async function loadState() {
     if (raw4) {
       const parsed = JSON.parse(raw4);
       const railCount = parsed.official?.actuals?.railTransfers?.length || 0;
-      console.log('📂 loadState - Loaded from localStorage. Rail transfers:', railCount);
       if (parsed._version === 4) return parsed;
       // Key exists but wrong version — migrate forward
       if (parsed._version === 3) {
@@ -572,15 +571,7 @@ export async function loadState() {
 }
 
 export function saveState(state, { silent = false } = {}) {
-  try {
-    const stateJson = JSON.stringify(state);
-    const railCount = state.official?.actuals?.railTransfers?.length || 0;
-    console.log('💾 PERSIST - Writing to localStorage. Rail transfers in state:', railCount);
-    localStorage.setItem(STORAGE_KEY, stateJson);
-    console.log('✅ PERSIST - localStorage write successful');
-  } catch (err) {
-    console.error('❌ PERSIST - localStorage write FAILED:', err.message);
-  }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   if (!silent) firebaseSave(state);
 }
 

@@ -538,7 +538,8 @@ function render(){
   else if(t==='flow')        renderFlow();
   else if(t==='demand-external' || t==='demand-internal' || t==='demand-total') renderDemand('total');
   else if(t==='logistics-rules') renderLogisticsRules();
-  else if(t==='logistics-shipments'||t==='logistics-imports'||t==='logistics-transfers') renderLogisticsPlaceholder(t);
+  else if(t==='logistics-shipments'||t==='logistics-imports') renderLogisticsPlaceholder(t);
+  else if(t==='logistics-transfers') renderLogisticsTransfersPage();
 }
 
 /* ─────────────────── PLAN TAB ─────────────────── */
@@ -3820,45 +3821,7 @@ function openDailyActualsDialog(preselectedFacId){
         </table>
       </div>
 
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">6. Logistics / Transfers (Rail Distributions)</div>
-      <div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:20px">
-        <div style="font-size:11px;margin-bottom:12px;color:var(--muted)">Assign rail car batches to destination facilities within the organization</div>
-
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;margin-bottom:12px;align-items:end">
-          <div>
-            <label class="form-label" style="font-size:11px">Available Batch</label>
-            <select class="form-input" id="logBatchSelect" style="font-size:11px;padding:6px">
-              <option value="">-- Select batch --</option>
-            </select>
-          </div>
-          <div>
-            <label class="form-label" style="font-size:11px">Quantity (Cars)</label>
-            <input class="form-input" id="logBatchQty" type="number" readonly placeholder="0" style="font-size:11px;padding:6px;background-color:rgba(255,255,255,0.05);cursor:not-allowed">
-          </div>
-          <div>
-            <label class="form-label" style="font-size:11px">Destination Facility</label>
-            <select class="form-input" id="logDestFac" style="font-size:11px;padding:6px">
-              <option value="">-- Select facility --</option>
-            </select>
-          </div>
-          <div>
-            <label class="form-label" style="font-size:11px">Transit Days</label>
-            <input class="form-input" id="logTransitDays" type="number" step="1" min="1" placeholder="1" style="font-size:11px;padding:6px;width:80px">
-          </div>
-        </div>
-        <button class="btn btn-primary" id="logAssignBtn" style="font-size:11px;padding:6px 12px">Assign</button>
-
-        <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
-          <div style="font-size:10px;font-weight:600;margin-bottom:8px">Assigned Distributions</div>
-          <div class="table-scroll" style="max-height:150px;border-radius:6px;overflow-y:auto;border:1px solid var(--border)">
-            <table class="data-table" style="font-size:10px"><thead><tr><th>Pickup Date</th><th>Product</th><th>Qty (Cars)</th><th>Destination</th><th>Transit Days</th><th>Exp. Arrival</th></tr></thead>
-            <tbody id="logDistributionsTable">
-              <tr><td colspan="6" class="text-muted" style="text-align:center;padding:8px;font-size:9px">No assignments yet</td></tr>
-            </tbody>
-            </table>
-          </div>
-        </div>
-      </div>`;
+      `;
 
     // Facility tab switching
     host.querySelectorAll('[data-fac-tab]').forEach(btn => {
@@ -3867,119 +3830,6 @@ function openDailyActualsDialog(preselectedFacId){
 
     // Date change reloads existing actuals
     host.querySelector('#actualsDate').onchange = () => buildForm();
-
-    // ── LOGISTICS/TRANSFERS Section Logic ──
-    {
-      const date = host.querySelector('#actualsDate')?.value || new Date().toISOString().split('T')[0];
-
-      // Helper: Get all rail pickups for all dates (to find available batches)
-      const getRailPickups = () => {
-        const pickups = [];
-        const railTransfers = (s.actuals?.railTransfers || []).filter(rt => rt.type === 'pickup' && rt.facilityId === activeFacId);
-        const pickupsByKey = {};
-        railTransfers.forEach(rt => {
-          const key = rt.date + '|' + rt.productId;
-          pickupsByKey[key] = (pickupsByKey[key] || 0) + rt.qtyStn;
-        });
-        Object.entries(pickupsByKey).forEach(([key, qtyStn]) => {
-          const [pickupDate, productId] = key.split('|');
-          pickups.push({ pickupDate, productId, qtyStn });
-        });
-        return pickups;
-      };
-
-      // Populate batch dropdown
-      const batchSelect = host.querySelector('#logBatchSelect');
-      const qtyInput = host.querySelector('#logBatchQty');
-      const destSelect = host.querySelector('#logDestFac');
-      const assignBtn = host.querySelector('#logAssignBtn');
-
-      const allPickups = getRailPickups();
-      const batchOptions = allPickups.map((p, i) =>
-        `<option value="${i}" data-date="${p.pickupDate}" data-product="${p.productId}" data-qty="${p.qtyStn}">${p.pickupDate} | ${Math.round(p.qtyStn / 112)} cars | ${esc(s.getMaterial(p.productId)?.name || p.productId)}</option>`
-      ).join('');
-      if (batchOptions) {
-        batchSelect.innerHTML = '<option value="">-- Select batch --</option>' + batchOptions;
-      }
-
-      // Populate destination facilities (filter by rail-receiving role)
-      const railReceivingFacs = state.org.facilities.filter(f =>
-        f.id !== activeFacId && (f.roles || []).includes('rail-receiving')
-      );
-      const destOptions = railReceivingFacs.map(f =>
-        `<option value="${f.id}">${esc(f.code)} - ${esc(f.name)}</option>`
-      ).join('');
-      if (destOptions) {
-        destSelect.innerHTML = '<option value="">-- Select facility --</option>' + destOptions;
-      }
-
-      // Batch selection handler
-      batchSelect.onchange = () => {
-        if (batchSelect.value) {
-          const selected = batchSelect.options[batchSelect.selectedIndex];
-          const qtyStn = +selected.dataset.qty;
-          qtyInput.value = Math.round(qtyStn / 112); // Convert back to cars
-        } else {
-          qtyInput.value = '';
-        }
-      };
-
-      // Assign button handler
-      assignBtn.onclick = () => {
-        const selectedIdx = batchSelect.value;
-        const destFacId = destSelect.value;
-        const transitDays = host.querySelector('#logTransitDays')?.value;
-
-        if (!selectedIdx) { alert('Please select a batch'); return; }
-        if (!destFacId) { alert('Please select a destination facility'); return; }
-        if (!transitDays || +transitDays < 1) { alert('Please enter valid transit days'); return; }
-
-        const selected = batchSelect.options[batchSelect.selectedIndex];
-        const pickupDate = selected.dataset.date;
-        const productId = selected.dataset.product;
-        const qtyStn = +selected.dataset.qty;
-
-        // Save the assignment
-        a.saveRailDistributions({
-          sourceFacilityId: activeFacId,
-          assignedDate: date,
-          assignments: [{
-            destinationFacilityId: destFacId,
-            pickupDate,
-            productId,
-            qtyStn,
-            transitTimeInDays: +transitDays
-          }]
-        });
-
-        // Reload the form
-        showToast('Rail distribution assigned ✓');
-        buildForm();
-      };
-
-      // Display assigned distributions
-      const displayAssignments = () => {
-        const tbody = host.querySelector('#logDistributionsTable');
-        const dists = a.railDistributionsForDate(state, { sourceFacilityId: activeFacId, assignedDate: date }) || [];
-        if (dists.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="6" class="text-muted" style="text-align:center;padding:8px;font-size:9px">No assignments yet</td></tr>';
-          return;
-        }
-        tbody.innerHTML = dists.map(d => {
-          const destFac = state.org.facilities.find(f => f.id === d.destinationFacilityId);
-          const product = s.getMaterial(d.productId);
-          return `<tr>
-            <td>${d.pickupDate}</td>
-            <td>${esc(product?.name || d.productId)}</td>
-            <td>${Math.round(d.qtyStn / 112)}</td>
-            <td>${esc(destFac?.code || '')}</td>
-            <td>${d.transitTimeInDays}</td>
-            <td>${d.expectedArrivalDate}</td>
-          </tr>`;
-        }).join('');
-      };
-      displayAssignments();
-    }
 
     // Save button
     host.querySelector('#saveActualsBtn').onclick = ev => {
@@ -4991,6 +4841,162 @@ function renderLogisticsPlaceholder(tabKey){
     <div style="font-size:13px;max-width:380px;text-align:center">${info.desc}</div>
     <div style="font-size:11px;padding:6px 16px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:20px">🚧 Coming soon</div>
   </div>`;
+}
+
+function renderLogisticsTransfersPage(){
+  const root = el('tab-logistics-transfers');
+  if(!root) return;
+
+  const { scope } = a.getScope(state);
+  const activeFacId = scope.facilityIds[0] || state.org.facilities[0]?.id;
+  if(!activeFacId) {
+    root.innerHTML = '<div style="padding:20px;color:var(--muted)">Please select a facility to view logistics transfers.</div>';
+    return;
+  }
+
+  const date = new Date().toISOString().split('T')[0];
+  const s = scope.facilities[0]; // Get facility scope
+
+  // Helper: Get all rail pickups for this facility
+  const getRailPickups = () => {
+    const pickups = [];
+    const railTransfers = (s.actuals?.railTransfers || []).filter(rt => rt.type === 'pickup' && rt.facilityId === activeFacId);
+    const pickupsByKey = {};
+    railTransfers.forEach(rt => {
+      const key = rt.date + '|' + rt.productId;
+      pickupsByKey[key] = (pickupsByKey[key] || 0) + rt.qtyStn;
+    });
+    Object.entries(pickupsByKey).forEach(([key, qtyStn]) => {
+      const [pickupDate, productId] = key.split('|');
+      pickups.push({ pickupDate, productId, qtyStn });
+    });
+    return pickups;
+  };
+
+  const allPickups = getRailPickups();
+  const railReceivingFacs = state.org.facilities.filter(f =>
+    f.id !== activeFacId && (f.roles || []).includes('rail-receiving')
+  );
+
+  const renderPage = () => {
+    const batchOptions = allPickups.map((p, i) =>
+      `<option value="${i}" data-date="${p.pickupDate}" data-product="${p.productId}" data-qty="${p.qtyStn}">${p.pickupDate} | ${Math.round(p.qtyStn / 112)} cars | ${esc(s.getMaterial(p.productId)?.name || p.productId)}</option>`
+    ).join('');
+    const destOptions = railReceivingFacs.map(f =>
+      `<option value="${f.id}">${esc(f.code)} - ${esc(f.name)}</option>`
+    ).join('');
+
+    const dists = a.railDistributionsForDate(state, { sourceFacilityId: activeFacId, assignedDate: date }) || [];
+    const distRows = dists.map(d => {
+      const destFac = state.org.facilities.find(f => f.id === d.destinationFacilityId);
+      const product = s.getMaterial(d.productId);
+      return `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px">${d.pickupDate}</td>
+        <td style="padding:8px">${esc(product?.name || d.productId)}</td>
+        <td style="padding:8px;text-align:right">${Math.round(d.qtyStn / 112)}</td>
+        <td style="padding:8px">${esc(destFac?.code || '')}</td>
+        <td style="padding:8px;text-align:right">${d.transitTimeInDays}</td>
+        <td style="padding:8px">${d.expectedArrivalDate}</td>
+      </tr>`;
+    }).join('');
+
+    root.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:20px;min-height:400px">
+      <!-- LEFT: Assignment Form -->
+      <div style="border-right:1px solid var(--border);padding-right:20px">
+        <div style="font-weight:700;font-size:14px;margin-bottom:16px">Assign Rail Batch</div>
+        <div style="display:grid;gap:12px">
+          <div>
+            <label class="form-label" style="font-size:11px">Available Batch</label>
+            <select id="logBatchSelect" class="form-input" style="font-size:11px;padding:8px">
+              <option value="">-- Select batch --</option>
+              ${batchOptions}
+            </select>
+          </div>
+          <div>
+            <label class="form-label" style="font-size:11px">Quantity (Cars)</label>
+            <input id="logBatchQty" type="number" readonly class="form-input" placeholder="0" style="font-size:11px;padding:8px;background-color:rgba(255,255,255,0.05);cursor:not-allowed">
+          </div>
+          <div>
+            <label class="form-label" style="font-size:11px">Destination Facility</label>
+            <select id="logDestFac" class="form-input" style="font-size:11px;padding:8px">
+              <option value="">-- Select facility --</option>
+              ${destOptions}
+            </select>
+          </div>
+          <div>
+            <label class="form-label" style="font-size:11px">Transit Days</label>
+            <input id="logTransitDays" type="number" step="1" min="1" placeholder="1" class="form-input" style="font-size:11px;padding:8px">
+          </div>
+          <button id="logAssignBtn" class="btn btn-primary" style="margin-top:8px;padding:10px">Assign Batch</button>
+        </div>
+      </div>
+
+      <!-- RIGHT: Assigned Distributions Table -->
+      <div>
+        <div style="font-weight:700;font-size:14px;margin-bottom:16px">Assigned Distributions</div>
+        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:350px;overflow-y:auto">
+          <table class="data-table" style="font-size:10px;width:100%">
+            <thead style="position:sticky;top:0;background:rgba(255,255,255,0.05);border-bottom:1px solid var(--border)">
+              <tr><th style="padding:8px">Pickup</th><th style="padding:8px">Product</th><th style="padding:8px;text-align:right">Cars</th><th style="padding:8px">Destination</th><th style="padding:8px;text-align:right">Days</th><th style="padding:8px">Arrival</th></tr>
+            </thead>
+            <tbody id="logDistributionsTable" style="font-size:10px">
+              ${distRows || '<tr><td colspan="6" style="text-align:center;padding:12px;color:var(--muted)">No assignments yet</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+
+    // Event handlers
+    const batchSelect = root.querySelector('#logBatchSelect');
+    const qtyInput = root.querySelector('#logBatchQty');
+    const destSelect = root.querySelector('#logDestFac');
+    const transitDaysInput = root.querySelector('#logTransitDays');
+    const assignBtn = root.querySelector('#logAssignBtn');
+
+    batchSelect.onchange = () => {
+      if (batchSelect.value) {
+        const selected = batchSelect.options[batchSelect.selectedIndex];
+        const qtyStn = +selected.dataset.qty;
+        qtyInput.value = Math.round(qtyStn / 112);
+      } else {
+        qtyInput.value = '';
+      }
+    };
+
+    assignBtn.onclick = () => {
+      const selectedIdx = batchSelect.value;
+      const destFacId = destSelect.value;
+      const transitDays = transitDaysInput.value;
+
+      if (!selectedIdx) { alert('Please select a batch'); return; }
+      if (!destFacId) { alert('Please select a destination facility'); return; }
+      if (!transitDays || +transitDays < 1) { alert('Please enter valid transit days'); return; }
+
+      const selected = batchSelect.options[batchSelect.selectedIndex];
+      const pickupDate = selected.dataset.date;
+      const productId = selected.dataset.product;
+      const qtyStn = +selected.dataset.qty;
+
+      a.saveRailDistributions({
+        sourceFacilityId: activeFacId,
+        assignedDate: date,
+        assignments: [{
+          destinationFacilityId: destFacId,
+          pickupDate,
+          productId,
+          qtyStn,
+          transitTimeInDays: +transitDays
+        }]
+      });
+
+      persist();
+      showToast('Rail distribution assigned ✓');
+      renderPage();
+    };
+  };
+
+  renderPage();
 }
 
 // Boot handled by init() above

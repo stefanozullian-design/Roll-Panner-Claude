@@ -3875,7 +3875,8 @@ function openDailyActualsDialog(preselectedFacId){
         .filter(i => i.value !== '' && i.value !== null)  // ✓ Skip empty fields
         .map(i=>({productId:i.dataset.product,qtyStn:+i.value}));
 
-      // DEBUG: Log data being saved
+      // Debug: Show what's being saved for rail transfers
+      if (railTransferRows.length > 0) console.log('🚂 RAIL TRANSFER DATA BEING SAVED:', railTransferRows);
 
       a.saveDailyActuals({date, facilityId: activeFacId, inventoryRows, productionRows, railTransferRows, shipmentRows});
       persist(); renderDemand(); renderPlan(); showToast(`Actuals saved for ${activeFacId} ✓`);

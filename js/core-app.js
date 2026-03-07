@@ -4879,6 +4879,11 @@ function renderLogisticsTransfersPage(){
 
   // Use the same scoped state pattern as Daily Actuals
   const facState = {...state, ui:{...state.ui, selectedFacilityId: activeFacId, selectedFacilityIds:[activeFacId]}};
+
+  // DEBUG: Check what's in facState before calling selectors
+  const railInFacState = facState.official?.actuals?.railTransfers?.length || 0;
+  console.log('🔧 renderTransfersPage - Rail transfers in facState.official:', railInFacState);
+
   const s = selectors(facState);
   const a = actions(facState);
 

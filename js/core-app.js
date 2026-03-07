@@ -4881,7 +4881,14 @@ function renderLogisticsTransfersPage(){
 
   // Helper: Get all rail pickups for this facility (NOT aggregated - each pickup is separate batch)
   const getRailPickups = () => {
-    const railTransfers = (s.actuals?.railTransfers || []).filter(rt => rt.type === 'pickup' && rt.facilityId === activeFacId);
+    const allRail = s.actuals?.railTransfers || [];
+    console.log('🔍 getRailPickups - Total rail transfers in state:', allRail.length);
+    if (allRail.length > 0) {
+      console.log('🔍 Sample records:', allRail.slice(0, 2).map(r => ({type: r.type, fac: r.facilityId, date: r.date})));
+    }
+    console.log('🔍 Looking for: type=pickup AND facilityId=' + activeFacId);
+    const railTransfers = allRail.filter(rt => rt.type === 'pickup' && rt.facilityId === activeFacId);
+    console.log('🔍 Found matching pickups:', railTransfers.length);
 
     // Calculate allocated quantities for each batch to show remaining availability
     const pickups = railTransfers.map(rt => {

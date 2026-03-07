@@ -4847,23 +4847,19 @@ function renderLogisticsTransfersPage(){
   const root = el('tab-logistics-transfers');
   if(!root) return;
 
-  const { scope } = a.getScope(state);
-  const activeFacId = scope.facilityIds[0] || state.org.facilities[0]?.id;
+  const org = state.org;
+  const activeFacId = state.ui.selectedFacilityIds?.[0] || org.facilities[0]?.id;
   if(!activeFacId) {
     root.innerHTML = '<div style="padding:20px;color:var(--muted)">Please select a facility to view logistics transfers.</div>';
     return;
   }
 
   const date = new Date().toISOString().split('T')[0];
-  const dataset = a.getDataset(state);
-  const s = {
-    storages: dataset.storages.filter(st => st.facilityId === activeFacId),
-    actuals: dataset.actuals,
-    getMaterial: (pid) => {
-      const catalog = state.catalog || [];
-      return catalog.find(c => c.id === pid);
-    }
-  };
+
+  // Use the same scoped state pattern as Daily Actuals
+  const facState = {...state, ui:{...state.ui, selectedFacilityId: activeFacId, selectedFacilityIds:[activeFacId]}};
+  const s = selectors(facState);
+  const a = actions(facState);
 
   // Helper: Get all rail pickups for this facility
   const getRailPickups = () => {

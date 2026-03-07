@@ -4855,7 +4855,15 @@ function renderLogisticsTransfersPage(){
   }
 
   const date = new Date().toISOString().split('T')[0];
-  const s = scope.facilities[0]; // Get facility scope
+  const dataset = a.getDataset(state);
+  const s = {
+    storages: dataset.storages.filter(st => st.facilityId === activeFacId),
+    actuals: dataset.actuals,
+    getMaterial: (pid) => {
+      const catalog = state.catalog || [];
+      return catalog.find(c => c.id === pid);
+    }
+  };
 
   // Helper: Get all rail pickups for this facility
   const getRailPickups = () => {

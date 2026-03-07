@@ -570,7 +570,15 @@ export async function loadState() {
 }
 
 export function saveState(state, { silent = false } = {}) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  try {
+    const stateJson = JSON.stringify(state);
+    const railCount = state.official?.actuals?.railTransfers?.length || 0;
+    console.log('💾 PERSIST - Writing to localStorage. Rail transfers in state:', railCount);
+    localStorage.setItem(STORAGE_KEY, stateJson);
+    console.log('✅ PERSIST - localStorage write successful');
+  } catch (err) {
+    console.error('❌ PERSIST - localStorage write FAILED:', err.message);
+  }
   if (!silent) firebaseSave(state);
 }
 

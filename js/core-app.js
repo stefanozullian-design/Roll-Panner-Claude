@@ -4889,7 +4889,7 @@ function renderLogisticsTransfersPage(){
 
   // Helper: Get all rail pickups for this facility (NOT aggregated - each pickup is separate batch)
   const getRailPickups = () => {
-    const allRail = s.actuals?.railTransfers || [];
+    const allRail = s.dataset?.actuals?.railTransfers || [];
     console.log('🔍 getRailPickups - Total rail transfers in state:', allRail.length);
     if (allRail.length > 0) {
       console.log('🔍 Sample records:', allRail.slice(0, 2).map(r => ({type: r.type, fac: r.facilityId, date: r.date})));
@@ -4901,7 +4901,7 @@ function renderLogisticsTransfersPage(){
     // Calculate allocated quantities for each batch to show remaining availability
     const pickups = railTransfers.map(rt => {
       // Get all assignments for this batch
-      const allocations = (s.actuals?.railDistributions || []).filter(
+      const allocations = (s.dataset?.actuals?.railDistributions || []).filter(
         rd => rd.batchId === rt.batchId && rd.sourceFacilityId === activeFacId
       );
       const allocatedQty = allocations.reduce((sum, a) => sum + a.qtyStn, 0);

@@ -3876,12 +3876,6 @@ function openDailyActualsDialog(preselectedFacId){
         .map(i=>({productId:i.dataset.product,qtyStn:+i.value}));
 
       // DEBUG: Log data being saved
-      console.log('=== DAILY ACTUALS SAVE DEBUG ===');
-      console.log('DATE:', date);
-      console.log('PROD ROWS:', productionRows);
-      console.log('RAIL ROWS:', railTransferRows);
-      console.log('INVENTORY ROWS:', inventoryRows);
-      console.log('SHIPMENT ROWS:', shipmentRows);
 
       a.saveDailyActuals({date, facilityId: activeFacId, inventoryRows, productionRows, railTransferRows, shipmentRows});
       persist(); renderDemand(); renderPlan(); showToast(`Actuals saved for ${activeFacId} ✓`);
@@ -5392,10 +5386,8 @@ function openDataManagementDialog(){
               console.group(`${dataType === 'production' ? 'Production' : 'Shipment'} Import Errors (${errors.length} rows)`);
               errors.slice(0, 20).forEach(err => {
                 const msg = `Row ${err.row}: ${err.reasons.join(', ')} - Data: ${JSON.stringify(err.data)}`;
-                console.log(msg);
               });
               if (errors.length > 20) {
-                console.log(`... and ${errors.length - 20} more errors`);
               }
               console.groupEnd();
             }
@@ -5433,7 +5425,5 @@ window.DEBUG_clearRailTransferData = () => {
   }
   const a = actions(state);
   a.clearAllRailTransferData();
-  console.log('✓ All Rail Transfer data cleared');
-  console.log('Refreshing page...');
   location.reload();
 };

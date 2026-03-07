@@ -303,8 +303,6 @@ function simulateFacility(state, s, ds, facId, dates) {
 
           // ✓ DEBUG: Log restart decision
           if (facId === 'BRS' && (eqId.includes('BRSKO') || eqId.includes('BRSKL'))) {
-            console.log(`[RESTART CHECK] ${date} | ${eqId} | PrevProd=${previousProd} (was OFF) | Storage=${storageForEq.id}`);
-            console.log(`  BOD=${bod.toFixed(1)}, MaxCap=${maxCap}, AvgDemand=${avgConsumption.toFixed(1)}, MaxProd=${maxProd.toFixed(1)}`);
           }
 
           // ✓ FIXED: Pass only 4 parameters (fixed 3× buffer in function)
@@ -316,7 +314,6 @@ function simulateFacility(state, s, ds, facId, dates) {
           if (facId === 'BRS' && (eqId.includes('BRSKL') || eqId.includes('BRSKO'))) {
             const headroom = maxCap - bod;
             const bufferHeadroom = 0.80 * maxCap; // 80% buffer requirement
-            console.log(`[RESTART DECISION] ${date} | ${eqId} | Headroom=${headroom.toFixed(0)}/${bufferHeadroom.toFixed(0)} (need 80%) | ${canRestart ? '✓ALLOW' : '✗DENY'}`);
           }
 
           if (!canRestart) {
@@ -390,7 +387,6 @@ function simulateFacility(state, s, ds, facId, dates) {
   // ────────────────────────────────────────────────────────────────────────
 
   dates.forEach((date, idx) => {
-    if (idx === 0) console.log('[SIM DEBUG] Starting simulation for facility:', facId, 'with dates:', dates.slice(0, 5));
 
     // ── Carry forward BOD from previous EOD, then check for physical override ──
     if (idx > 0) {
@@ -437,17 +433,13 @@ function simulateFacility(state, s, ds, facId, dates) {
     // Load EOD actuals (user-entered ending inventory)
     // These are stored as aggregate values per facility (not per storage/product)
     if (idx === 0) {
-      console.log(`[EOD DEBUG] railInventoryEod array:`, ds.actuals.railInventoryEod);
-      console.log(`[EOD DEBUG] Current date: ${date}, facId: ${facId}`);
     }
     const eodActualsToday = ds.actuals.railInventoryEod.filter(e => e.date === date && e.facilityId === facId);
     let userEodTotal = null;
     if (eodActualsToday.length > 0) {
       // Sum all EOD actuals for this date (in case there are multiple entries)
       userEodTotal = eodActualsToday.reduce((sum, e) => sum + (e.qtyStn || 0), 0);
-      console.log(`[EOD DEBUG] Found ${eodActualsToday.length} EOD entries for ${date}|${facId}: ${userEodTotal} STn`);
     } else if (date === '2025-01-01') {
-      console.log(`[EOD DEBUG] No EOD entries found for ${date}|${facId}. Available entries:`, eodActualsToday);
     }
 
     // Roll forward BOD for rail storages (same pattern as other storages)
@@ -462,18 +454,14 @@ function simulateFacility(state, s, ds, facId, dates) {
         st.allowedProductIds?.forEach(pid => {
           const key = `${prev}|${st.id}|${pid}`;
           const eodVal = railEodMap.get(key);
-          console.log(`[BOD ROLLFORWARD DEBUG] Looking for previous EOD: key="${key}", found=${eodVal}`);
           prevEod += eodVal || 0;
         });
-        console.log(`[BOD ROLLFORWARD DEBUG] ${date}|${st.id}: prevEod=${prevEod}, using=${prevEod !== 0 ? prevEod : 'physical'}`);
         bod = prevEod !== 0 ? prevEod : (invBODIndex.get(`${date}|${st.id}`) ?? 0);
       } else {
         // First day: use physical count if provided, else 0
         bod = invBODIndex.get(`${date}|${st.id}`) ?? 0;
-        console.log(`[BOD ROLLFORWARD DEBUG] Day 1 BOD for ${date}|${st.id}: ${bod} (from physical)`);
       }
       railBodMap.set(`${date}|${st.id}`, bod);
-      console.log(`[BOD ROLLFORWARD DEBUG] Set BOD for ${date}|${st.id}: ${bod}`);
     });
 
     // ── Apply loader campaigns for rail transfer ──
@@ -583,7 +571,6 @@ function simulateFacility(state, s, ds, facId, dates) {
           const ruleVersion = RulesOfEngagement.getRecipeVersion(facId, cap.productId, eq.id);
           if (ruleVersion) {
             selectedRecipeVersion = ruleVersion;
-            console.log(`[RULES OF ENGAGEMENT] ${date} | Equipment=${eq.id} | Recipe version from rules: v${selectedRecipeVersion}`);
 
             // Find recipe with selected version
             const versioned = ds.recipes.find(r =>
@@ -593,9 +580,7 @@ function simulateFacility(state, s, ds, facId, dates) {
             );
             if (versioned) {
               recipe = versioned;
-              console.log(`[RULES OF ENGAGEMENT] ${date} | Equipment=${eq.id} | Recipe updated to v${recipe.version}`);
             } else {
-              console.log(`[RULES OF ENGAGEMENT] ${date} | Equipment=${eq.id} | NO RECIPE FOUND for v${selectedRecipeVersion}`);
             }
           }
         }
@@ -651,7 +636,6 @@ function simulateFacility(state, s, ds, facId, dates) {
               if (typeof RulesOfEngagement !== 'undefined') {
                 targetStorageId = RulesOfEngagement.getClilinkerStorage(facId, clkProductId);
                 if (targetStorageId) {
-                  console.log(`[RULES OF ENGAGEMENT] ${date} | Clinker routing: ${clkProductId} → ${targetStorageId}`);
                 }
               }
 
@@ -681,7 +665,6 @@ function simulateFacility(state, s, ds, facId, dates) {
 
               // ✓ DIAGNOSTIC: Log storage selection for each FM
               if (facId === 'BRS' && eq.id && eq.id.includes('FM')) {
-                console.log(`[CLINKER ROUTING] ${date} | Equipment=${eq.id} | Product=${cap.productId} | ClinkProduct=${clkProductId} | SelectedStorage=${clkStorage?.name || clkStorage?.id || 'NONE'}`);
               }
 
               if (clkStorage) {
@@ -809,7 +792,6 @@ function simulateFacility(state, s, ds, facId, dates) {
 
             // ✓ DIAGNOSTIC: Log consumption deductions
             if (facId === 'BRS' && eqId && eqId.includes('FM')) {
-              console.log(`[CONSUMPTION DEDUCTION] ${date} | FM=${eqId} | ClinkProduct=${c.materialId} | Qty=${compQty.toFixed(1)} | DeductedFrom=${compSt?.name || compSt?.id || 'NONE'}`);
             }
 
             // ✓ NEW: Track clinker consumption from this storage (for kiln demand calculation)
@@ -857,7 +839,6 @@ function simulateFacility(state, s, ds, facId, dates) {
           runState.runDaysSoFar = 1;
           runState.idleDaysSoFar = 0;
           runState.reason = 'restarted';
-          console.log(`[RUN/IDLE] ${date} | FM=${eq.id} | Status=ON | RunDays=1 | Reason=restarted from idle`);
         } else {
           runState.runDaysSoFar++;
           runState.reason = 'running';
@@ -899,7 +880,6 @@ function simulateFacility(state, s, ds, facId, dates) {
 
       const recipe = s.getRecipeForProduct(productId);
       if (!recipe || !recipe.components) {
-        // console.log(`[FM CONSUMPTION DEBUG] ${date}: ${eqId} - NO RECIPE for ${productId}`);
         return;
       }
 
@@ -923,7 +903,6 @@ function simulateFacility(state, s, ds, facId, dates) {
       const fm2 = fmConsumptionMap.get('BRS_BRSFM02') || 0;
       const total = clkConsumedMap.get(date) || 0;
       if (date === '2026-01-01' || date === '2026-01-02' || date === '2026-01-05') {
-        console.log(`[FM CONSUMPTION] ${date}: FM01=${fm1.toFixed(1)}, FM02=${fm2.toFixed(1)}, Sum=${(fm1+fm2).toFixed(1)}, Total=${total.toFixed(1)}, Match=${((fm1+fm2)===total ? 'YES' : 'NO')}`);
       }
     }
 
@@ -943,7 +922,6 @@ function simulateFacility(state, s, ds, facId, dates) {
       const fm1 = fm1ConsumedMap.get(date) || 0;
       const fm2 = fm2ConsumedMap.get(date) || 0;
       const total = clkConsumedMap.get(date) || 0;
-      console.log(`[CLK CONSUMPTION] ${date}: Total=${total.toFixed(1)}, FM01=${fm1.toFixed(1)}, FM02=${fm2.toFixed(1)}, Sum=${(fm1+fm2).toFixed(1)}`);
     }
 
     // ✓ NEW: Calculate rolling 10-day average DEMAND (shipments) for finish mills
@@ -968,7 +946,6 @@ function simulateFacility(state, s, ds, facId, dates) {
 
       // ✓ DIAGNOSTIC: Show what demand is being used for restart calc
       if (facId === 'BRS' && eq.id && eq.id.includes('FM')) {
-        console.log(`[FM DEMAND] ${date} | ${eq.id} | AvgDemand=${avgDemand.toFixed(1)} STn/day (based on shipments)`);
       }
     });
 
@@ -1047,7 +1024,6 @@ function simulateFacility(state, s, ds, facId, dates) {
 
       // ✓ DIAGNOSTIC: Show what demand is being used with detailed breakdown
       if (facId === 'BRS' && eq.id && (eq.id.includes('BRSKO') || eq.id.includes('BRSKL'))) {
-        console.log(`[KILN DEMAND] ${date} | ${eq.id} | Storage=${targetStorageId} | SumConsumption=${sumConsumption.toFixed(1)} STn over ${daysCount} days | AvgDemand=${avgDemand.toFixed(1)} STn/day`);
       }
     });
 
@@ -1077,7 +1053,6 @@ function simulateFacility(state, s, ds, facId, dates) {
           runState.runDaysSoFar = 1;
           runState.idleDaysSoFar = 0;
           runState.reason = 'restarted';
-          console.log(`[RUN/IDLE] ${date} | Kiln=${eq.id} | Status=ON | RunDays=1 | Reason=restarted from idle`);
         } else {
           runState.runDaysSoFar++;
           runState.reason = 'running';
@@ -1093,14 +1068,12 @@ function simulateFacility(state, s, ds, facId, dates) {
           runState.runDaysSoFar = 0;
           runState.reason = 'stopped (buffer rule governs restart)';
           if (eq.id && (eq.id.includes('BRSKO') || eq.id.includes('BRSKL'))) {
-            console.log(`[RUN/IDLE] ${date} | Kiln=${eq.id} | Status=OFF | IdleDays=1 | Reason=stopped due to production constraint`);
           }
         } else if (runState.status === 'off') {
           // Already OFF, continue OFF
           runState.idleDaysSoFar++;
           runState.reason = 'offline (waiting for buffer)';
           if (eq.id && (eq.id.includes('BRSKO') || eq.id.includes('BRSKL'))) {
-            console.log(`[RUN/IDLE] ${date} | Kiln=${eq.id} | Status=OFF | IdleDays=${runState.idleDaysSoFar} | Reason=continuing offline`);
           }
         }
       }
@@ -1170,7 +1143,6 @@ function simulateFacility(state, s, ds, facId, dates) {
             if (railLoadAmount > 0) {
               const currentDelta = delta.get(cementSt.id) || 0;
               delta.set(cementSt.id, currentDelta - railLoadAmount);
-              console.log(`[CEMENT DEDUCTION] ${date} | Cement=${cementSt.name} | Product=${railProductId} | RailLoad=${railLoadAmount} STn | NewDelta=${currentDelta - railLoadAmount}`);
             }
           }
         });
@@ -1216,9 +1188,7 @@ function simulateFacility(state, s, ds, facId, dates) {
     // FIX: Use railTransferStorages() which correctly identifies storages by categoryHint,
     // not storagesByFamily('TRANSF') which looks for product family code (which rail products don't have)
     const transfStorages = railTransferStorages();
-    if (date === '2025-01-01') console.log(`[EOD DEBUG] TRANSF storages found:`, transfStorages.map(s => s.id));
     transfStorages.forEach(railSt => {
-      console.log(`[EOD DEBUG] Processing storage: ${railSt.id}, products: ${railSt.allowedProductIds?.join(',')}`);
 
       // FIX: When user enters aggregate EOD, it applies to the storage as a whole, not per-product.
       // If storage has multiple products, distribute the aggregate EOD proportionally.
@@ -1233,7 +1203,6 @@ function simulateFacility(state, s, ds, facId, dates) {
 
         // Get switch pickup from actuals (stored as type 'pickup')
         let pickup = railPickupMap.get(`${date}|${productId}`) || 0;
-        console.log(`[EOD DEBUG] ${date}|${productId}: BOD=${bod}, Loading=${loading}, Pickup=${pickup}, UserEOD=${userEodPerStorage}`);
 
         // VALIDATION: Switch Pickup cannot exceed available (BOD + Loading)
         const available = bod + loading;
@@ -1277,8 +1246,6 @@ function simulateFacility(state, s, ds, facId, dates) {
 
         // Store EOD
         railEodMap.set(`${date}|${railSt.id}|${productId}`, eod);
-        console.log(`[EOD DEBUG] Stored EOD: ${date}|${railSt.id}|${productId} = ${eod}`);
-        console.log(`[EOD DEBUG] railEodMap now has ${railEodMap.size} entries. Next date will look for this with key format: date|storage|product`);
 
         // Track net change for delta (if needed for other calcs)
         const netChange = loading - pickup;
@@ -1407,7 +1374,6 @@ function simulateFacility(state, s, ds, facId, dates) {
     if (!rows.length) return [];
     const sectionId = `inv_eod_TRANSF`;
 
-    console.log('[EOD DISPLAY DEBUG] railEodMap size:', railEodMap.size, 'Map contents:', Array.from(railEodMap.entries()).filter(([k]) => k.includes('2026-03-05')));
 
     return [
       { kind: 'section-header', label: 'RAIL INV-EOD', _section: 'eod', _sectionId: sectionId,
@@ -1417,11 +1383,9 @@ function simulateFacility(state, s, ds, facId, dates) {
             st.allowedProductIds?.forEach(pid => {
               const key = `${d}|${st.id}|${pid}`;
               const val = railEodMap.get(key) || 0;
-              if (d === '2026-03-05') console.log(`[EOD DISPLAY] Looking up ${key} = ${val}`);
               total += val;
             });
           });
-          if (d === '2026-03-05') console.log(`[EOD DISPLAY] Total for ${d}: ${total}`);
           return total;
         }) },
       ...rows.map(st => ({ kind: 'row', storageId: st.id, label: st.name,
@@ -1431,7 +1395,6 @@ function simulateFacility(state, s, ds, facId, dates) {
           (st.allowedProductIds || []).forEach(pid => {
             const key = `${d}|${st.id}|${pid}`;
             const val = railEodMap.get(key) || 0;
-            if (d === '2026-03-05') console.log(`[EOD DISPLAY] Row ${st.id}: looking up ${key} = ${val}`);
             total += val;
           });
           return total;

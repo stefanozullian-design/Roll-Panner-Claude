@@ -524,6 +524,8 @@ export async function loadState() {
     const raw4 = localStorage.getItem(STORAGE_KEY);
     if (raw4) {
       const parsed = JSON.parse(raw4);
+      const railCount = parsed.official?.actuals?.railTransfers?.length || 0;
+      console.log('📂 loadState - Loaded from localStorage. Rail transfers:', railCount);
       if (parsed._version === 4) return parsed;
       // Key exists but wrong version — migrate forward
       if (parsed._version === 3) {

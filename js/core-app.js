@@ -4890,7 +4890,7 @@ function renderLogisticsTransfersPage(){
       `<option value="${f.id}">${esc(f.code)} - ${esc(f.name)}</option>`
     ).join('');
 
-    const dists = a.railDistributionsForDate(state, { sourceFacilityId: activeFacId, assignedDate: date }) || [];
+    const dists = a.railDistributionsForDate({ sourceFacilityId: activeFacId, assignedDate: date }) || [];
     const distRows = dists.map(d => {
       const destFac = state.org.facilities.find(f => f.id === d.destinationFacilityId);
       const product = s.getMaterial(d.productId);

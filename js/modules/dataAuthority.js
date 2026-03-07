@@ -1001,6 +1001,57 @@ export function actions(state) {
         ds.actuals.railTransfers = [];
       }
     },
+
+    // ────────────────────────────────────────────────────────────────────────
+    // RAIL DISTRIBUTIONS (Logistics/Transfers - Stage 2)
+    // ────────────────────────────────────────────────────────────────────────
+
+    saveRailDistributions({ sourceFacilityId, assignedDate, assignments }) {
+      if (!Array.isArray(ds.actuals.railDistributions)) ds.actuals.railDistributions = [];
+
+      // Clear old assignments for this source facility on this date
+      ds.actuals.railDistributions = ds.actuals.railDistributions.filter(
+        rd => !(rd.sourceFacilityId === sourceFacilityId && rd.assignedDate === assignedDate)
+      );
+
+      // Validate and add new assignments
+      (assignments || []).forEach(a => {
+        if (!a.destinationFacilityId) throw new Error('destinationFacilityId is required for each assignment');
+        if (!a.pickupDate) throw new Error('pickupDate is required for each assignment');
+        if (!a.productId) throw new Error('productId is required for each assignment');
+        if (!a.qtyStn && a.qtyStn !== 0) throw new Error('qtyStn is required for each assignment');
+        if (!a.transitTimeInDays && a.transitTimeInDays !== 0) throw new Error('transitTimeInDays is required for each assignment');
+
+        ds.actuals.railDistributions.push({
+          id: logUid(),
+          sourceFacilityId,
+          destinationFacilityId: a.destinationFacilityId,
+          assignedDate,
+          pickupDate: a.pickupDate,
+          productId: a.productId,
+          qtyStn: +a.qtyStn,
+          transitTimeInDays: +a.transitTimeInDays,
+          expectedArrivalDate: addDays(assignedDate, +a.transitTimeInDays),
+          status: 'assigned'
+        });
+      });
+    },
+
+    railDistributionsForDate({ sourceFacilityId, assignedDate }) {
+      if (!Array.isArray(ds.actuals.railDistributions)) return [];
+
+      return ds.actuals.railDistributions.filter(
+        rd => rd.sourceFacilityId === sourceFacilityId && rd.assignedDate === assignedDate
+      );
+    },
+
+    getAssignedDistributionsForPickup({ sourceFacilityId, pickupDate, productId }) {
+      if (!Array.isArray(ds.actuals.railDistributions)) return [];
+
+      return ds.actuals.railDistributions.filter(
+        rd => rd.sourceFacilityId === sourceFacilityId && rd.pickupDate === pickupDate && rd.productId === productId
+      );
+    },
   };
 }
 

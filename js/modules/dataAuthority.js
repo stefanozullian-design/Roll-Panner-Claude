@@ -829,6 +829,9 @@ export function actions(state) {
 
       console.log('railTransferRows to process:', railTransferRows);
 
+      // Track batch counters per (date + productId) for pickup batches
+      const batchCounters = {};
+
       (railTransferRows || []).forEach(r => {
         console.log('Processing rail row:', r);
         if (r.type === 'eod') {
@@ -846,6 +849,17 @@ export function actions(state) {
             const record = {
               date, facilityId: fid, type: r.type || 'loading', equipmentId: r.equipmentId, productId: r.productId, qtyStn: +r.qtyStn
             };
+
+            // Generate batch ID for pickup records
+            if (r.type === 'pickup') {
+              const batchKey = date + '|' + r.productId;
+              batchCounters[batchKey] = (batchCounters[batchKey] || 0) + 1;
+              const dateStr = date.replace(/-/g, ''); // Convert YYYY-MM-DD to YYYYMMDD
+              const counter = String(batchCounters[batchKey]).padStart(3, '0');
+              record.batchId = `BATCH-${dateStr}-${counter}`;
+              console.log('Generated batchId for pickup:', record.batchId);
+            }
+
             console.log('Pushing loading/pickup:', record);
             ds.actuals.railTransfers.push(record);
           } else {
@@ -1024,6 +1038,7 @@ export function actions(state) {
 
         ds.actuals.railDistributions.push({
           id: logUid(),
+          batchId: a.batchId || `TEMP-${a.pickupDate}-${a.productId}`, // Fallback for old data
           sourceFacilityId,
           destinationFacilityId: a.destinationFacilityId,
           assignedDate,

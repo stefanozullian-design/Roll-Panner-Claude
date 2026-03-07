@@ -4861,19 +4861,30 @@ function renderLogisticsTransfersPage(){
   const s = selectors(facState);
   const a = actions(facState);
 
-  // Helper: Get all rail pickups for this facility
+  // Helper: Get all rail pickups for this facility (NOT aggregated - each pickup is separate batch)
   const getRailPickups = () => {
-    const pickups = [];
     const railTransfers = (s.actuals?.railTransfers || []).filter(rt => rt.type === 'pickup' && rt.facilityId === activeFacId);
-    const pickupsByKey = {};
-    railTransfers.forEach(rt => {
-      const key = rt.date + '|' + rt.productId;
-      pickupsByKey[key] = (pickupsByKey[key] || 0) + rt.qtyStn;
-    });
-    Object.entries(pickupsByKey).forEach(([key, qtyStn]) => {
-      const [pickupDate, productId] = key.split('|');
-      pickups.push({ pickupDate, productId, qtyStn });
-    });
+
+    // Calculate allocated quantities for each batch to show remaining availability
+    const pickups = railTransfers.map(rt => {
+      // Get all assignments for this batch
+      const allocations = (s.actuals?.railDistributions || []).filter(
+        rd => rd.batchId === rt.batchId && rd.sourceFacilityId === activeFacId
+      );
+      const allocatedQty = allocations.reduce((sum, a) => sum + a.qtyStn, 0);
+      const remainingQty = rt.qtyStn - allocatedQty;
+
+      return {
+        batchId: rt.batchId || `TEMP-${rt.date}-${rt.productId}`, // Fallback for old data without batchId
+        pickupDate: rt.date,
+        productId: rt.productId,
+        qtyStn: rt.qtyStn,
+        allocatedQty,
+        remainingQty,
+        isFullyAllocated: remainingQty <= 0
+      };
+    }).filter(p => p.remainingQty > 0); // Only show batches with unallocated quantity
+
     return pickups;
   };
 
@@ -4884,23 +4895,42 @@ function renderLogisticsTransfersPage(){
 
   const renderPage = () => {
     const batchOptions = allPickups.map((p, i) =>
-      `<option value="${i}" data-date="${p.pickupDate}" data-product="${p.productId}" data-qty="${p.qtyStn}">${p.pickupDate} | ${Math.round(p.qtyStn / 112)} cars | ${esc(s.getMaterial(p.productId)?.name || p.productId)}</option>`
+      `<option value="${i}" data-batchid="${p.batchId}" data-date="${p.pickupDate}" data-product="${p.productId}" data-qty="${p.remainingQty}">${p.batchId} | ${p.pickupDate} | ${Math.round(p.remainingQty / 112)} cars remaining | ${esc(s.getMaterial(p.productId)?.name || p.productId)}</option>`
     ).join('');
     const destOptions = railReceivingFacs.map(f =>
       `<option value="${f.id}">${esc(f.code)} - ${esc(f.name)}</option>`
     ).join('');
 
     const dists = a.railDistributionsForDate({ sourceFacilityId: activeFacId, assignedDate: date }) || [];
+
+    // Calculate batch allocation stats
+    const batchStats = {};
+    dists.forEach(d => {
+      if (!batchStats[d.batchId]) {
+        const originalPickup = allPickups.find(p => p.batchId === d.batchId);
+        batchStats[d.batchId] = {
+          totalQty: originalPickup?.qtyStn || 0,
+          allocatedQty: 0
+        };
+      }
+      batchStats[d.batchId].allocatedQty += d.qtyStn;
+    });
+
     const distRows = dists.map(d => {
       const destFac = state.org.facilities.find(f => f.id === d.destinationFacilityId);
       const product = s.getMaterial(d.productId);
+      const stats = batchStats[d.batchId];
+      const allocPct = stats ? Math.round((stats.allocatedQty / stats.totalQty) * 100) : 0;
+
       return `<tr style="border-bottom:1px solid var(--border)">
         <td style="padding:8px">${d.pickupDate}</td>
+        <td style="padding:8px;font-family:monospace;font-size:11px">${esc(d.batchId || 'N/A')}</td>
         <td style="padding:8px">${esc(product?.name || d.productId)}</td>
         <td style="padding:8px;text-align:right">${Math.round(d.qtyStn / 112)}</td>
         <td style="padding:8px">${esc(destFac?.code || '')}</td>
         <td style="padding:8px;text-align:right">${d.transitTimeInDays}</td>
         <td style="padding:8px">${d.expectedArrivalDate}</td>
+        <td style="padding:8px;text-align:right;font-size:10px;color:var(--muted)">${allocPct}%</td>
       </tr>`;
     }).join('');
 
@@ -4941,10 +4971,10 @@ function renderLogisticsTransfersPage(){
         <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:350px;overflow-y:auto">
           <table class="data-table" style="font-size:10px;width:100%">
             <thead style="position:sticky;top:0;background:rgba(255,255,255,0.05);border-bottom:1px solid var(--border)">
-              <tr><th style="padding:8px">Pickup</th><th style="padding:8px">Product</th><th style="padding:8px;text-align:right">Cars</th><th style="padding:8px">Destination</th><th style="padding:8px;text-align:right">Days</th><th style="padding:8px">Arrival</th></tr>
+              <tr><th style="padding:8px">Pickup</th><th style="padding:8px">Batch ID</th><th style="padding:8px">Product</th><th style="padding:8px;text-align:right">Cars</th><th style="padding:8px">Destination</th><th style="padding:8px;text-align:right">Days</th><th style="padding:8px">Arrival</th><th style="padding:8px;text-align:right">Alloc%</th></tr>
             </thead>
             <tbody id="logDistributionsTable" style="font-size:10px">
-              ${distRows || '<tr><td colspan="6" style="text-align:center;padding:12px;color:var(--muted)">No assignments yet</td></tr>'}
+              ${distRows || '<tr><td colspan="8" style="text-align:center;padding:12px;color:var(--muted)">No assignments yet</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -4978,14 +5008,29 @@ function renderLogisticsTransfersPage(){
       if (!transitDays || +transitDays < 1) { alert('Please enter valid transit days'); return; }
 
       const selected = batchSelect.options[batchSelect.selectedIndex];
+      const batchId = selected.dataset.batchid;
       const pickupDate = selected.dataset.date;
       const productId = selected.dataset.product;
       const qtyStn = +selected.dataset.qty;
+
+      // Check for over-allocation
+      const originalBatch = allPickups[selectedIdx];
+      const totalBatchQty = originalBatch?.qtyStn || qtyStn;
+      const totalAllocated = (dists || [])
+        .filter(d => d.batchId === batchId)
+        .reduce((sum, d) => sum + d.qtyStn, 0);
+      const newTotalAllocated = totalAllocated + qtyStn;
+
+      if (newTotalAllocated > totalBatchQty) {
+        const warning = `WARNING: You're assigning ${Math.round(newTotalAllocated / 112)} cars from a batch of ${Math.round(totalBatchQty / 112)} cars.\n\nTotal assigned will be ${Math.round(newTotalAllocated / 112)} cars (${Math.round((newTotalAllocated / totalBatchQty) * 100)}%).\n\nProceed?`;
+        if (!confirm(warning)) return;
+      }
 
       a.saveRailDistributions({
         sourceFacilityId: activeFacId,
         assignedDate: date,
         assignments: [{
+          batchId,
           destinationFacilityId: destFacId,
           pickupDate,
           productId,

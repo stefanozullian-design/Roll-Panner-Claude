@@ -61,7 +61,7 @@ const NAV = [
     { key:'logistics-rules',     label:'📋 Rules',      placeholder:false },
     { key:'logistics-shipments', label:'🚢 Shipments',  placeholder:true },
     { key:'logistics-imports',   label:'📦 Imports',    placeholder:true },
-    { key:'logistics-transfers', label:'🔀 Transfers',  placeholder:true },
+    { key:'logistics-transfers', label:'🔀 Transfers',  placeholder:false },
   ]},
 ];
 // Flat list of all tab keys for panel toggling
